@@ -119,3 +119,59 @@ describe("preflopAdvice", () => {
         expect(raises).to.be.greaterThan(100);
     });
 });
+
+describe("heads-up and position-aware preflop", () => {
+    // 2 players: S1 posts SB (and is the button), S2 posts BB
+    it("raises most hands from the heads-up small blind, including K6o", () => {
+        expect(spot(2, "S1", "K♠, 6♦", [])).to.include({ action: "raise", size_bb: 2.5 });
+        expect(spot(2, "S1", "T♠, 6♦", [])!.action).to.equal("raise");
+        expect(spot(2, "S1", "7♠, 2♦", [])!.action).to.equal("fold");
+    });
+
+    it("defends the heads-up big blind wide against a raise", () => {
+        expect(spot(2, "S2", "K♠, 6♦", ["S1 raises to 5"])!.action).to.equal("call");
+        expect(spot(2, "S2", "A♠, K♦", ["S1 raises to 5"])!.action).to.equal("raise");
+        expect(spot(2, "S2", "7♠, 2♦", ["S1 raises to 5"])!.action).to.equal("fold");
+    });
+
+    it("raises strong hands and checks the rest when the heads-up small blind limps", () => {
+        expect(spot(2, "S2", "A♠, 9♦", ["S1 calls 2"])!.action).to.equal("raise");
+        expect(spot(2, "S2", "K♠, 6♦", ["S1 calls 2"])!.action).to.equal("check");
+    });
+
+    it("defends the big blind wider against a button raise than against an early raise", () => {
+        const folds = ["S3 folds", "S4 folds", "S5 folds", "S6 folds", "S7 folds", "S8 folds"];
+        expect(spot(9, "S2", "K♠, 9♦", [...folds, "S9 raises to 6", "S1 folds"])!.action).to.equal("call");
+        expect(spot(9, "S2", "K♠, 9♦", ["S3 raises to 6", "S4 folds", "S5 folds", "S6 folds", "S7 folds", "S8 folds", "S9 folds", "S1 folds"])!.action).to.equal("fold");
+    });
+
+    it("completes the small blind with playable hands when folded to it at a full table", () => {
+        const folds = ["S3 folds", "S4 folds", "S5 folds", "S6 folds", "S7 folds", "S8 folds", "S9 folds"];
+        expect(spot(9, "S1", "K♠, 6♦", folds)!.action).to.equal("call");
+        expect(spot(9, "S1", "7♠, 2♦", folds)!.action).to.equal("fold");
+    });
+});
+
+describe("heads-up position and ranges", () => {
+    it("treats the heads-up small blind (button) as in position after the flop", async () => {
+        const { heroInPosition } = await import("../../app/engine/postflop.ts");
+        const flop = (hero: string) => parseHand([
+            `-- starting hand #1 (id: t)  No Limit Texas Hold'em (dealer: ${p("S1", "i1")}) --`,
+            `Player stacks: #1 ${p("S1", "i1")} (100) | #2 ${p("S2", "i2")} (100)`,
+            `${p("S1", "i1")} posts a small blind of 1`, `${p("S2", "i2")} posts a big blind of 2`,
+            `${p("S1", "i1")} raises to 5`, `${p("S2", "i2")} calls 5`, `Flop:  [K♥, 7♦, 2♣]`
+        ], { hero_name: hero });
+        expect(heroInPosition(flop("S1"))).to.equal(true);
+        expect(heroInPosition(flop("S2"))).to.equal(false);
+    });
+
+    it("estimates wider opening ranges from late position and heads-up", async () => {
+        const { positionWidth, preflopRange, rangePercent } = await import("../../app/engine/ranges.ts");
+        const t = { vpip: 35, pfr: 12 };
+        const utg = rangePercent(preflopRange("raise", t, positionWidth("UTG", 9)));
+        const bu = rangePercent(preflopRange("raise", t, positionWidth("BU", 9)));
+        const hu = rangePercent(preflopRange("raise", t, positionWidth("SB", 2)));
+        expect(utg).to.be.lessThan(bu);
+        expect(bu).to.be.lessThan(hu);
+    });
+});

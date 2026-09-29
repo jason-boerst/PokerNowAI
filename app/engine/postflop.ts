@@ -48,9 +48,12 @@ function realizationFor(street: string, in_position: boolean): number {
     return in_position ? 0.95 : 0.85;
 }
 
-/** Hero acts last among the players still in the hand (post-flop order SB, BB, UTG ... BU). */
+/**
+ * Hero acts last among the players still in the hand. Post-flop order is SB, BB, UTG ... BU;
+ * heads-up the small blind is the button, so the big blind acts first.
+ */
 export function heroInPosition(s: HandState): boolean {
-    const order = ["SB", "BB", "UTG", "UTG+1", "MP", "LJ", "HJ", "CO", "BU"];
+    const order = s.seats.length === 2 ? ["BB", "SB"] : ["SB", "BB", "UTG", "UTG+1", "MP", "LJ", "HJ", "CO", "BU"];
     const active = s.seats.filter((p) => !p.folded).sort((a, b) => order.indexOf(a.position) - order.indexOf(b.position));
     return active.length > 0 && active[active.length - 1].id === s.hero_id;
 }

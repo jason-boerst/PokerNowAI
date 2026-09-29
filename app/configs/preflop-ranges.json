@@ -1,43 +1,46 @@
 {
     "_about": "Preflop strategy for full-ring (7-9 player) cash games against loose, passive players. These are hand-built approximations of common full-ring ranges with exploitative adjustments, NOT solver output. Edit freely; notation: 77+ (pairs 77 and up), ATs+ (ATs..AKs), TT-66, A5s-A2s, KQo, KQ (both suited and offsuit).",
-
     "open": {
-        "UTG":   "88+ ATs+ KJs+ QJs AQo+",
+        "UTG": "88+ ATs+ KJs+ QJs AQo+",
         "UTG+1": "77+ ATs+ KTs+ QJs JTs AQo+",
-        "MP":    "66+ A9s+ KTs+ QTs+ JTs T9s AJo+ KQo",
-        "LJ":    "55+ A7s+ A5s KTs+ QTs+ JTs T9s 98s ATo+ KQo",
-        "HJ":    "44+ A2s+ K9s+ Q9s+ J9s+ T9s 98s 87s ATo+ KJo+",
-        "CO":    "22+ A2s+ K7s+ Q8s+ J8s+ T8s+ 97s+ 87s 76s 65s A8o+ KTo+ QTo+ JTo",
-        "BU":    "22+ A2s+ K2s+ Q5s+ J7s+ T7s+ 96s+ 86s+ 75s+ 65s 54s A2o+ K8o+ Q9o+ J9o+ T9o",
-        "SB":    "22+ A2s+ K5s+ Q8s+ J8s+ T8s+ 98s 87s 76s A7o+ KTo+ QJo"
+        "MP": "66+ A9s+ KTs+ QTs+ JTs T9s AJo+ KQo",
+        "LJ": "55+ A7s+ A5s KTs+ QTs+ JTs T9s 98s ATo+ KQo",
+        "HJ": "44+ A2s+ K9s+ Q9s+ J9s+ T9s 98s 87s ATo+ KJo+",
+        "CO": "22+ A2s+ K7s+ Q8s+ J8s+ T8s+ 97s+ 87s 76s 65s A8o+ KTo+ QTo+ JTo",
+        "BU": "22+ A2s+ K2s+ Q5s+ J7s+ T7s+ 96s+ 86s+ 75s+ 65s 54s A2o+ K8o+ Q9o+ J9o+ T9o",
+        "SB": "22+ A2s+ K5s+ Q8s+ J8s+ T8s+ 98s 87s 76s A7o+ KTo+ QJo"
     },
-
     "isolate_limpers": {
-        "early":  "99+ AJs+ KQs AQo+",
+        "early": "99+ AJs+ KQs AQo+",
         "middle": "88+ ATs+ KJs+ AJo+ KQo",
-        "late":   "77+ ATs+ KTs+ QJs AJo+ KQo",
+        "late": "77+ ATs+ KTs+ QJs AJo+ KQo",
         "blinds": "99+ AJs+ KQs AQo+"
     },
     "overlimp_in_position": "22+ A2s+ KTs+ QTs+ JTs T9s 98s 87s 76s 65s 54s",
     "complete_small_blind": "22+ A2s+ K9s+ Q9s+ J9s+ T9s 98s 87s 76s 65s",
-
+    "complete_small_blind_when_folded_to": "22+ A2+ K2s+ K5o+ Q4s+ Q8o+ J7s+ J8o+ T7s+ T8o+ 96s+ 98o 86s+ 75s+ 64s+ 54s",
     "three_bet_value": {
-        "default":   "QQ+ AKs AKo",
-        "vs_loose":  "JJ+ AQs+ AKo",
-        "vs_nit":    "KK+"
+        "default": "QQ+ AKs AKo",
+        "vs_loose": "JJ+ AQs+ AKo",
+        "vs_nit": "KK+"
     },
     "call_raise": {
         "in_position": "22+ AJs+ ATs KQs KJs QJs JTs T9s 98s AQo",
         "small_blind": "22+ AQs AJs KQs AQo",
-        "big_blind":   "22+ A2s+ KTs+ QTs+ J9s+ T9s 98s 87s 76s AJo+ KQo",
-        "vs_nit":      "22+ AQs AKo"
+        "big_blind": "22+ A2s+ KTs+ QTs+ J9s+ T9s 98s 87s 76s AJo+ KQo",
+        "vs_nit": "22+ AQs AKo"
     },
     "call_raise_multiway": "22+ A2s+ KTs+ QTs+ JTs T9s 98s 87s AQo+",
-
+    "vs_late_position_raise": {
+        "_about": "Used when a single raise comes from CO, BU or SB: those ranges are wide, so defend and 3-bet wider.",
+        "three_bet_value": "TT+ AJs+ KQs AQo+",
+        "in_position": "22+ A8s+ A5s A4s KTs+ QTs+ JTs T9s 98s 87s AJo KQo",
+        "small_blind": "22+ ATs+ KJs+ QJs AJo+ KQo",
+        "big_blind": "22+ A2s+ A7o+ K5s+ K9o+ Q8s+ QTo+ J8s+ JTo T7s+ T9o 97s+ 86s+ 75s+ 65s 54s"
+    },
     "four_bet_value": "KK+",
     "call_three_bet": "QQ JJ TT AKs AKo AQs",
     "continue_vs_four_bet": "KK+",
-
     "sizing": {
         "open_bb": 3,
         "open_extra_bb_vs_loose_field": 1,
@@ -51,11 +54,23 @@
         "set_mine_min_stack_to_call_ratio": 15,
         "all_in_when_raise_uses_share_of_stack": 0.4
     },
-
     "player_types": {
         "loose_vpip": 40,
         "loose_raiser_pfr": 20,
         "nit_pfr": 6,
         "min_hands": 20
+    },
+    "heads_up": {
+        "_about": "Heads-up (2 players dealt). The small blind is the button: it acts first preflop and last after the flop, so it plays far more hands. Approximations of common heads-up strategy, not solver output.",
+        "sb_open": "22+ A2+ K2+ Q2+ J2s+ J4o+ T2s+ T6o+ 92s+ 96o+ 82s+ 85o+ 72s+ 75o+ 62s+ 64o+ 52s+ 54o 42s+ 32s",
+        "sb_open_bb": 2.5,
+        "sb_open_extra_bb_vs_loose": 0.5,
+        "bb_raise_vs_limp": "55+ A7s+ A5s A4s KTs+ QTs+ JTs A9o+ KJo+",
+        "bb_raise_vs_limp_bb": 4,
+        "bb_three_bet_value": "TT+ AQs+ AKo",
+        "bb_three_bet_value_vs_loose": "88+ ATs+ KQs AJo+",
+        "bb_call_vs_raise": "22+ A2+ K2s+ K5o+ Q4s+ Q8o+ J6s+ J8o+ T6s+ T8o+ 96s+ 98o 85s+ 87o 75s+ 64s+ 54s",
+        "sb_four_bet_value": "QQ+ AKs AKo",
+        "sb_call_vs_three_bet": "22+ A7s+ A5s A4s ATo+ K9s+ KJo+ QTs+ QJo JTs T9s 98s"
     }
 }

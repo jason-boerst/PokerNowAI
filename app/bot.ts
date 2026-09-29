@@ -400,10 +400,14 @@ export class Bot {
         try {
             const models = opponentModels(state, (name) => this.statsLookup(name));
             const result = equity({ hero: state.hero_cards, board: state.board, opponents: models.map((m) => m.model), time_budget_ms: 150 });
-            const need = view.to_call > 0 ? ` (need ${Math.round(requiredEquity(view.to_call, view.pot) * 100)}% to call)` : "";
-            const ranges = models.map((m) => `${m.seat.position} ~${Math.round(rangePercent(m.model.range))}%`).join(", ");
-            console.log(`[Engine] equity ${Math.round(result.equity * 100)}%${need} vs estimated ranges: ${ranges}`);
-            this.last_equity = { equity: result.equity, need: view.to_call > 0 ? requiredEquity(view.to_call, view.pot) : 0 };
+            // Preflop, pot odds only matter when facing a raise; completing a blind or opening is a
+            // range decision (position, playability, later streets), so "need X%" would mislead there.
+            const facing_raise = state.street !== "preflop" || state.actions.some((a) => a.street === "preflop" && (a.type === "raise" || a.type === "bet"));
+            const need_value = facing_raise && view.to_call > 0 ? requiredEquity(view.to_call, view.pot) : 0;
+            const need = need_value > 0 ? ` (need ${Math.round(need_value * 100)}% to call)` : "";
+            const ranges = models.map((m) => `${m.seat.position} ~${Math.round(rangePercent(m.model.range))}% of hands`).join(", ");
+            console.log(`[Engine] equity ${Math.round(result.equity * 100)}%${need} vs their likely hands: ${ranges}`);
+            this.last_equity = { equity: result.equity, need: need_value };
         } catch (err) {
             console.log("[Engine] Could not estimate equity:", err instanceof Error ? err.message : err);
         }
@@ -475,7 +479,7 @@ export class Bot {
         const size = advice.action === "raise" || advice.action === "all-in" ? ` to ${advice.size_bb} BB` : "";
         console.log(`[Preflop] ${advice.action.toUpperCase()}${size} (${advice.scenario}): ${advice.reason}`);
         const details = [`Spot: ${advice.scenario}`];
-        if (this.last_equity) details.push(equityLine(this.last_equity.equity, this.last_equity.need));
+        if (this.last_equity) details.push(equityLine(this.last_equity.equity, this.last_equity.need) + " vs likely hands");
         const opp = this.keyOpponentLine(state);
         if (opp) details.push(opp);
         this.overlay_info = { header: "Preflop chart", details };

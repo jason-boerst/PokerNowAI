@@ -100,6 +100,55 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     // hero opened and nobody re-raised: not a normal preflop decision point, let the caller decide
     if (raises.length === 1 && hero_raised) return null;
 
+    // --- heads-up: the small blind is the button, so ranges are much wider
+    if (s.seats.length === 2 && raises.length <= 2) {
+        const hu = config.heads_up;
+        const villain = s.seats.find((p) => p.id !== hero.id)!;
+        const villain_types = playerType(config, stats(villain.name));
+        if (hero.position === "SB") {
+            if (raises.length === 0) {
+                const scenario = "heads-up, small blind (button) first in";
+                if (inRange(config, hu.sb_open, cls)) {
+                    const loose = villain_types.has("loose");
+                    const to = hu.sb_open_bb + (loose ? hu.sb_open_extra_bb_vs_loose : 0);
+                    return finish({ action: "raise", size_bb: to, scenario, reason: `Raise ${cls}: heads-up the small blind is the button and plays most hands (you act last after the flop).${loose ? " The big blind calls too much, so raise a bit bigger." : ""}` });
+                }
+                return fold(scenario, `Fold ${cls}: one of the weakest hands, even heads-up.`);
+            }
+            if (raises.length === 2 && hero_raised) {
+                const scenario = "heads-up, facing a 3-bet";
+                if (inRange(config, hu.sb_four_bet_value, cls)) {
+                    return finish({ action: "raise", size_bb: last_raise.street_total / bb * size.four_bet_multiplier, scenario, reason: `4-bet ${cls} for value.` });
+                }
+                if (inRange(config, hu.sb_call_vs_three_bet, cls)) {
+                    return { action: "call", size_bb: 0, scenario, reason: `Call the 3-bet with ${cls}: good enough heads-up, and you have position after the flop.` };
+                }
+                return fold(scenario, `Fold ${cls} to the 3-bet.`);
+            }
+        }
+        if (hero.position === "BB" || (hero.position === "SB" && raises.length === 1)) {
+            if (raises.length === 0) {
+                const scenario = "heads-up, small blind limped";
+                if (inRange(config, hu.bb_raise_vs_limp, cls)) {
+                    return finish({ action: "raise", size_bb: hu.bb_raise_vs_limp_bb, scenario, reason: `Raise ${cls} over the limp for value.` });
+                }
+                return { action: "check", size_bb: 0, scenario, reason: `Check ${cls} and see a free flop.` };
+            }
+            if (raises.length === 1) {
+                const scenario = "heads-up, facing a raise";
+                const value = villain_types.has("loose_raiser") ? hu.bb_three_bet_value_vs_loose : hu.bb_three_bet_value;
+                if (inRange(config, value, cls)) {
+                    return finish({ action: "raise", size_bb: last_raise.street_total / bb * size.three_bet_multiplier_out_of_position, scenario, reason: `3-bet ${cls} for value.` });
+                }
+                if (inRange(config, hu.bb_call_vs_raise, cls)) {
+                    return { action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: heads-up the raiser's range is wide, so this hand is worth defending.` };
+                }
+                return fold(scenario, `Fold ${cls}: too weak to defend even against a wide heads-up range.`);
+            }
+        }
+        // anything else (e.g. hero 3-bet and faces a 4-bet) uses the general rules below
+    }
+
     // --- facing a 4-bet or more
     if (raises.length >= 3) {
         const scenario = "facing a 4-bet";
@@ -128,10 +177,13 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         const raiser_types = playerType(config, stats(raiser.name));
         const raise_to_bb = last_raise.street_total / bb;
         const multiway = callers_after_raise.length > 0;
-        const scenario = multiway ? `facing a raise and ${callers_after_raise.length} caller(s)` : "facing a raise";
-        const value = multiway || raiser_types.has("unknown")
-            ? config.three_bet_value.default
+        // raises from late position (CO, BU, SB) come from much wider ranges
+        const late = !multiway && ["CO", "BU", "SB"].includes(raiser.position);
+        const vs_late = config.vs_late_position_raise;
+        const scenario = multiway ? `facing a raise and ${callers_after_raise.length} caller(s)` : `facing a raise from ${raiser.position}`;
+        const value = multiway ? config.three_bet_value.default
             : raiser_types.has("nit") ? config.three_bet_value.vs_nit
+            : late ? vs_late.three_bet_value
             : raiser_types.has("loose_raiser") ? config.three_bet_value.vs_loose
             : config.three_bet_value.default;
         if (inRange(config, value, cls)) {
@@ -142,6 +194,7 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         }
         const calls = multiway ? config.call_raise_multiway
             : raiser_types.has("nit") ? config.call_raise.vs_nit
+            : late ? (hero.position === "SB" ? vs_late.small_blind : hero.position === "BB" ? vs_late.big_blind : vs_late.in_position)
             : hero.position === "SB" ? config.call_raise.small_blind
             : hero.position === "BB" ? config.call_raise.big_blind
             : config.call_raise.in_position;
@@ -191,6 +244,9 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         const loose_field = avg_vpip >= config.player_types.loose_vpip;
         const to = size.open_bb + (loose_field ? size.open_extra_bb_vs_loose_field : 0);
         return finish({ action: "raise", size_bb: to, scenario, reason: `Open ${cls} from ${hero.position}: it's in the ${open_key} opening range.${loose_field ? " Players behind call too much, so open bigger." : ""}` });
+    }
+    if (hero.position === "SB" && inRange(config, config.complete_small_blind_when_folded_to, cls)) {
+        return { action: "call", size_bb: 0, scenario, reason: `Complete ${cls} from the small blind: not strong enough to raise, but cheap to see a flop against the big blind.` };
     }
     return fold(scenario, `Fold ${cls}: outside the ${open_key} opening range.`);
 }

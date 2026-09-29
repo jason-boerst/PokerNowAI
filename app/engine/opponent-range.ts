@@ -1,6 +1,6 @@
 import { HandState, SeatState } from "./hand-parser.ts";
 import { OpponentModel, PostflopAction } from "./equity.ts";
-import { PreflopLine, PreflopTendencies, preflopRange } from "./ranges.ts";
+import { PreflopLine, PreflopTendencies, positionWidth, preflopRange } from "./ranges.ts";
 
 /** Population defaults for players with too few hands to judge (assumed loose home-game field). */
 export const POPULATION_TENDENCIES: PreflopTendencies = { vpip: 35, pfr: 12 };
@@ -55,7 +55,7 @@ export function opponentModels(s: HandState, stats: (name: string) => ObservedSt
                 seat,
                 tendencies,
                 model: {
-                    range: preflopRange(preflopLine(s, seat.id), tendencies),
+                    range: preflopRange(preflopLine(s, seat.id), tendencies, positionWidth(seat.position, s.seats.length)),
                     postflop_actions: postflopActions(s, seat.id),
                     aggression: observed?.aggression
                 }

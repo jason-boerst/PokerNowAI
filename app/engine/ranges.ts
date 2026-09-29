@@ -71,18 +71,39 @@ export interface PreflopTendencies {
  * Raisers get the top of their PFR range, callers get the part of their VPIP range they didn't raise,
  * and re-raises narrow sharply. These are standard modeling approximations, not solver ranges.
  */
-export function preflopRange(line: PreflopLine, t: PreflopTendencies): Range {
+export function preflopRange(line: PreflopLine, t: PreflopTendencies, position_width: PositionWidth = { raise: 1, call: 1 }): Range {
     const vpip = clamp(t.vpip, 5, 95);
     const pfr = clamp(Math.min(t.pfr, vpip), 2, vpip);
     switch (line) {
-        case "raise": return topRange(pfr);
+        case "raise": return topRange(clamp(pfr * position_width.raise, 2, 90));
         case "3bet": return topRange(clamp(pfr / 3, 2, 15));
         case "4bet": return topRange(clamp(pfr / 8, 1.5, 6));
-        case "call_raise": return rangeBetween(Math.min(pfr * 0.35, 6), vpip * 0.8);
+        case "call_raise": return rangeBetween(Math.min(pfr * 0.35, 6), clamp(vpip * 0.8 * position_width.call, 5, 90));
         case "limp": return rangeBetween(Math.min(pfr * 0.5, 8), vpip);
         case "check_bb": return rangeBetween(pfr, 100);
-        case "unknown": return topRange(vpip);
+        // hasn't acted yet: the hands they'd continue with, widened for seats that defend a lot (big blind, heads-up)
+        case "unknown": return topRange(clamp(vpip * position_width.call, 5, 95));
     }
+}
+
+/** How much wider (or narrower) than average a player's opening and calling ranges are from a seat. */
+export interface PositionWidth {
+    raise: number,
+    call: number
+}
+
+/**
+ * A player's PFR/VPIP averages over all seats, but opening ranges depend strongly on position:
+ * tight from early seats, wide from the button, very wide heads-up. These multipliers (averaging
+ * about 1 over a full table) are assumptions, not measured values.
+ */
+export function positionWidth(position: string, players_dealt: number): PositionWidth {
+    if (players_dealt === 2) {
+        return position === "SB" ? { raise: 4, call: 1.5 } : { raise: 1.2, call: 2.5 };
+    }
+    const raise: Record<string, number> = { "UTG": 0.6, "UTG+1": 0.6, "MP": 0.6, "LJ": 0.9, "HJ": 0.9, "CO": 1.4, "BU": 2.0, "SB": 1.5, "BB": 1.0 };
+    const call: Record<string, number> = { "BB": 1.6, "SB": 0.9 };
+    return { raise: raise[position] ?? 1, call: call[position] ?? 1 };
 }
 
 function clamp(x: number, lo: number, hi: number): number {
