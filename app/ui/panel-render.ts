@@ -23,6 +23,7 @@
 // `.pgpt-countdown`   only while thinking: data-budget-ms, data-started-at (epoch ms). It is the fill
 //                     bar inside `.pgpt-countdown-track`; the host animates its width 100% -> 0.
 // `.pgpt-tag`         bet kind chip, data-kind="value|semi-bluff|bluff|neutral".
+// `.pgpt-keyline`     equity, need, pot, to call and SPR in one line under the action (in the top area).
 // `.pgpt-body`        everything below the top.
 // `.pgpt-why`         reasoning box, always visible (not a section, never collapses).
 // `.pgpt-warnings`    warning box (only when there are warnings).
@@ -161,6 +162,19 @@ function countdown(m: PanelModel): string {
         + `<div class="pgpt-countdown-track"><div class="pgpt-countdown" data-budget-ms="${budget}" data-started-at="${started}"></div></div></div>`;
 }
 
+/** The numbers that decide the spot, one line under the action so they stay visible without scrolling. */
+function keyline(m: PanelModel): string {
+    const items: string[] = [];
+    const item = (label: string, value: string, cls = "") => items.push(`<span class="pgpt-key${cls}"><span class="pgpt-key-label">${label}</span> <b>${esc(value)}</b></span>`);
+    const eq = m.odds.equity, need = m.odds.need;
+    if (finite(eq)) item("Equity", pct(eq), finite(need) && need > 0 ? (eq >= need ? " pgpt-key-good" : " pgpt-key-bad") : "");
+    if (finite(need) && need > 0) item("Need", pct(need));
+    if (finite(m.spot.pot_bb) && m.spot.pot_bb > 0) item("Pot", `${bbText(m.spot.pot_bb)} BB`);
+    if (finite(m.spot.to_call_bb) && m.spot.to_call_bb > 0) item("To call", `${bbText(m.spot.to_call_bb)} BB`);
+    if (finite(m.spot.spr) && m.spot.spr > 0 && m.hand.board.length) item("SPR", num(m.spot.spr, 1));
+    return items.length ? `<div class="pgpt-keyline">${items.join("")}</div>` : "";
+}
+
 function tag(m: PanelModel): string {
     if (!m.tag || !m.tag.text) return "";
     const kind = token(m.tag.kind, "neutral");
@@ -201,7 +215,7 @@ function statMeta(s: OpponentStat): string {
     return parts.join(" · ");
 }
 
-/** A stat that matters for this decision (has a hint): full-width row with a bar and the pool mark. */
+/** A stat that matters most for this decision: full-width row with a bar and the pool mark. */
 function keyStat(s: OpponentStat): string {
     const level = token(s.level, "unknown");
     const pool = finite(s.pool) ? `<span class="pgpt-stat-pool-mark" style="left:${pctWidth(s.pool * 100)}" title="Pool average"></span>` : "";
@@ -216,7 +230,8 @@ function keyStat(s: OpponentStat): string {
 
 function tileStat(s: OpponentStat): string {
     const level = token(s.level, "unknown");
-    return `<div class="pgpt-stat pgpt-stat-tile pgpt-level-${level}" data-level="${level}">`
+    const title = s.hint ? ` title="${esc(s.hint)}"` : "";
+    return `<div class="pgpt-stat pgpt-stat-tile pgpt-level-${level}" data-level="${level}"${title}>`
         + `<div class="pgpt-stat-label">${esc(s.label)}</div>`
         + `<div class="pgpt-stat-value">${esc(pct(s.value))}${statLevelMark(level)}</div>`
         + `<div class="pgpt-stat-meta">${statMeta(s)}</div></div>`;
@@ -229,7 +244,11 @@ function handsText(h: { before: number, today: number }): string {
     return `${num(before, 0)} hands${today > 0 ? ` + ${num(today, 0)} today` : ""}`;
 }
 
-function opponent(o: OpponentCard): string {
+/**
+ * One opponent. Stats arrive most relevant first; the first `featured` stats with a hint get a full row,
+ * the rest share a compact grid so several opponents still fit on screen.
+ */
+function opponent(o: OpponentCard, featured: number): string {
     const type_tone = token(o.type_tone, "unknown");
     const badges = [
         `<span class="pgpt-type pgpt-type-${type_tone}" data-type-tone="${type_tone}">${esc(o.type || "unknown")}</span>`,
@@ -238,10 +257,10 @@ function opponent(o: OpponentCard): string {
     ].join("");
     const facts = [`<span>${esc(handsText(o.hands))}</span>`];
     if (finite(o.range_pct)) facts.push(`<span>range ~${esc(num(o.range_pct, 0))}%</span>`);
-    const key = o.stats.filter((s) => s.hint);
-    const tiles = o.stats.filter((s) => !s.hint);
+    const key = o.stats.filter((s) => s.hint).slice(0, featured);
+    const tiles = o.stats.filter((s) => !key.includes(s));
     const stats = (key.length ? `<div class="pgpt-stat-keys">${key.map(keyStat).join("")}</div>` : "")
-        + (tiles.length ? `<div class="pgpt-stat-grid">${tiles.map(tileStat).join("")}</div>` : "")
+        + (tiles.length ? `<div class="pgpt-stat-grid${tiles.length === 4 ? " pgpt-stat-grid-2" : ""}">${tiles.map(tileStat).join("")}</div>` : "")
         + (!o.stats.length ? `<div class="pgpt-muted-line">No stats yet</div>` : "");
     const extra: string[] = [];
     const today = (o.today ?? "").replace(/^\s*today\b[:\s]*/i, "").trim();
@@ -264,7 +283,7 @@ function opponentsSection(m: PanelModel): string {
     const more = finite(m.more_opponents) && m.more_opponents > 0 ? m.more_opponents : 0;
     if (!m.opponents.length && !more) return "";
     const total = m.opponents.length + more;
-    const body = m.opponents.map(opponent).join("")
+    const body = m.opponents.map((o) => opponent(o, m.opponents.length > 2 ? 1 : 2)).join("")
         + (more ? `<div class="pgpt-more">+${esc(num(more, 0))} more opponent${more === 1 ? "" : "s"} in the hand</div>` : "");
     return section("opponents", `Opponents`, `${total} in hand`, body);
 }
@@ -435,6 +454,11 @@ ${R} .pgpt-countdown { height: 100%; width: 100%; border-radius: 3px; background
 
 /* tag chip */
 ${R} .pgpt-tag-row { margin: 8px 10px 0; }
+${R} .pgpt-keyline { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 12px 0; font-size: 12px; color: var(--pgpt-muted); }
+${R} .pgpt-key b { color: var(--pgpt-text); font-weight: 700; }
+${R} .pgpt-key-good b { color: #4ade80; }
+${R} .pgpt-key-bad b { color: #f87171; }
+${R} .pgpt-panel[data-status="stale"] .pgpt-key b { color: inherit; }
 ${R} .pgpt-tag { display: inline-block; max-width: 100%; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
   border: 1px solid currentColor; overflow-wrap: anywhere; }
 ${R} .pgpt-tag-value { color: #4ade80; background: rgba(34,197,94,0.12); }
@@ -521,6 +545,7 @@ ${R} .pgpt-stat-bar { grid-column: 1 / -1; position: relative; height: 5px; bord
 ${R} .pgpt-stat-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--pgpt-level); opacity: 0.85; }
 ${R} .pgpt-stat-pool-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,0.6); }
 ${R} .pgpt-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
+${R} .pgpt-stat-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 ${R} .pgpt-stat-tile { padding: 6px 8px 7px; border-radius: 8px; background: var(--pgpt-card-2); border: 1px solid var(--pgpt-line); border-top: 3px solid var(--pgpt-level); min-width: 0; }
 ${R} .pgpt-stat-tile .pgpt-stat-label { font-size: 11px; }
 ${R} .pgpt-stat-tile .pgpt-stat-meta { white-space: normal; }
@@ -607,7 +632,7 @@ ${R} .pgpt-note { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-
 export function renderPanel(model: PanelModel): { html: string, css: string } {
     const tone = token(model.tone, "go");
     const status = token(model.status, "final");
-    const top = header(model) + banner(model) + countdown(model) + tag(model);
+    const top = header(model) + banner(model) + countdown(model) + tag(model) + keyline(model);
     const body = why(model) + warnings(model)
         + opponentsSection(model) + oddsSection(model) + optionsSection(model) + handSection(model) + spotSection(model);
     const html = `<div class="pgpt-panel" data-tone="${tone}" data-status="${status}">`

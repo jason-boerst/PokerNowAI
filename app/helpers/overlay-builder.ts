@@ -197,7 +197,11 @@ function engineLines(a: PostflopAnalysis, v: HeroView, chosen: Candidate | undef
     if (bet) lines.push(...bet.lines);
     else if (v.to_call > 0 && a.required_equity > 0) {
         const enough = a.equity >= a.required_equity;
-        lines.push(`You have ${pct(a.equity)} equity and need ${pct(a.required_equity)} to call${enough ? ": the price is right." : ": not enough for the price."}`);
+        const head = `You have ${pct(a.equity)} equity and need ${pct(a.required_equity)} to call`;
+        // the EV counts later streets too, so it can overrule the raw price; say so instead of contradicting the pick
+        if (enough && chosen?.action === "fold") lines.push(`${head}: close on price, but calling loses once the later streets are counted (they can keep betting), so fold.`);
+        else if (!enough && chosen?.action === "call") lines.push(`${head}: short on price now, but calling pays off counting what you win on later streets when you improve.`);
+        else lines.push(`${head}${enough ? ": the price is right." : ": not enough for the price."}`);
     } else {
         lines.push(`You have ${pct(a.equity)} equity vs their likely hands${chosen?.action === "check" ? ", and checking is free." : "."}`);
     }

@@ -534,7 +534,14 @@ export class PuppeteerService {
                 el.style.left = "auto";
                 el.style.top = "16px";
                 el.style.right = "16px";
-                el.style.maxHeight = "calc(100vh - 32px)";
+                // stop above PokerNow's action buttons when they sit under the panel (bottom right)
+                let bottom = window.innerHeight - 16;
+                const decisions = document.querySelector(".game-decisions-ctn") as HTMLElement | null;
+                const zone = decisions ? decisions.getBoundingClientRect() : null;
+                if (zone && zone.height > 0 && zone.right > window.innerWidth - 16 - el.offsetWidth && zone.left < window.innerWidth - 16) {
+                    bottom = Math.min(bottom, zone.top - 8);
+                }
+                el.style.maxHeight = `${Math.max(160, bottom - 16)}px`;
             }
         }, html, css, HOST_CSS, status, tone, hand, fresh_key);
     }
