@@ -123,6 +123,11 @@ Manual steps: `npm run chrome` in one terminal, `npm run start:bot` in another. 
 | Browser | Your visible Chrome window | Your Chrome window, or a headless browser the bot launches if `webdriver-config.json` has `"use_existing_browser": false` |
 | Config | `bot-config.json`: `"assistant_mode": true` | `bot-config.json`: `"assistant_mode": false` (the bot asks for a name and stack and requests the seat itself) |
 
+## Troubleshooting
+
+- **The bot stops or seems stuck after opening the game:** with the game open in the bot's Chrome window, run `npm run diagnose` in a second terminal. It lists which table elements the bot can see (element counts and the blinds text only, no names or cards). If items marked "expected always" are missing while the table is visible, PokerNow has changed its page layout and the bot's selectors need updating.
+- **"Could not read the blinds from the page":** the bot shows the text it found and asks you to type the blinds (e.g. `10/20`). Please report that text so the parser can be fixed.
+
 ## Development
 
 ```sh

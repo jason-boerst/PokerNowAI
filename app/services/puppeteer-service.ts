@@ -4,11 +4,7 @@ import { computeTimeout, sleep } from '../helpers/bot-helper.ts';
 
 import type { Response } from '../utils/error-handling-utils.ts';
 
-interface GameInfo {
-    game_type: string,
-    big_blind: number,
-    small_blind: number,
-}
+import { GameInfo, parseGameInfo } from '../utils/game-info-utils.ts';
 
 export class PuppeteerService {
     private default_timeout: number;
@@ -62,24 +58,21 @@ export class PuppeteerService {
         }
 
         const targetUrl = `https://www.pokernow.club/games/${game_id}`;
-        const targetUrlAlt = `https://www.pokernow.com/games/${game_id}`;
 
         if (this.use_existing_browser) {
-            // Find the tab already showing this game, or navigate the active tab.
+            // Use the tab already showing this game; otherwise reuse a PokerNow tab
+            // (e.g. the home page opened by `npm start`) or open a new one.
             const pages = await this.browser.pages();
-            const match = pages.find(p => {
-                const u = p.url();
-                return u.includes(game_id);
-            });
+            const match = pages.find(p => p.url().includes(game_id));
             if (match) {
+                console.log(`Found the game already open in a tab: ${match.url()}`);
                 this.page = match;
-                await this.page.bringToFront();
             } else {
-                // No matching tab – navigate the first tab to the game.
-                this.page = pages[0] ?? await this.browser.newPage();
+                this.page = pages.find(p => p.url().includes("pokernow")) ?? await this.browser.newPage();
+                console.log(`Opening ${targetUrl}`);
                 await this.page.goto(targetUrl);
-                await this.page.bringToFront();
             }
+            await this.page.bringToFront();
         } else {
             await this.page.goto(targetUrl);
             await this.page.setViewport({width: 1024, height: 768});
@@ -94,11 +87,15 @@ export class PuppeteerService {
     
     async waitForGameInfo<D, E=Error>(): Response<D, E> {
         try {
-            await this.page.waitForSelector('.game-infos > .blind-value-ctn > .blind-value', {timeout: this.default_timeout * 30});
+            await this.page.waitForSelector('.game-infos > .blind-value-ctn > .blind-value', {timeout: this.default_timeout * 12});
         } catch (err) {
             return {
                 code: "error",
-                error: new Error("Failed to wait for game information.") as E
+                error: new Error(
+                    `The table did not load within ${this.default_timeout * 12 / 1000}s (the blinds display was not found on ${this.page.url()}). ` +
+                    "Check that the game link is correct and the table is visible in Chrome. " +
+                    "If it is, PokerNow may have changed its page layout: run `npm run diagnose` while the game is open and send the output."
+                ) as E
             }
         }
         return {
@@ -125,14 +122,9 @@ export class PuppeteerService {
         }
     }
     
-    convertGameInfo(game_info: string): GameInfo {
-        const re = RegExp("([A-Z]+)~\\s([0-9]+)\\s\/\\s([0-9]+)");
-        const matches = re.exec(game_info);
-        if (matches && matches.length == 4) {
-            return {game_type: matches[1], big_blind: Number(matches[3]), small_blind: Number(matches[2])};
-        } else {
-            throw new Error("Failed to convert game info.");
-        }
+    /** Returns null if the blinds text could not be parsed. */
+    convertGameInfo(game_info: string): GameInfo | null {
+        return parseGameInfo(game_info);
     }
     
     // send enter table request as non-host player
@@ -179,9 +171,9 @@ export class PuppeteerService {
         }
     }
     
-    async waitForTableEntry<D, E=Error>(): Response<D, E> {
+    async waitForTableEntry<D, E=Error>(timeout: number = this.default_timeout * 120): Response<D, E> {
         try {
-            await this.page.waitForSelector(".you-player", {timeout: this.default_timeout * 120});
+            await this.page.waitForSelector(".you-player", {timeout: timeout});
         } catch (err) {
             return {
                 code: "error",

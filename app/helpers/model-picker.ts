@@ -1,9 +1,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import prompt from "prompt-sync";
 
 import { AIConfig } from "../interfaces/config-interfaces.ts";
 import { OPENROUTER_BASE_URL } from "../services/ai/openrouter-service.ts";
 import { getProviderInfo } from "./ai-service-factory.ts";
+import { ask } from "./terminal.ts";
 
 export interface OpenRouterModel {
     id: string,
@@ -60,12 +60,12 @@ export function searchModels(models: OpenRouterModel[], query: string): OpenRout
  * Interactive model menu. `ask` returns the user's answer, or null if input was cancelled.
  * Accepts a search, a number from the last list shown, an exact model ID, "all", or Enter for the last model used.
  */
-export function pickModel(models: OpenRouterModel[], ask: (question: string) => string | null, last_model?: string): string {
+export async function pickModel(models: OpenRouterModel[], ask: (question: string) => Promise<string | null> | string | null, last_model?: string): Promise<string> {
     let shown: OpenRouterModel[] = [];
     console.log(`\nOpenRouter currently lists ${models.length} models.`);
     while (true) {
         const default_hint = last_model ? `, or press Enter for ${last_model}` : "";
-        const answer = ask(`Search models (e.g. "claude", "gpt", "gemini", "free"), type "all", or a number from the list${default_hint}: `);
+        const answer = await ask(`Search models (e.g. "claude", "gpt", "gemini", "free"), type "all", or a number from the list${default_hint}: `);
         if (answer === null) {
             process.exit(0);
         }
@@ -128,17 +128,16 @@ export async function chooseModelIfNeeded(config: AIConfig, env: NodeJS.ProcessE
     if (config.model_name || getProviderInfo(config.provider)?.name !== "OpenRouter") {
         return config;
     }
-    const io = prompt({ sigint: true });
     const last_model = readLastModel();
 
     let model: string;
     try {
         const models = await fetchOpenRouterModels(env.OPENROUTER_API_KEY, config.base_url ?? OPENROUTER_BASE_URL);
-        model = pickModel(models, (question) => io(question), last_model);
+        model = await pickModel(models, ask, last_model);
     } catch (err) {
         console.log(`Could not load the OpenRouter model list (${err instanceof Error ? err.message : err}).`);
         const default_hint = last_model ? ` (Enter = ${last_model})` : "";
-        model = (io(`Type an OpenRouter model ID, e.g. provider/model-name${default_hint}: `) ?? "").trim() || last_model || "";
+        model = (await ask(`Type an OpenRouter model ID, e.g. provider/model-name${default_hint}: `)) || last_model || "";
     }
 
     if (model) {

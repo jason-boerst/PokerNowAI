@@ -1,6 +1,7 @@
-import prompt from 'prompt-sync';
 
 import { sleep } from './helpers/bot-helper.ts';
+import { ask } from './helpers/terminal.ts';
+import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
 
 import { AIMessage, AIService, BotAction, defaultCheckAction, defaultFoldAction } from './interfaces/ai-client-interfaces.ts';
 import { ProcessedLogs } from './interfaces/log-processing-interfaces.ts';
@@ -31,6 +32,8 @@ export class Bot {
     private assistant_mode: boolean;
 
     private first_created: string;
+    /** True when the blinds were typed in because the page text could not be parsed. */
+    private manual_blinds: boolean = false;
     private hand_history: AIMessage[];
 
     private table!: Table;
@@ -86,28 +89,48 @@ export class Bot {
         console.log(`The PokerNow game with id: ${this.game_id} will now open.`);
         
         logResponse(await this.puppeteer_service.navigateToGame(this.game_id), this.debug_mode);
-        logResponse(await this.puppeteer_service.waitForGameInfo(), this.debug_mode);
-    
+        console.log("Waiting for the table to load...");
+        const wait_res = await this.puppeteer_service.waitForGameInfo();
+        if (wait_res.code === "error") {
+            throw wait_res.error;
+        }
+
         console.log("Getting game info.");
         const res = await this.puppeteer_service.getGameInfo();
         logResponse(res, this.debug_mode);
-        if (res.code == "success") {
-            const game_info = this.puppeteer_service.convertGameInfo(res.data as string);
-            this.table = new Table(this.player_service);
-            this.game = new Game(this.game_id, this.table, game_info.big_blind, game_info.small_blind, game_info.game_type, 30);
+        const blinds_text = res.code === "success" ? res.data as string : null;
+        let game_info = this.puppeteer_service.convertGameInfo(blinds_text ?? "");
+        if (game_info) {
+            console.log(`Game: ${game_info.game_type}, blinds ${game_info.small_blind} / ${game_info.big_blind}`);
         } else {
-            throw new Error ("Failed to get game info.");
+            game_info = await this.askForBlinds(blinds_text);
+        }
+        this.table = new Table(this.player_service);
+        this.game = new Game(this.game_id, this.table, game_info.big_blind, game_info.small_blind, game_info.game_type, 30);
+    }
+
+    /** Fallback when the blinds shown on the page can't be parsed (e.g. PokerNow changed the format). */
+    private async askForBlinds(blinds_text: string | null): Promise<GameInfo> {
+        console.log(`\nCould not read the blinds from the page (text found: ${JSON.stringify(blinds_text)}).`);
+        console.log("Please send that text to whoever maintains this bot so the parser can be fixed.");
+        while (true) {
+            const answer = await ask("Enter the small and big blind, e.g. 10/20: ");
+            const parsed = parseGameInfo(answer);
+            if (parsed) {
+                this.manual_blinds = true;
+                return parsed;
+            }
+            console.log("Please enter two numbers separated by a slash, e.g. 10/20.");
         }
     }
 
     private async enterTableInProgress() {
-        const io = prompt();
         while (true) {
-            const name = io("What is your desired player name? ");
+            const name = await ask("What is your desired player name? ");
             console.log(`Your player name will be ${name}.` )
             this.bot_name = name;
     
-            const stack_size = io("What is your desired stack size? ");
+            const stack_size = await ask("What is your desired stack size? ");
             console.log(`Your initial stack size will be ${stack_size}.`)
     
             console.log(`Attempting to enter table with name: ${name} and stack size: ${stack_size}.`);
@@ -127,12 +150,18 @@ export class Bot {
      * then read the player name from the page.
      */
     private async waitForUserToSit() {
-        console.log("\n[Assistant Mode] Please select a seat in the browser, enter your name and stack size, then submit.");
-        console.log("[Assistant Mode] Waiting for the host to accept your request. AI will start monitoring once you are seated...\n");
-
-        // Wait until .you-player appears (host accepted, user is seated)
-        const res = await this.puppeteer_service.waitForTableEntry();
-        logResponse(res, this.debug_mode);
+        // Wait until .you-player appears (host accepted, user is seated), reminding every 30s
+        let res = await this.puppeteer_service.waitForTableEntry(1000);
+        if (res.code === "success") {
+            console.log("\n[Assistant Mode] You are already seated.");
+        } else {
+            console.log("\n[Assistant Mode] Table loaded. In the Chrome window: click an empty seat, enter your name and stack size, and submit.");
+            console.log("[Assistant Mode] Waiting for the host to approve you. The AI starts once you are seated...\n");
+            while ((res = await this.puppeteer_service.waitForTableEntry(30000)).code !== "success") {
+                console.log("[Assistant Mode] Still waiting for you to be seated at the table (take a seat and wait for the host to approve).");
+            }
+            console.log("[Assistant Mode] You are seated.");
+        }
 
         // Read the player name that the user typed
         const nameRes = await this.puppeteer_service.getYouPlayerName();
@@ -141,8 +170,7 @@ export class Bot {
             console.log(`[Assistant Mode] Detected player name: ${this.bot_name}`);
         } else {
             // Fallback: ask in terminal
-            const io = prompt();
-            this.bot_name = io("Could not detect your player name, please enter it manually: ");
+            this.bot_name = await ask("Could not detect your player name, please enter it manually: ");
         }
     }
 
@@ -154,7 +182,7 @@ export class Bot {
     }
 
     private async waitForNextHand() {
-        console.log("Waiting for next hand to start.")
+        console.log("Waiting for the next hand to start. Suggestions appear in the top-right of the table on your turn.")
         await this.puppeteer_service.waitForNextHand(this.table.getNumPlayers(), this.game.getMaxTurnLength());
     }
 
@@ -263,11 +291,11 @@ export class Bot {
         console.log("Getting game info.");
         const res = await this.puppeteer_service.getGameInfo();
         logResponse(res, this.debug_mode);
-        if (res.code == "success") {
-            const game_info = this.puppeteer_service.convertGameInfo(res.data as string);
+        const game_info = res.code === "success" ? this.puppeteer_service.convertGameInfo(res.data as string) : null;
+        if (game_info) {
             this.game.updateGameTypeAndBlinds(game_info.small_blind, game_info.big_blind, game_info.game_type);
-        } else {
-            throw new Error ("Failed to get game info.");
+        } else if (!this.manual_blinds) {
+            console.log("Could not read the blinds this hand; keeping the previous values.");
         }
     }
 

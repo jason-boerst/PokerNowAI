@@ -28,4 +28,7 @@ async function startServer() {
 
 startServer().then(
     async() => await bot_manager()
-)
+).catch((err) => {
+    console.error("\nThe bot stopped:", err instanceof Error ? err.message : err);
+    process.exit(1);
+})

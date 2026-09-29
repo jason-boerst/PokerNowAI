@@ -1,5 +1,4 @@
 import dotenv from 'dotenv';
-import prompt from 'prompt-sync';
 
 import { Bot } from './bot.ts'
 
@@ -15,12 +14,12 @@ import { PuppeteerService } from './services/puppeteer-service.ts';
 import { BotConfig, WebDriverConfig } from './interfaces/config-interfaces.ts';
 import { AIServiceFactory, resolveAIConfig } from './helpers/ai-service-factory.ts';
 import { chooseModelIfNeeded } from './helpers/model-picker.ts';
+import { ask } from './helpers/terminal.ts';
 
-const io = prompt();
 const bot_config: BotConfig = bot_config_json;
 const webdriver_config: WebDriverConfig = webdriver_config_json;
 
-function init(): string {
+async function init(): Promise<string> {
     if (bot_config.assistant_mode) {
         console.log("=================================================");
         console.log(" AI Assistant Mode");
@@ -34,7 +33,7 @@ function init(): string {
     }
     // game ID can also be passed as `npm start -- <id or url>` or POKERNOW_GAME_ID in .env
     const input = process.argv[2] ?? process.env.POKERNOW_GAME_ID
-        ?? io("Enter the PokerNow game ID or full game URL (e.g. https://www.pokernow.club/games/{game_id}): ");
+        ?? await ask("Paste the PokerNow game link (or just the game ID) and press Enter: ");
     // accept a pasted full URL as well as the bare ID
     return input.trim().replace(/^.*\/games\//, "").split(/[?#/]/)[0];
 }
@@ -50,7 +49,7 @@ const bot_manager = async function() {
     console.log(`Created AI service: ${ai_config.provider} ${ai_config.model_name} (effort: ${ai_config.effort ?? "model default"}) with playstyle: ${ai_config.playstyle}`);
     ai_service.init();
 
-    const game_id = init();
+    const game_id = await init();
 
     const use_existing = webdriver_config.use_existing_browser ?? false;
     const debugging_port = webdriver_config.debugging_port ?? 9222;

@@ -46,19 +46,19 @@ describe("model menu", () => {
         expect(searchModels(models, "openai llama")).to.have.length(0);
     });
 
-    it("picks by search then number", () => {
-        expect(pickModel(models, scripted(["gpt", "1"]))).to.equal("openai/gpt-y");
+    it("picks by search then number", async () => {
+        expect(await pickModel(models, scripted(["gpt", "1"]))).to.equal("openai/gpt-y");
     });
 
-    it("accepts an exact model ID", () => {
-        expect(pickModel(models, scripted(["meta/llama-z:free"]))).to.equal("meta/llama-z:free");
+    it("accepts an exact model ID", async () => {
+        expect(await pickModel(models, scripted(["meta/llama-z:free"]))).to.equal("meta/llama-z:free");
     });
 
-    it("uses the last model on Enter", () => {
-        expect(pickModel(models, scripted([""]), "anthropic/claude-x")).to.equal("anthropic/claude-x");
+    it("uses the last model on Enter", async () => {
+        expect(await pickModel(models, scripted([""]), "anthropic/claude-x")).to.equal("anthropic/claude-x");
     });
 
-    it("re-asks after an out-of-range number", () => {
-        expect(pickModel(models, scripted(["claude", "9", "1"]))).to.equal("anthropic/claude-x");
+    it("re-asks after an out-of-range number", async () => {
+        expect(await pickModel(models, scripted(["claude", "9", "1"]))).to.equal("anthropic/claude-x");
     });
 });
