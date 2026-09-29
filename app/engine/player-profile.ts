@@ -1,4 +1,4 @@
-import { HandState, netResult, POST_TYPES, SeatState } from "./hand-parser.ts";
+import { ActionRecord, HandState, netResult, POST_TYPES, SeatState } from "./hand-parser.ts";
 import { classOf } from "./hand-classes.ts";
 
 /** Identifies a player at the table: PokerNow's player id (stable across names) and display name. */
@@ -31,7 +31,8 @@ export type PositionGroup = "early" | "middle" | "late" | "blinds";
 
 export const RATE_KEYS = [
     "vpip", "pfr", "limp", "three_bet", "fold_to_three_bet", "steal", "fold_to_steal",
-    "cbet", "fold_to_cbet", "aggression", "went_to_showdown", "won_at_showdown"
+    "cbet", "fold_to_cbet", "aggression", "went_to_showdown", "won_at_showdown",
+    "fold_to_bet_flop", "fold_to_bet_turn", "fold_to_bet_river", "raise_vs_bet", "bet_when_checked_to"
 ] as const;
 export type RateKey = typeof RATE_KEYS[number];
 
@@ -71,7 +72,14 @@ export const PRIORS: Record<RateKey, { mean: number, weight: number }> = {
     fold_to_cbet: { mean: 0.40, weight: 10 },
     aggression: { mean: 0.35, weight: 15 },
     went_to_showdown: { mean: 0.32, weight: 10 },
-    won_at_showdown: { mean: 0.50, weight: 10 }
+    won_at_showdown: { mean: 0.50, weight: 10 },
+    // folding to the first bet of each street heads-up (players give up more often on the river),
+    // raising when facing a bet, and betting when everyone before them checked
+    fold_to_bet_flop: { mean: 0.40, weight: 10 },
+    fold_to_bet_turn: { mean: 0.40, weight: 10 },
+    fold_to_bet_river: { mean: 0.50, weight: 10 },
+    raise_vs_bet: { mean: 0.10, weight: 15 },
+    bet_when_checked_to: { mean: 0.40, weight: 10 }
 };
 
 const DEFAULT_PRIORS: Record<RateKey, { mean: number, weight: number }> = structuredClone(PRIORS);
@@ -154,6 +162,7 @@ export class ProfileBuilder {
         const three_bettor = raises[1]?.player_id;
         const last_pf_raiser = raises[raises.length - 1]?.player_id;
         const flop_actions = s.actions.filter((a) => a.street === "flop");
+        const streets = holdem_stats ? streetContexts(s) : [];
         const saw_flop = new Set(flop_actions.map((a) => a.player_id));
         const unfolded_at_end = s.seats.filter((p) => !p.folded);
         const showdown = unfolded_at_end.length >= 2 && s.board.length === 5;
@@ -274,6 +283,7 @@ export class ProfileBuilder {
                     acc.c.aggression.n++;
                 }
             }
+            for (const street of streets) countStreet(street, seat.id, acc.c);
 
             // showdown
             if (saw_flop.has(seat.id)) {
@@ -324,6 +334,108 @@ export class ProfileBuilder {
 
     all(): PlayerProfile[] {
         return [...this.players.values()].map(finalize);
+    }
+}
+
+const POSTFLOP_STREETS = ["flop", "turn", "river"] as const;
+const isAggressive = (a: ActionRecord) => a.type === "bet" || a.type === "raise";
+
+/** One post-flop street of a hand, as the per-street stats need it. */
+interface StreetContext {
+    street: typeof POSTFLOP_STREETS[number],
+    /** Everyone's actions on the street, in order. */
+    acts: ActionRecord[],
+    /** Index in `acts` of the street's first bet or raise, and of its first check (-1: none). */
+    first_bet: number,
+    first_check: number,
+    /** Only two players were left in the hand (all-in players count) when the first bet was made. */
+    heads_up: boolean,
+    /**
+     * Per action: the player could have bet or raised (chips beyond the call, someone with chips to
+     * play against, and betting reopened since they last acted: an all-in for less than a full raise
+     * doesn't reopen it).
+     */
+    could_raise: boolean[]
+}
+
+function streetContexts(s: HandState): StreetContext[] {
+    // seats missing from "Player stacks" have an unknown stack: the parser treats it as unlimited
+    const stack = new Map(s.seats.map((p) => [p.id, p.seat === 99 ? Infinity : p.stack_start]));
+    const folded = new Set<string>();
+    const all_in = new Set<string>();
+    const out: StreetContext[] = [];
+    let ctx = null as StreetContext | null;
+    let last_raise_size = 0, last_full_raise = -1;
+    // when each player last put chips in on this street (a check doesn't close their betting)
+    let last_acted = new Map<string, number>();
+    for (const a of s.actions) {
+        if (a.street !== "preflop" && !POST_TYPES.has(a.type)) {
+            if (ctx?.street !== a.street) {
+                out.push(ctx = { street: a.street, acts: [], first_bet: -1, first_check: -1, heads_up: false, could_raise: [] });
+                last_raise_size = s.big_blind;
+                last_full_raise = -1;
+                last_acted = new Map();
+            }
+            const i = ctx.acts.length;
+            const to_call = a.bet_to_call_before - (a.street_total - a.amount);
+            const others_with_chips = s.seats.some((p) => p.id !== a.player_id && !folded.has(p.id) && !all_in.has(p.id));
+            const acted = last_acted.get(a.player_id);
+            const reopened = acted === undefined || last_full_raise > acted;
+            ctx.could_raise.push((stack.get(a.player_id) ?? 0) > to_call + 1e-9 && others_with_chips && reopened);
+            if (isAggressive(a)) {
+                if (ctx.first_bet < 0) {
+                    ctx.first_bet = i;
+                    ctx.heads_up = s.seats.filter((p) => !folded.has(p.id)).length === 2;
+                }
+                const increment = a.street_total - a.bet_to_call_before;
+                if (increment >= last_raise_size - 1e-9) {
+                    last_raise_size = increment;
+                    last_full_raise = i;
+                }
+            }
+            if (a.type === "check" && ctx.first_check < 0) ctx.first_check = i;
+            if (a.type !== "check") last_acted.set(a.player_id, i);
+            ctx.acts.push(a);
+        }
+        stack.set(a.player_id, (stack.get(a.player_id) ?? 0) - a.amount);
+        if (a.type === "fold") folded.add(a.player_id);
+        if (a.all_in) all_in.add(a.player_id);
+    }
+    return out;
+}
+
+/**
+ * One player's counts on one post-flop street:
+ * - fold to bet: their response to the street's first bet, made by someone else, heads-up (only
+ *   the two of them left in the hand). Multiway, players fold far more often (in the games
+ *   measured, 62% vs 42% on the flop); the engine multiplies each opponent's fold chance, so
+ *   heads-up rates are right heads-up and on the safe side multiway.
+ * - raise vs bet: every action taken facing a bet (more than they have put in on the street),
+ *   when raising was possible
+ * - bet when checked to: acting with no bet yet on the street after at least one player checked
+ */
+function countStreet(st: StreetContext, player_id: string, c: Record<RateKey, Counter>): void {
+    const { acts, first_bet } = st;
+    const fold_to_bet = c[`fold_to_bet_${st.street}`];
+    let faced_bet = false;
+    for (let i = 0; i < acts.length; i++) {
+        const a = acts[i];
+        if (a.player_id !== player_id) continue;
+        if (a.bet_to_call_before > a.street_total - a.amount) {
+            if (st.could_raise[i]) {
+                c.raise_vs_bet.n++;
+                if (a.type === "raise") c.raise_vs_bet.k++;
+            }
+            // heads-up, nobody else can raise the first bet before this player responds to it
+            if (!faced_bet && st.heads_up && acts[first_bet].player_id !== player_id) {
+                fold_to_bet.n++;
+                if (a.type === "fold") fold_to_bet.k++;
+            }
+            faced_bet = true;
+        } else if ((first_bet < 0 || i <= first_bet) && st.first_check >= 0 && st.first_check < i && st.could_raise[i]) {
+            c.bet_when_checked_to.n++;
+            if (isAggressive(a)) c.bet_when_checked_to.k++;
+        }
     }
 }
 
@@ -459,7 +571,10 @@ export function sessionDeviations(long: PlayerProfile | undefined, session: Play
 /** Short one-line summary for the terminal and prompts. */
 export function describeProfile(p: PlayerProfile): string {
     const pct = (r: Rate) => `${Math.round(r.value * 100)}%`;
+    const n = (r: Rate) => Math.round(r.value * 100);
     return `${p.name}: ${p.type} (${p.hands} hands; VPIP ${pct(p.vpip)}, PFR ${pct(p.pfr)}, 3-bet ${pct(p.three_bet)}, ` +
-        `fold to c-bet ${pct(p.fold_to_cbet)} [${p.fold_to_cbet.n}], aggression ${pct(p.aggression)}, ` +
-        `showdown ${pct(p.went_to_showdown)})`;
+        `fold to c-bet ${pct(p.fold_to_cbet)} [${p.fold_to_cbet.n}], ` +
+        `folds to a heads-up bet on flop/turn/river ${n(p.fold_to_bet_flop)}/${n(p.fold_to_bet_turn)}/${n(p.fold_to_bet_river)}% ` +
+        `[${p.fold_to_bet_flop.n}/${p.fold_to_bet_turn.n}/${p.fold_to_bet_river.n}], ` +
+        `aggression ${pct(p.aggression)}, showdown ${pct(p.went_to_showdown)})`;
 }

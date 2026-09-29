@@ -1,6 +1,7 @@
 import { HandState, parseHand } from "../engine/hand-parser.ts";
 import { ObservedStats, POPULATION_TENDENCIES } from "../engine/opponent-range.ts";
 import { blendSession, calibratePriors, Deviation, PlayerProfile, PlayerRef, PRIORS, ProfileBuilder, RATE_KEYS, RateKey, resetPriors, sessionDeviations } from "../engine/player-profile.ts";
+import { CalibratedActionWeights, ShowdownCalibrator } from "../engine/showdown-calibration.ts";
 import { HandRecorder, HandRow, ME } from "./hand-recorder.ts";
 
 export { ME } from "./hand-recorder.ts";
@@ -31,6 +32,14 @@ export class ProfileService {
     private live_game_id: string | null = null;
     /** Every stored hand, parsed once at load. */
     private hands: { row: HandRow, state: HandState, at: string }[] = [];
+    /** Live hands added since load, for the action weights. */
+    private live_states: HandState[] = [];
+    /**
+     * What opponents' bets, raises, calls and checks mean, learned from their shown hands. Built on
+     * first use (the dashboard and `npm run players` don't need it) and kept up to date after that.
+     */
+    private calibrator: ShowdownCalibrator | null = null;
+    private action_weights: CalibratedActionWeights | null = null;
 
     constructor(private recorder: HandRecorder) {
         this.long = new ProfileBuilder(this.keyOf);
@@ -60,7 +69,34 @@ export class ProfileService {
         this.hands = hands;
         this.long = long;
         this.session = session;
+        this.live_states = [];
+        this.calibrator = null;
+        this.action_weights = null;
         return hands.length;
+    }
+
+    /**
+     * Post-flop action weights per street (`weights`, for the equity engine's range narrowing) and
+     * how many shown-hand actions each street was measured from (`samples`). A copy: changing it
+     * changes nothing here.
+     */
+    actionWeights(): CalibratedActionWeights {
+        if (!this.calibrator) {
+            // your own shown hands say nothing about how opponents bet
+            const calibrator = new ShowdownCalibrator((seat) => this.keyOf(seat) !== ME);
+            for (const h of this.hands) calibrator.add(h.state);
+            for (const s of this.live_states) calibrator.add(s);
+            this.calibrator = calibrator;
+        }
+        this.action_weights ??= this.calibrator.weights();
+        return structuredClone(this.action_weights);
+    }
+
+    /** Your games' average player (the population averages, 0-1 for each rate) and the opponent hands behind them. */
+    poolSummary(): Record<RateKey, number> & { pool_hands: number } {
+        const averages = {} as Record<RateKey, number>;
+        for (const key of RATE_KEYS) averages[key] = PRIORS[key].mean;
+        return { ...averages, pool_hands: this.pool_hands };
     }
 
     /** Opponent chances the population averages were computed from (0: built-in guesses). */
@@ -78,10 +114,17 @@ export class ProfileService {
         this.pool_hands = pool.vpip.n;
     }
 
-    /** Adds a finished hand from the live game. */
-    addHand(messages: string[], big_blind: number, game_id: string): void {
-        const state = parseHand(messages, { big_blind });
+    /**
+     * Adds a finished hand from the live game. With `hero_name` (the seat you play), that seat
+     * counts as you right away, as the recorder links it, even on an id first seen this game.
+     */
+    addHand(messages: string[], big_blind: number, game_id: string, hero_name?: string): void {
+        const state = parseHand(messages, { big_blind, hero_name });
+        if (state.hero_id && !this.links.has(state.hero_id)) this.links.set(state.hero_id, ME);
         (game_id === this.live_game_id ? this.session : this.long).addHand(state, new Date().toISOString());
+        if (this.calibrator) this.calibrator.add(state);
+        else this.live_states.push(state);
+        this.action_weights = null;
     }
 
     info(ref: PlayerRef): PlayerInfo {
@@ -95,7 +138,7 @@ export class ProfileService {
     stats(ref: PlayerRef): ObservedStats | undefined {
         const p = this.info(ref).current;
         if (!p) return undefined;
-        return { vpip: p.vpip.value * 100, pfr: p.pfr.value * 100, hands: p.hands, aggression: p.aggression.value, shrunk: true };
+        return { vpip: p.vpip.value * 100, pfr: p.pfr.value * 100, hands: p.hands, aggression: p.aggression.value, three_bet: p.three_bet.value * 100, shrunk: true };
     }
 
     /** All known people with long-term and session profiles (for the dashboard and `npm run players`). */
