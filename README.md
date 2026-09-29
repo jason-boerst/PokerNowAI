@@ -1,284 +1,120 @@
 ## PokerNow GPT
 
-<a id="readme-top"></a>
-
 ![Demo](assets/demo.png)
 
-<!-- TABLE OF CONTENTS -->
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-      <ul>
-        <li><a href="#modes">Modes: Auto-play vs Assistant</a></li>
-        <li><a href="#why-llm">Why an LLM over GTO?</a></li>
-        <li><a href="#built-with">Built With</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-        <li><a href="#configuration">Configuration</a></li>
-        <li><a href="#running">Running</a></li>
-      </ul>
-    </li>
-    <li><a href="#supported-models">Supported Models</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#acknowledgements">Acknowledgements</a></li>
-    <li><a href="#contact">Contact</a></li>
-  </ol>
-</details>
+An LLM-powered poker assistant for [PokerNow](https://www.pokernow.club). It reads the live table (stakes, your hole cards, positions, stacks, actions, board, pot) and each opponent's VPIP/PFR from a local SQLite cache, sends that to a language model, and either shows the suggested action in an overlay (assistant mode) or clicks it for you (auto-play mode).
 
+This is a fork of [JaimeYeung/PokerNow-AI](https://github.com/JaimeYeung/PokerNow-AI), which is itself based on [csong2022/pokernow-gpt](https://github.com/csong2022/pokernow-gpt). Changes in this fork:
 
+- **Any model, including the newest.** The hardcoded model allowlist (GPT-4o era, Gemini 1.x) is gone. Any model ID your provider serves works.
+- **Claude support** through the official [Anthropic TypeScript SDK](https://github.com/anthropics/anthropic-sdk-typescript).
+- **OpenAI-compatible endpoints** (OpenRouter, xAI, DeepSeek, Ollama, LM Studio, ...) via a base URL.
+- **Gemini moved to the current `@google/genai` SDK.** The old `@google/generative-ai` package is deprecated and its README states support ended on August 31, 2025 ([npm page](https://www.npmjs.com/package/@google/generative-ai)).
+- **Reasoning effort setting** for models that support it.
+- **Runs on macOS, Windows and Linux.** The macOS-only `start-chrome.sh` is replaced by a Node script that finds Chrome, Chromium or Edge.
+- `npm run test-ai` checks your key and model without joining a game; `npm run list-models` shows the model IDs your keys can use.
+- Dependencies upgraded (`npm audit` reports 0 vulnerabilities at the time of this change).
 
-<!-- ABOUT THE PROJECT -->
-## About The Project
-
-An AI-powered poker assistant for [PokerNow](https://www.pokernow.club) that uses LLMs (ChatGPT, Gemini, etc.) to analyse live games and suggest — or automatically execute — actions.
-
-The bot scrapes the live game page and fetches game logs from PokerNow, building a real-time model of the table:
-
-- Stakes (blinds, game type)
-- Your hole cards
-- Every player's position, stack size, and actions
-- Community cards and current street
-- Pot size
-
-This information is structured into a prompt and sent to the configured LLM. The response is parsed into a concrete action (`fold`, `call`, `check`, `raise`, `bet`, or `all-in`). Query history is maintained across a single hand so the model can "remember" previous actions (e.g. who was the preflop aggressor).
-
-A per-session cache tracks opponent stats (VPIP, PFR) and persists them in a local SQLite database. These stats are fed back into future queries to enable personalised exploitative adjustments.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+> **Terms of service:** automated play may violate PokerNow's rules or the rules of the game you join. Assistant mode only displays suggestions; auto-play mode clicks for you. Using either is your decision and your responsibility.
 
 ---
 
-<a id="modes"></a>
-### Modes: Auto-play vs Assistant
+## Requirements
 
-| | **Auto-play mode** | **Assistant mode** |
-|---|---|---|
-| Who clicks | The bot | **You** |
-| AI role | Makes decisions and executes them | Displays a suggestion; you decide |
-| Browser | Headless (hidden) | Visible — connects to your Chrome |
-| How to enable | `bot_config.json` → `"assistant_mode": false` | `bot_config.json` → `"assistant_mode": true` |
+- **Node.js 22.12 or newer.** Current `puppeteer` and `openai` releases require it (check with `node -v`).
+- **Google Chrome** (or Chromium / Microsoft Edge) for assistant mode.
+- An API key for at least one provider: [Anthropic](https://platform.claude.com/settings/keys), [OpenAI](https://platform.openai.com/api-keys), [Google AI Studio](https://aistudio.google.com/apikey), or any OpenAI-compatible endpoint.
 
-**Assistant mode overlay** — when it is your turn, a floating widget appears in the top-right corner of the game page:
+## Install
 
-```
-● AI Suggestion (this turn) · hover for reason
-🤖  RAISE  8 BB
-    (= 16 chips)
+```sh
+git clone https://github.com/jason-boerst/PokerNowAI.git
+cd PokerNowAI
+npm install
+cp .env.example .env      # Windows (cmd): copy .env.example .env
 ```
 
-Hover over the widget to see the one-sentence reasoning. After your turn the widget dims to indicate it is from the previous round.
+Put your key(s) in `.env`, for example:
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
----
+`npm install` also downloads a bundled Chrome for puppeteer (used when `use_existing_browser` is `false`). To skip that download, set `PUPPETEER_SKIP_DOWNLOAD=1` before installing.
 
-<a id="why-llm"></a>
-### Why an LLM over GTO?
+## Choose a model
 
-GTO (Game Theory Optimal) strategies are mostly solved for heads-up play and become harder to apply in multi-way pots, which are common at casual online tables.
-
-GTO solvers also cannot incorporate live opponent statistics. By feeding each player's VPIP and PFR into the prompt, the LLM can make exploitative adjustments — for example, widening a call range against a known fish or folding more often against a nit.
-
-As LLMs continue to improve, their poker reasoning will naturally improve alongside them.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
----
-
-### Built With
-
-* [Node.js][Node-url]
-* [Puppeteer][Puppeteer-url]
-* [OpenAI SDK][OpenAI-url]
-* [Google Generative AI SDK][Google-url]
-* [SQLite][SQLite-url]
-* [Express][Express-url]
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-<!-- GETTING STARTED -->
-## Getting Started
-
-<a id="prerequisites"></a>
-### Prerequisites
-
-- **Node.js** v18 or higher
-- **Google Chrome** installed at `/Applications/Google Chrome.app` (macOS) — required for assistant mode
-- An **OpenAI** or **Google AI** API key
-
----
-
-<a id="installation"></a>
-### Installation
-
-1. Clone the repo
-   ```sh
-   git clone https://github.com/your-username/pokernow-gpt.git
-   cd pokernow-gpt
-   ```
-
-2. Install dependencies
-   ```sh
-   npm install
-   ```
-
-3. Create a `.env` file in the project root
-   ```env
-   OPENAI_API_KEY=your_openai_key_here
-   GOOGLEAI_API_KEY=your_google_key_here
-   ```
-
----
-
-<a id="configuration"></a>
-### Configuration
-
-**`app/configs/ai-config.json`** — choose your AI provider and model
+Edit `app/configs/ai-config.json`:
 
 ```json
 {
-  "provider": "OpenAI",
-  "model_name": "gpt-4o-mini",
-  "playstyle": "neutral"
+    "provider": "Anthropic",
+    "model_name": "claude-opus-5-5",
+    "playstyle": "neutral",
+    "effort": "low",
+    "request_timeout_ms": 45000
 }
 ```
 
-> `playstyle` options: `"neutral"` · `"aggressive"` · `"passive"` · `"pro"`
+| Field | Values |
+|---|---|
+| `provider` | `Anthropic`, `OpenAI`, `Google`, `OpenAICompatible` |
+| `model_name` | Any model ID the provider serves. Run `npm run list-models` to see the exact IDs your keys can use. |
+| `playstyle` | `neutral`, `aggressive`, `passive`, `pro` |
+| `effort` | Optional. Sent as `output_config.effort` (Anthropic), `reasoning_effort` (OpenAI), or `thinkingConfig.thinkingLevel` (Google). Remove the line to use the model's default. Models without reasoning controls reject it, so remove it for those. |
+| `base_url` | Only for `OpenAICompatible`, e.g. `https://openrouter.ai/api/v1` or `http://localhost:11434/v1` (Ollama). Can also be set as `OPENAI_COMPATIBLE_BASE_URL` in `.env`. |
+| `request_timeout_ms` | Per-request timeout. |
 
-**`app/configs/bot-config.json`** — toggle auto-play vs assistant mode
+You can override the JSON from `.env` or the command line without editing it: `AI_PROVIDER`, `AI_MODEL`, `AI_EFFORT`, `AI_PLAYSTYLE`, `AI_BASE_URL`.
 
-```json
-{
-  "debug_mode": 1,
-  "query_retries": 2,
-  "assistant_mode": true
-}
+```sh
+AI_PROVIDER=OpenAI AI_MODEL=<model id> npm run test-ai
 ```
 
-**`app/configs/webdriver-config.json`** — browser settings
+**Claude model IDs** (current list: [Anthropic models overview](https://platform.claude.com/docs/en/models/overview)): `claude-opus-5-5` (default here), `claude-sonnet-5-5` (cheaper per token), `claude-haiku-4-5` (cheapest; does not accept `effort`, so remove that line). For OpenAI and Google, use `npm run list-models` rather than a list in this README, because their catalogs change frequently and I did not verify current IDs for them.
 
-```json
-{
-  "default_timeout": 5000,
-  "headless_flag": true,
-  "use_existing_browser": true,
-  "debugging_port": 9222
-}
+**About `effort`:** it trades answer quality against latency and cost. The default here is `low` because PokerNow turns are timed; Claude Opus 5.5 defaults to `medium` if you omit it ([effort docs](https://platform.claude.com/docs/en/build-with-claude/effort)). I have not measured decision quality or latency at different settings; `npm run test-ai` prints the latency for one sample spot so you can check it yourself.
+
+For Claude Opus 5.5, Sonnet 5.5, Opus 5 and Fable 5.1, requests enable server-side refusal fallbacks (`fallbacks: "default"`), so if a safety classifier declines a request the API retries it on another model instead of returning nothing.
+
+## Check that the model works
+
+```sh
+npm run test-ai
 ```
 
-> Set `"use_existing_browser": true` together with `"assistant_mode": true` to connect the bot to your own Chrome window instead of opening a hidden one.
+This sends one sample poker spot and prints the raw answer, the parsed action, and the latency. If it prints `Parsed action: { action_str: 'bet', ... }` you are ready.
 
----
-
-<a id="running"></a>
-### Running
-
-#### Step 1 — Start everything
+## Run
 
 ```sh
 npm start
 ```
 
-This opens a dedicated Chrome window and starts the bot.
+This opens a dedicated Chrome window (with its own profile in `~/.pokernow-gpt/chrome-profile`, so a PokerNow login persists) and starts the bot. If a debuggable Chrome is already open on the port, it is reused.
 
----
+1. The terminal asks for the game. Paste the ID (`pgl-3YEOMYb8pdkfOtoGwyHPQ`) or the full URL. You can also pass it directly: `npm start -- https://www.pokernow.club/games/pgl-...`
+2. In the Chrome window, open the game, click an empty seat, enter a name and stack, and wait for the host to approve.
+3. Once seated, the bot monitors the table. On your turn a suggestion appears in the top-right corner; hover it for the reasoning.
 
-#### Step 2 — Enter the Game ID in the terminal
+Manual steps: `npm run chrome` in one terminal, `npm run start:bot` in another. If Chrome is not found, set `CHROME_PATH` in `.env` to the browser executable.
 
-The terminal will prompt:
-```
-Enter the PokerNow game ID (e.g. https://www.pokernow.club/games/{game_id}):
-```
+### Assistant mode vs auto-play
 
-Enter **only the ID part** of the URL — not the full link. For example:
+| | Assistant mode | Auto-play mode |
+|---|---|---|
+| Who clicks | You | The bot |
+| Browser | Your visible Chrome window | Your Chrome window, or a headless browser the bot launches if `webdriver-config.json` has `"use_existing_browser": false` |
+| Config | `bot-config.json`: `"assistant_mode": true` | `bot-config.json`: `"assistant_mode": false` (the bot asks for a name and stack and requests the seat itself) |
 
-| Full URL | What to type |
-|----------|-------------|
-| `https://www.pokernow.com/games/pgl-3YEOMYb8pdkfOtoGwyHPQ` | `pgl-3YEOMYb8pdkfOtoGwyHPQ` |
-
----
-
-#### Step 3 — Sit down in the Chrome window (first time only)
-
-In the Chrome window that opened:
-1. Navigate to your PokerNow game URL
-2. Click an empty seat → enter your **name** and **stack size** → submit
-3. Wait for the host to approve your seat request
-
-> **You only need to do this once per session.** Once you are seated and the host approves, the AI starts monitoring automatically. On your turn, a suggestion appears in the **top-right corner** of the page.
-
----
-
-#### Option B — Manual steps (advanced)
+## Development
 
 ```sh
-# Step 1: open Chrome with the debug port
-./start-chrome.sh
-
-# Step 2 (in a new terminal): start the bot
-npx tsx app/index.ts
+npm run typecheck   # tsc --noEmit
+npm test            # offline unit tests
+npm run test:live   # upstream tests that hit live PokerNow game logs (the game IDs in them may have expired)
 ```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-<!-- SUPPORTED MODELS -->
-## Supported Models
-
-| Provider | Models |
-|----------|--------|
-| `OpenAI` | `gpt-3.5-turbo` · `gpt-4-turbo` · `gpt-4o` · `gpt-4o-mini` |
-| `Google` | `gemini-1.5-flash` · `gemini-1.0-pro` · `gemini-1.5-pro` |
-
-> **Recommended:** `gpt-4o-mini` — best balance of speed, cost, and quality for in-game decisions.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-<!-- ACKNOWLEDGEMENTS -->
-## Acknowledgements
-
-This project is based on the original [pokernow-gpt](https://github.com/csong2022/pokernow-gpt) by [Chen Song](https://github.com/csong2022).
-
-Key additions in this fork:
-- **Assistant mode** — AI suggestions displayed as an in-page overlay instead of auto-clicking
-- **Connect to existing Chrome** — attach to your own browser via Chrome DevTools Protocol
-- Hover-to-reveal reasoning on the suggestion widget
-- Chip equivalent displayed alongside BB amounts
-- Performance improvements (parallel log/hand fetching, removed unnecessary delays)
-- Bug fixes for mid-hand join and log failure edge cases
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- LICENSE -->
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- CONTACT -->
-## Contact
-
-Project Link: [https://github.com/linghaoyang/pokernow-gpt](https://github.com/linghaoyang/pokernow-gpt)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- MARKDOWN LINKS -->
-[Node-url]: https://nodejs.org/en
-[Express-url]: https://expressjs.com/
-[Puppeteer-url]: https://pptr.dev/
-[SQLite-url]: https://www.sqlite.org/
-[OpenAI-url]: https://platform.openai.com/docs
-[Google-url]: https://ai.google.dev/
+MIT. See `LICENSE`.

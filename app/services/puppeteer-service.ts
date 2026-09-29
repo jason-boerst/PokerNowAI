@@ -1,4 +1,4 @@
-import puppeteer from 'puppeteer';
+import puppeteer, { type Browser, type Page } from 'puppeteer';
 
 import { computeTimeout, sleep } from '../helpers/bot-helper.ts';
 
@@ -16,8 +16,8 @@ export class PuppeteerService {
     private use_existing_browser: boolean;
     private debugging_port: number;
 
-    private browser!: puppeteer.Browser;
-    private page!: puppeteer.Page;
+    private browser!: Browser;
+    private page!: Page;
 
     constructor(default_timeout: number, headless_flag: boolean, use_existing_browser: boolean = false, debugging_port: number = 9222) {
         this.default_timeout = default_timeout;

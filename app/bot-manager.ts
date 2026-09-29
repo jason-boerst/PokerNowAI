@@ -12,11 +12,10 @@ import { LogService } from './services/log-service.ts';
 import { PlayerService } from './services/player-service.ts';
 import { PuppeteerService } from './services/puppeteer-service.ts';
 
-import { AIConfig, BotConfig, WebDriverConfig } from './interfaces/config-interfaces.ts';
-import { AIServiceFactory } from './helpers/ai-service-factory.ts';
+import { BotConfig, WebDriverConfig } from './interfaces/config-interfaces.ts';
+import { AIServiceFactory, resolveAIConfig } from './helpers/ai-service-factory.ts';
 
 const io = prompt();
-const ai_config: AIConfig = ai_config_json;
 const bot_config: BotConfig = bot_config_json;
 const webdriver_config: WebDriverConfig = webdriver_config_json;
 
@@ -33,11 +32,22 @@ function init(): string {
         console.log(" suggestion in the top-right on your turn.");
         console.log("=================================================\n");
     }
-    return io("Enter the PokerNow game ID (e.g. https://www.pokernow.club/games/{game_id}): ");
+    // game ID can also be passed as `npm start -- <id or url>` or POKERNOW_GAME_ID in .env
+    const input = process.argv[2] ?? process.env.POKERNOW_GAME_ID
+        ?? io("Enter the PokerNow game ID or full game URL (e.g. https://www.pokernow.club/games/{game_id}): ");
+    // accept a pasted full URL as well as the bare ID
+    return input.trim().replace(/^.*\/games\//, "").split(/[?#/]/)[0];
 }
 
 const bot_manager = async function() {
     const game_id = init();
+
+    // create the AI service first so a missing key or bad provider fails before the browser opens
+    const ai_service_factory = new AIServiceFactory();
+    const ai_config = resolveAIConfig(ai_config_json);
+    const ai_service = ai_service_factory.createAIService(ai_config);
+    console.log(`Created AI service: ${ai_config.provider} ${ai_config.model_name} (effort: ${ai_config.effort ?? "model default"}) with playstyle: ${ai_config.playstyle}`);
+    ai_service.init();
 
     const use_existing = webdriver_config.use_existing_browser ?? false;
     const debugging_port = webdriver_config.debugging_port ?? 9222;
@@ -45,7 +55,7 @@ const bot_manager = async function() {
     if (use_existing) {
         console.log(`\n[Connecting to existing Chrome on port ${debugging_port}]`);
         console.log(`  If Chrome is not running yet, start it first with:`);
-        console.log(`  ./start-chrome.sh\n`);
+        console.log(`  npm run chrome\n`);
     } else {
         if (bot_config.assistant_mode) {
             console.log("\nOpening browser — please sit down manually in the browser window.\n");
@@ -68,12 +78,6 @@ const bot_manager = async function() {
 
     const log_service = new LogService(game_id);
     await log_service.init();
-
-    const ai_service_factory = new AIServiceFactory();
-    ai_service_factory.printSupportedModels();
-    const ai_service = ai_service_factory.createAIService(ai_config.provider, ai_config.model_name, ai_config.playstyle);
-    console.log(`Created AI service: ${ai_config.provider} ${ai_config.model_name} with playstyle: ${ai_config.playstyle}`);
-    ai_service.init();
 
     const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode);
     await bot.run();

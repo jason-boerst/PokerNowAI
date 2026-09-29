@@ -1,54 +1,49 @@
 import OpenAI from "openai";
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type { ReasoningEffort } from "openai/resources/shared";
 import { AIMessage, AIResponse, AIService, BotAction } from "../../interfaces/ai-client-interfaces.ts";
-import { getPromptFromPlaystyle, parseResponse} from "../../helpers/ai-query-helper.ts";
+import { appendUserInput, getPromptFromPlaystyle, parseResponse} from "../../helpers/ai-query-helper.ts";
 
+// Also used for any OpenAI-compatible endpoint (OpenRouter, xAI, DeepSeek, Ollama, ...) via base_url.
 export class OpenAIService extends AIService {
     private agent!: OpenAI;
 
     init(): void {
-        this.agent = new OpenAI({ apiKey: this.getAPIKey() });
+        const options = this.getOptions();
+        this.agent = new OpenAI({
+            apiKey: this.getAPIKey(),
+            baseURL: options.base_url,
+            timeout: options.request_timeout_ms,
+            // the bot has its own retry loop (query_retries), so keep SDK retries low
+            maxRetries: 1
+        });
     }
-    
-    //takes an already created query and passes it into chatGPT if it is the first action,
-    //otherwise attaches it to previous queries and feeds the entire conversation into chatGPT
+
+    //takes an already created query and passes it into the model if it is the first action,
+    //otherwise attaches it to previous queries and feeds the entire conversation into the model
     async query(input: string, prev_messages: AIMessage[]): Promise<AIResponse> {
-        if (prev_messages.length > 0) {
-            if (input !== prev_messages[prev_messages.length - 1].text_content) {
-                prev_messages.push({text_content: input, metadata: {"role": "user"}});
-            }
-        } else {
-            try {
-                const playstyle_prompt = getPromptFromPlaystyle(this.getPlaystyle());
-                prev_messages = [
-                    {text_content: playstyle_prompt, metadata: {"role": "system"}},
-                    {text_content: input, metadata: {"role": "user"}}
-                ];
-            } catch (err) {
-                console.log(err);
-                prev_messages = [
-                    {text_content: input, metadata: {"role": "user"}}
-                ];
-            }
+        if (prev_messages.length === 0) {
+            prev_messages = [{text_content: getPromptFromPlaystyle(this.getPlaystyle()), metadata: {"role": "system"}}];
         }
-    
-        console.log("prev_messages:", prev_messages);
-        const processed_messages = this.processMessages(prev_messages);
+        prev_messages = appendUserInput(prev_messages, input);
+
+        const effort = this.getOptions().effort as ReasoningEffort | undefined;
         const completion = await this.agent.chat.completions.create({
-            messages: processed_messages,
-            model: this.getModelName()
+            messages: this.processMessages(prev_messages),
+            model: this.getModelName(),
+            ...(effort ? { reasoning_effort: effort } : {})
         });
 
         const choice = completion.choices[0];
         const response = choice.message;
-        const text_content = response.content;
+        const text_content = response.content ?? "";
 
         let bot_action: BotAction = {
             action_str: "",
             bet_size_in_BBs: 0
-        };;
+        };
 
-        if (response && text_content) {
+        if (text_content) {
             bot_action = parseResponse(text_content);
         }
 
@@ -56,7 +51,7 @@ export class OpenAIService extends AIService {
             bot_action: bot_action,
             prev_messages: prev_messages,
             curr_message: {
-                text_content: text_content!,
+                text_content: text_content,
                 metadata: {
                     "role": response.role
                 }

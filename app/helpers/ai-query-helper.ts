@@ -1,4 +1,4 @@
-import { BotAction } from "../interfaces/ai-client-interfaces.ts";
+import { AIMessage, BotAction } from "../interfaces/ai-client-interfaces.ts";
 
 export const playstyleToPrompt: Map<string, string> = new Map<string, string>([
     ["pro", "You are a pro poker player who plays strong ranges preflop and plays aggressively postflop."],
@@ -13,6 +13,18 @@ export function getPromptFromPlaystyle(playstyle: string) {
         return prompt;
     }
     throw new Error("Invalid playstyle, could not get playstyle prompt.");
+}
+
+/**
+ * Returns the history with the new query appended as a user message. A retry of the same
+ * query (the last message is already this input) is not appended twice.
+ */
+export function appendUserInput(prev_messages: AIMessage[], input: string): AIMessage[] {
+    const last = prev_messages[prev_messages.length - 1];
+    if (last && last.metadata.role === "user" && last.text_content === input) {
+        return prev_messages;
+    }
+    return [...prev_messages, { text_content: input, metadata: { role: "user" } }];
 }
 
 export function parseResponse(msg: string): BotAction {

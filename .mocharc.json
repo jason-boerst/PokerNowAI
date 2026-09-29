@@ -1,6 +1,4 @@
 {
-    "loader": "ts-node/esm",
-    "require": ["chai/register-expect.js"],
-
+    "node-option": ["import=tsx"],
     "spec": "./test/unit/*.spec.ts"
 }

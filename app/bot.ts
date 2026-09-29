@@ -1,9 +1,8 @@
 import prompt from 'prompt-sync';
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 
 import { sleep } from './helpers/bot-helper.ts';
 
-import { AIService, BotAction, defaultCheckAction, defaultFoldAction } from './interfaces/ai-client-interfaces.ts';
+import { AIMessage, AIService, BotAction, defaultCheckAction, defaultFoldAction } from './interfaces/ai-client-interfaces.ts';
 import { ProcessedLogs } from './interfaces/log-processing-interfaces.ts';
 
 import { Game } from './models/game.ts';
@@ -32,7 +31,7 @@ export class Bot {
     private assistant_mode: boolean;
 
     private first_created: string;
-    private hand_history: ChatCompletionMessageParam | any;
+    private hand_history: AIMessage[];
 
     private table!: Table;
     private game!: Game;
@@ -387,7 +386,7 @@ export class Bot {
             console.log("Invalid bot action, retrying query.");
             return await this.queryBotAction(query, retries, retry_counter + 1);
         } catch (err) {
-            console.log("Error while querying ChatGPT:", err, "retrying query.");
+            console.log("Error while querying the AI model:", err, "retrying query.");
             return await this.queryBotAction(query, retries, retry_counter + 1);
         }
     }

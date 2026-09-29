@@ -6,22 +6,34 @@ export interface AIMessage {
 export interface AIResponse {
     bot_action: BotAction,
     prev_messages: AIMessage[],
-    curr_message: AIMessage
+    /** Absent when the model returned no usable answer (e.g. a refusal). */
+    curr_message?: AIMessage
+}
+
+export interface AIServiceOptions {
+    /** Provider-specific reasoning effort (see AIConfig.effort). */
+    effort?: string,
+    /** Override the provider's API base URL. */
+    base_url?: string,
+    /** Per-request timeout in milliseconds. */
+    request_timeout_ms?: number
 }
 
 export abstract class AIService {
     private api_key: string;
     private model_name: string;
     private playstyle: string;
+    private options: AIServiceOptions;
 
-    constructor(api_key: string, model: string, playstyle: string) {
+    constructor(api_key: string, model: string, playstyle: string, options: AIServiceOptions = {}) {
         this.api_key = api_key;
         this.model_name = model;
         this.playstyle = playstyle;
+        this.options = options;
     }
 
     abstract init(): void;
-    abstract query(input: string, prev_messages: AIMessage[]): Promise<any>;
+    abstract query(input: string, prev_messages: AIMessage[]): Promise<AIResponse>;
     abstract processMessages(messages: AIMessage[]): Array<any>;
 
     getAPIKey(): string {
@@ -34,6 +46,10 @@ export abstract class AIService {
 
     getPlaystyle(): string {
         return this.playstyle;
+    }
+
+    getOptions(): AIServiceOptions {
+        return this.options;
     }
 }
 

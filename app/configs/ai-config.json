@@ -1,5 +1,7 @@
 {
-    "provider": "OpenAI",
-    "model_name": "gpt-4o-mini",
-    "playstyle": "neutral"
+    "provider": "Anthropic",
+    "model_name": "claude-opus-5-5",
+    "playstyle": "neutral",
+    "effort": "low",
+    "request_timeout_ms": 45000
 }

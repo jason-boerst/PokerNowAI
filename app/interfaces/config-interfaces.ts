@@ -1,9 +1,20 @@
 import { DebugMode } from "../utils/error-handling-utils.ts"
 
 export interface AIConfig {
+    /** One of: "Anthropic", "OpenAI", "Google", "OpenAICompatible" (case-insensitive). */
     provider: string,
+    /** Any model ID the provider accepts, e.g. "claude-opus-5-5". Run `npm run list-models` to see yours. */
     model_name: string,
-    playstyle: string
+    playstyle: string,
+    /**
+     * Optional reasoning effort. Anthropic: output_config.effort; OpenAI: reasoning_effort;
+     * Google: thinkingConfig.thinkingLevel. Leave unset to use the model's default.
+     */
+    effort?: string,
+    /** Base URL for the "OpenAICompatible" provider (e.g. OpenRouter, xAI, Ollama). */
+    base_url?: string,
+    /** Per-request timeout in milliseconds. */
+    request_timeout_ms?: number
 }
 
 export interface BotConfig {

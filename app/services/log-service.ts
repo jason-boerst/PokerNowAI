@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 import type { Response } from '../utils/error-handling-utils.ts';
 import { Data, Log } from '../interfaces/log-processing-interfaces.ts';
 

@@ -22,7 +22,7 @@ describe('query service test', async () => {
         await db_service.init();
         const player_service = new PlayerService(db_service);
 
-        const openai_service = new OpenAIService(process.env.OPENAI_API_KEY!, "gpt-3.5-turbo", "pro");
+        const openai_service = new OpenAIService(process.env.OPENAI_API_KEY ?? "unused", "gpt-4o-mini", "pro");
         openai_service.init();
 
         const log = await log_service.fetchData("", "");

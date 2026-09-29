@@ -1,43 +1,46 @@
 {
   "name": "pokernow-gpt",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "app/index.ts",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
-    "start": "bash start-chrome.sh && npx tsx app/index.ts",
-    "test": "mocha -r dotenv/config --timeout 5000"
+    "start": "tsx scripts/start-chrome.ts && tsx app/index.ts",
+    "start:bot": "tsx app/index.ts",
+    "chrome": "tsx scripts/start-chrome.ts",
+    "test-ai": "tsx scripts/test-ai.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "mocha",
+    "test:live": "mocha --spec './test/live/*.spec.ts'",
+    "list-models": "tsx scripts/list-models.ts"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "description": "",
+  "license": "MIT",
+  "description": "LLM-powered poker assistant for PokerNow",
   "dependencies": {
-    "@google/generative-ai": "^0.14.1",
+    "@anthropic-ai/sdk": "^0.129.0",
+    "@google/genai": "^2.24.0",
     "chai": "^5.1.1",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "node-fetch": "^2.7.0",
-    "openai": "^4.52.1",
+    "openai": "^7.23.0",
     "phe": "^0.6.0",
     "prompt-sync": "^4.2.0",
-    "puppeteer": "^22.10.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "puppeteer": "^25.12.0",
     "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.7",
-    "ts-node": "^10.9.2"
+    "sqlite3": "^6.0.1"
   },
   "devDependencies": {
-    "@testing-library/react": "^16.0.0",
-    "@testing-library/user-event": "^14.5.2",
     "@types/chai": "^4.3.16",
     "@types/express": "^4.17.21",
     "@types/mocha": "^10.0.6",
-    "@types/node": "^20.14.9",
-    "@types/node-fetch": "^2.6.11",
+    "@types/node": "^22.10.0",
     "@types/prompt-sync": "^4.2.3",
-    "mocha": "^10.4.0",
-    "tsx": "^4.11.0",
-    "typescript": "^5.4.5"
+    "mocha": "^12.0.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
   }
 }
