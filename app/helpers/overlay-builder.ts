@@ -62,7 +62,7 @@ function spotSection(s: HandState, v: HeroView): OverlaySection {
         title: "Spot",
         lines: [
             `Pot ${b(v.pot)} BB · ${to_call}`,
-            `Your stack ${b(v.stack)} BB · effective ${b(v.effective_stack)} BB · SPR ${Math.round(v.spr * 10) / 10}`,
+            `Your stack ${b(v.stack)} BB · effective ${b(v.effective_stack)} BB · ${s.street === "preflop" ? "flop SPR if you call" : "SPR"} ${Math.round(v.spr * 10) / 10}`,
             ...(v.min_raise_to !== null ? [`Min raise to ${b(v.min_raise_to)} BB · max ${b(v.max_raise_to)} BB`] : [])
         ]
     };

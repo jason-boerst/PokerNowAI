@@ -620,7 +620,11 @@ export class Bot {
         if (!this.options.preflop_engine || !state || state.street !== "preflop") return null;
         const view = heroView(state);
         if (!view) return null;
-        const advice = preflopAdvice(state, view, (player) => this.statsLookup(player), undefined, { seven_deuce_bounty: this.rules.seven_deuce_bounty ?? 0 });
+        // the equity estimate printed just before (against the players still in) lets calls be priced
+        const advice = preflopAdvice(state, view, (player) => this.statsLookup(player), undefined, {
+            seven_deuce_bounty: this.rules.seven_deuce_bounty ?? 0,
+            equity: this.last_equity?.equity
+        });
         if (!advice) return null;
         const size = advice.action === "raise" || advice.action === "all-in" ? ` to ${advice.size_bb} BB` : "";
         console.log(`[Preflop] ${advice.action.toUpperCase()}${size} (${advice.scenario}): ${advice.reason}`);

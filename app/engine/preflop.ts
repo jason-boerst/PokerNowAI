@@ -15,10 +15,40 @@ export interface PreflopAdvice {
     reason: string
 }
 
-/** Table rules that aren't in the hand log. */
+/** Table rules that aren't in the hand log, and the live equity estimate. */
 export interface PreflopContext {
     /** 7-2 bounty each opponent pays, in chips (0 or missing: no bounty). */
-    seven_deuce_bounty?: number
+    seven_deuce_bounty?: number,
+    /**
+     * Hero's equity (0-1) against the likely hands of every player still in the hand. When set and hero
+     * closes the action facing one raise, call or fold is decided by price instead of a fixed range.
+     */
+    equity?: number
+}
+
+const RANK_ORDER = "23456789TJQKA";
+
+/**
+ * Share of its raw equity a hand typically keeps when it calls a raise and plays the flop out of position.
+ * Suited and connected hands keep more (they make strong draws and hands), offsuit unconnected hands less;
+ * a low stack-to-pot ratio after the call keeps more because the hand is played to showdown sooner.
+ */
+export function realizationOf(config: PreflopConfig, cls: HandClass, multiway: boolean, spr_after_call: number): number {
+    const r = config.price_defense.realization;
+    const hi = RANK_ORDER.indexOf(cls[0]), lo = RANK_ORDER.indexOf(cls[1]);
+    const connected = hi - lo <= 2;
+    const base = cls.length === 2 ? r.pair
+        : cls.endsWith("s") ? (connected ? r.suited_connected : r.suited)
+        : lo >= RANK_ORDER.indexOf("T") ? r.offsuit_broadway
+        : connected ? r.offsuit_connected
+        : cls[0] === "A" ? r.offsuit_ace
+        : r.offsuit;
+    const pd = config.price_defense;
+    const offsuit = cls.length === 3 && cls.endsWith("o");
+    const adjusted = base * (multiway ? pd.multiway_factor : 1)
+        + (spr_after_call < pd.short_spr_below ? pd.short_spr_bonus : 0)
+        - (offsuit && spr_after_call >= pd.deep_spr_at_least ? pd.deep_offsuit_penalty : 0);
+    return Math.max(0.3, Math.min(1, adjusted));
 }
 
 type StatsLookup = (player: PlayerRef) => ObservedStats | undefined;
@@ -197,6 +227,31 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         const small_pair = cls.length === 2 && "23456789".includes(cls[0]);
         return !small_pair || v.effective_stack / Math.max(v.to_call, 1e-9) >= size.set_mine_min_stack_to_call_ratio;
     };
+    // hero closes the action when everyone else still able to act has already matched the bet
+    const closes_action = s.seats.every((p) => p.id === hero.id || p.folded || p.all_in || p.street_contribution >= s.current_bet - 1e-9);
+    /**
+     * Call or fold by price when hero closes the action: equity against the players still in, times the share
+     * a hand like this keeps out of position, against the equity the call needs. Null when it doesn't apply.
+     */
+    const priceDefense = (scenario: string, multiway: boolean): PreflopAdvice | null => {
+        const pd = config.price_defense;
+        const eq = context.equity;
+        if (!pd.enabled || eq === undefined || !closes_action || v.to_call <= 0) return null;
+        const pot_after = v.pot + v.to_call;
+        const need = v.to_call / pot_after;
+        const spr_after = Math.max(0, v.effective_stack - s.current_bet) / pot_after;
+        const r = realizationOf(config, cls, multiway, spr_after);
+        const realized = eq * r;
+        const ev_bb = (realized * pot_after - v.to_call) / bb;
+        const pct = (x: number) => `${Math.round(x * 100)}%`;
+        const numbers = `about ${pct(eq)} equity against their likely hands; out of position a hand like this keeps roughly ${pct(r)} of that (${pct(realized)})`;
+        const priced = `${scenario}, priced`;
+        if (realized >= need + pd.margin) {
+            return { action: "call", size_bb: 0, scenario: priced, reason: `Call ${cls}: ${numbers}, more than the ${pct(need)} this call needs (worth about +${roundBb(ev_bb)} BB).` };
+        }
+        const close = Math.abs(ev_bb) <= pd.close_spot_bb ? ` Close spot: calling would lose only about ${roundBb(-ev_bb)} BB on average, so either choice costs little.` : "";
+        return fold(priced, `Fold ${cls}: ${numbers}, less than the ${pct(need)} this call needs.${close}`);
+    };
 
     // hero opened and nobody re-raised: not a normal preflop decision point, let the caller decide
     if (raises.length === 1 && hero_raised) return null;
@@ -268,6 +323,8 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
                 if (inRange(config, value, cls)) {
                     return finish({ action: "raise", size_bb: last_raise.street_total / bb * size.three_bet_multiplier_out_of_position, scenario, reason: `3-bet ${cls} for value.` });
                 }
+                const priced = priceDefense(scenario, false);
+                if (priced) return priced;
                 if (inRange(config, hu.bb_call_vs_raise, cls)) {
                     return { action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: heads-up the raiser's range is wide, so this hand is worth defending.` };
                 }
@@ -351,6 +408,9 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
             const why = raiser_types.has("loose_raiser") ? ` ${raiser.position} raises a lot, so 3-bet a wider value range.` : "";
             return finish({ action: "raise", size_bb: threeBetTo(raise_to_bb, callers_after_raise.length), scenario, reason: `3-bet ${cls} for value.${why}` });
         }
+        // closing the action (e.g. the big blind): the price decides, using equity against the actual ranges
+        const priced = priceDefense(scenario, multiway);
+        if (priced) return priced;
         const vs_nit = !multiway && raiser_types.has("nit");
         const calls = multiway ? config.call_raise_multiway
             : vs_nit ? config.call_raise.vs_nit

@@ -404,8 +404,11 @@ export function heroView(s: HandState): HeroView | null {
         pot: s.pot,
         pot_odds: to_call > 0 ? to_call / (s.pot + to_call) : 0,
         effective_stack,
-        // preflop the pot so far is all blinds (current-street bets), so fall back to the whole pot
-        spr: effective_stack / (pot_start_of_street > 0 ? pot_start_of_street : Math.max(s.pot, 1e-9)),
+        // preflop: the stack-to-pot ratio the flop would start with if hero calls (antes and blinds included);
+        // later streets: behind stacks over the pot at the start of the street
+        spr: s.street === "preflop"
+            ? Math.max(0, effective_stack - s.current_bet) / Math.max(s.pot + to_call, 1e-9)
+            : effective_stack / Math.max(pot_start_of_street, 1e-9),
         active_opponents: opponents,
         limpers: countLimpers(s)
     };

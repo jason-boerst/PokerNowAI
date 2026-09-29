@@ -147,6 +147,7 @@ Manual steps: `npm run chrome` in one terminal, `npm run start:bot` in another. 
   - **The 3-bettor's measured 3-bet %:** tight, normal or loose ranges for 4-betting and calling.
   - **The 7-2 bounty:** raises 7-2 when the bounty makes it worth it.
   - **Opponents' stats:** bigger raises against callers, tighter against nits.
+  - **Closing the action** (the big blind, or the heads-up small blind after a raise over your limp): call or fold by price. It compares your equity against the players still in, times the share a hand like yours keeps out of position, with the equity the call needs. So a 2x open is defended much wider than a 4x open. Near break-even spots say "Close spot". The realization shares are in `price_defense` in the same file.
 
   The ranges and sizes are in `app/configs/preflop-ranges.json` (hand-built approximations, not solver output; every section explains its assumptions and you can edit it). Set `"preflop_engine": false` in `app/configs/bot-config.json` to use the AI preflop instead.
 - **Opponent ranges:** each opponent's likely hands come from their VPIP, PFR and 3-bet %, their seat, and what they did this hand (limp, raise, limp-raise, call, 3-bet...). Calling ranges favor playable hands (pairs, suited connectors) over offsuit junk. In bounty games raising ranges include some 7-2 bluffs.

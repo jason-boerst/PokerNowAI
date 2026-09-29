@@ -337,3 +337,50 @@ describe("7-2 bounty", () => {
         expect(spot(2, "S1", "7♠, 2♦", [])!.action).to.equal("fold");
     });
 });
+
+describe("pricing calls when you close the action", () => {
+    // heads-up: S1 posts the small blind (the button), S2 the big blind; 100-chip stacks are 50 BB
+    it("folds Q7o in the big blind to a 3x open when its realized equity falls short, and calls it against 2x", () => {
+        const three_x = spot(2, "S2", "Q♣, 7♠", ["S1 raises to 6"], 100, {}, { equity: 0.464 })!;
+        expect(three_x.action).to.equal("fold");
+        expect(three_x.scenario).to.include("priced");
+        expect(three_x.reason).to.match(/46% equity/).and.to.match(/33% this call needs/).and.to.match(/Close spot/);
+        const two_x = spot(2, "S2", "Q♣, 7♠", ["S1 raises to 4"], 100, {}, { equity: 0.464 })!;
+        expect(two_x.action).to.equal("call");
+        expect(two_x.reason).to.match(/25% this call needs/);
+    });
+
+    it("uses the fixed ranges when there is no equity estimate, and still 3-bets value from the chart", () => {
+        expect(spot(2, "S2", "Q♣, 7♠", ["S1 raises to 6"])!.action).to.equal("fold");
+        expect(spot(2, "S2", "K♠, 6♦", ["S1 raises to 6"])!.action).to.equal("call");
+        expect(spot(2, "S2", "A♠, K♦", ["S1 raises to 6"], 100, {}, { equity: 0.65 })!.action).to.equal("raise");
+    });
+
+    it("prices big blind calls at a full table, including multiway pots", () => {
+        const folds = ["S3 folds", "S4 folds", "S5 folds", "S6 folds", "S7 folds", "S8 folds"];
+        expect(spot(9, "S2", "5♠, 4♠", [...folds, "S9 raises to 6", "S1 folds"], 100, {}, { equity: 0.40 })!.action).to.equal("call");
+        expect(spot(9, "S2", "7♣, 2♦", [...folds, "S9 raises to 6", "S1 folds"], 100, {}, { equity: 0.30 })!.action).to.equal("fold");
+        // a raise and a call: a better price, but a multiway pot keeps less of the equity
+        const multi = spot(9, "S2", "9♠, 8♠", [...folds.slice(0, 5), "S8 raises to 6", "S9 calls 6", "S1 folds"], 100, {}, { equity: 0.30 })!;
+        expect(multi.action).to.equal("call");
+    });
+
+    it("doesn't price a call while players behind can still act", () => {
+        const folds = ["S3 folds", "S4 folds", "S5 folds", "S6 folds", "S7 folds", "S8 folds"];
+        const sb = spot(9, "S1", "7♣, 2♦", [...folds, "S9 raises to 6"], 100, {}, { equity: 0.9 })!;
+        expect(sb.action).to.equal("fold");
+        expect(sb.scenario).to.not.include("priced");
+    });
+
+    it("gives suited and connected hands more realization than offsuit unconnected ones", async () => {
+        const { realizationOf } = await import("../../app/engine/preflop.ts");
+        const config = (await import("../../app/configs/preflop-ranges.json", { with: { type: "json" } })).default;
+        const r = (cls: string, multiway = false, spr = 10) => realizationOf(config, cls, multiway, spr);
+        expect(r("54s")).to.be.greaterThan(r("K9s"));
+        expect(r("K9s")).to.be.greaterThan(r("KJo"));
+        expect(r("KJo")).to.be.greaterThan(r("Q7o"));
+        expect(r("Q7o", true)).to.be.lessThan(r("Q7o"));
+        expect(r("Q7o", false, 2)).to.be.greaterThan(r("Q7o"));      // short stacks: played to showdown sooner
+        expect(r("Q7o", false, 40)).to.be.lessThan(r("Q7o"));       // very deep: offsuit hands lose big pots
+    });
+});

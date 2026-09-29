@@ -131,6 +131,26 @@
         "nit_pfr": 6,
         "min_hands": 20
     },
+    "price_defense": {
+        "_about": "When you close the preflop action facing one raise (the big blind, or the heads-up small blind after the big blind raises your limp), call or fold by price instead of a fixed range: call when your equity against the players still in, times the share of it a hand like yours keeps playing out of position (realization), beats the equity the call needs by 'margin'. The price changes with the raise size (a 2x open needs 25%, 3x needs 33%, 4x needs 37.5%), which a fixed range can't see. Realization shares are estimates inside the range published for big blind defense (about 60 to 85 percent; suited and connected hands keep more, offsuit unconnected hands less), not solver output. Very deep stacks cost offsuit hands a little more (they lose big pots to better kickers). 3-bets still come from the charts. Set enabled to false to use the fixed ranges.",
+        "enabled": true,
+        "realization": {
+            "pair": 0.85,
+            "suited_connected": 0.9,
+            "suited": 0.82,
+            "offsuit_broadway": 0.8,
+            "offsuit_connected": 0.74,
+            "offsuit_ace": 0.76,
+            "offsuit": 0.68
+        },
+        "multiway_factor": 0.9,
+        "short_spr_below": 4,
+        "short_spr_bonus": 0.1,
+        "deep_spr_at_least": 25,
+        "deep_offsuit_penalty": 0.04,
+        "margin": 0.01,
+        "close_spot_bb": 0.25
+    },
     "heads_up": {
         "_about": "Heads-up (2 players dealt). The small blind is the button: it acts first preflop and last after the flop, so it plays far more hands. Approximations of common heads-up strategy, not solver output.",
         "sb_open": "22+ A2+ K2+ Q2+ J2s+ J4o+ T2s+ T6o+ 92s+ 96o+ 82s+ 85o+ 72s+ 75o+ 62s+ 64o+ 52s+ 54o 42s+ 32s",
