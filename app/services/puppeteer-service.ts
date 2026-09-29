@@ -5,7 +5,8 @@ import { computeTimeout, sleep } from '../helpers/bot-helper.ts';
 import type { Response } from '../utils/error-handling-utils.ts';
 
 import { GameInfo, parseGameInfo } from '../utils/game-info-utils.ts';
-import type { OverlayContent } from '../helpers/overlay-builder.ts';
+import type { PanelModel } from '../ui/panel-model.ts';
+import { escapeHtml, renderPanel } from '../ui/panel-render.ts';
 
 
 export class PuppeteerService {
@@ -18,6 +19,8 @@ export class PuppeteerService {
     private page!: Page;
     /** Why the game can no longer be followed (tab closed, browser gone, navigated away), or null. */
     private stop_reason: string | null = null;
+    /** The panel shown for the current decision (redrawn as "previous turn" when it ends). */
+    private last_panel: PanelModel | null = null;
 
     constructor(default_timeout: number, headless_flag: boolean, use_existing_browser: boolean = false, debugging_port: number = 9222) {
         this.default_timeout = default_timeout;
@@ -297,146 +300,259 @@ export class PuppeteerService {
     }
 
     /**
-     * Inject AI suggestion overlay in the top-right corner of the game page.
-     * Shows bright with a pulse animation when fresh. Hover reveals the reason.
+     * Shows the suggestion panel (top-right by default) for this decision. The panel is drawn by
+     * renderPanel (every piece of text in its html is already escaped); this only hosts it in the page:
+     * drag to move, collapsible sections, compact mode, the AI countdown and the stale state.
      * Call dimSuggestion() after the turn ends.
      */
-    /**
-     * Shows the suggestion overlay in the top-right corner of the game page. All text is inserted
-     * with textContent (never as HTML), since it includes AI output and player names.
-     */
-    async injectSuggestion(content: OverlayContent): Promise<void> {
-        const verb: Record<string, string> = { raise: "RAISE TO", bet: "BET", call: "CALL", check: "CHECK", fold: "FOLD", "all-in": "ALL-IN" };
-        const label = verb[content.action.toLowerCase()] ?? content.action.toUpperCase();
-        const main = `${label}${content.size_bb > 0 ? ` ${content.size_bb} BB` : ""}`;
-        const chips = content.size_bb > 0 && content.big_blind > 0 ? `= ${Math.round(content.size_bb * content.big_blind * 100) / 100} chips` : "";
-        const tag = { text: content.tag ?? "", color: content.tag_color ?? "#e5e7eb", lines: content.tag_lines ?? [] };
-        await this.renderOverlay(content.status, content.header, content.context, main, chips, content.warnings, content.sections, content.reason, tag);
+    async injectSuggestion(model: PanelModel): Promise<void> {
+        this.last_panel = model;
+        const { html, css } = renderPanel(model);
+        await this.renderOverlay(html, css, model.status, model.tone, handKey(model.context),
+            `${model.context}|${model.action.verb}|${model.action.size_bb ?? ""}`);
     }
 
-    /** Minimal overlay, e.g. "Your turn: analyzing..." before the analysis is ready. */
+    /** Minimal panel, e.g. "Your turn · analyzing…" before the analysis is ready. */
     async showOverlayStatus(header: string, main: string): Promise<void> {
-        await this.renderOverlay("thinking", header, "", main, "", [], [], "", { text: "", color: "", lines: [] });
+        this.last_panel = null;
+        const html = `<div class="pgpt-panel pgpt-status-panel" data-status="thinking">` +
+            `<div class="pgpt-header"><span class="pgpt-status-dot"></span><span>${escapeHtml(header)}</span></div>` +
+            `<div class="pgpt-status-main">${escapeHtml(main)}</div>` +
+            `<div class="pgpt-status-track"><div class="pgpt-status-bar"></div></div></div>`;
+        await this.renderOverlay(html, "", "thinking", "", "", "");
     }
 
-    private async renderOverlay(status: string, header: string, context: string, main: string, chips: string,
-                                warnings: string[], sections: { title: string, lines: string[] }[], reason: string,
-                                tag: { text: string, color: string, lines: string[] }): Promise<void> {
-        await this.page.evaluate((status: string, header: string, context: string, main: string, chips: string,
-                                  warnings: string[], sections: { title: string, lines: string[] }[], reason: string,
-                                  tag: { text: string, color: string, lines: string[] }) => {
+    /**
+     * Hosts rendered panel html in the page (or, with html null, only updates the status of the panel
+     * already there). No named helpers in the page code: tsx wraps them with __name, which the page lacks.
+     */
+    private async renderOverlay(html: string | null, css: string, status: string, tone: string, hand: string, fresh_key: string): Promise<void> {
+        await this.page.evaluate((html: string | null, css: string, host_css: string, status: string, tone: string, hand: string, fresh_key: string) => {
             const id = "pokernow-gpt-suggestion";
-            if (!document.getElementById("pokernow-gpt-style")) {
-                const style = document.createElement("style");
-                style.id = "pokernow-gpt-style";
-                style.textContent = `
-                    @keyframes pgpt-pulse {
-                        0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.7); }
-                        70%  { box-shadow: 0 0 0 10px rgba(74,222,128,0); }
-                        100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
-                    }
-                    #pokernow-gpt-suggestion .pgpt-reason {
-                        max-height: 0; overflow: hidden; opacity: 0; margin-top: 0;
-                        transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
-                    }
-                    #pokernow-gpt-suggestion:hover .pgpt-reason { max-height: 200px; opacity: 1; margin-top: 8px; }
-                `;
-                document.head.appendChild(style);
-            }
             let el = document.getElementById(id) as HTMLElement | null;
+            if (html === null && !el) return;
+            if (html !== null) {
+                let style = document.getElementById("pokernow-gpt-style") as HTMLStyleElement | null;
+                if (!style) {
+                    style = document.createElement("style");
+                    style.id = "pokernow-gpt-style";
+                    (document.head ?? document.documentElement).appendChild(style);
+                }
+                const full_css = host_css + "\n" + css;
+                if (style.textContent !== full_css) style.textContent = full_css;
+            }
             if (!el) {
                 el = document.createElement("div");
                 el.id = id;
-                el.style.cssText = [
-                    "position: fixed", "top: 16px", "right: 16px", "z-index: 999999", "padding: 10px 14px",
-                    "border-radius: 10px", "font-family: system-ui, sans-serif", "width: 330px", "cursor: default",
-                    "max-height: calc(100vh - 32px)", "overflow-y: auto", "box-sizing: border-box",
-                    "transition: opacity 0.6s ease, background 0.6s ease, border-color 0.6s ease"
-                ].join(";");
+                // saved preferences (the dataset holds them for this page, so blocked storage still works)
+                el.dataset.pgptCollapsed = "[]";
+                try {
+                    const pos = JSON.parse(localStorage.getItem("pgpt-pos") ?? "null");
+                    if (pos && Number.isFinite(pos.left) && Number.isFinite(pos.top)) {
+                        el.dataset.pgptLeft = String(pos.left);
+                        el.dataset.pgptTop = String(pos.top);
+                    }
+                    const collapsed = JSON.parse(localStorage.getItem("pgpt-collapsed") ?? "[]");
+                    if (Array.isArray(collapsed)) el.dataset.pgptCollapsed = JSON.stringify(collapsed.filter((x: unknown) => typeof x === "string"));
+                    if (localStorage.getItem("pgpt-compact") === "1") el.classList.add("pgpt-compact");
+                } catch { /* storage blocked or corrupt: defaults */ }
+
+                // keep clicks on the panel away from the table underneath
+                for (const type of ["click", "dblclick", "mousedown", "pointerdown", "touchstart"]) {
+                    el.addEventListener(type, (e) => e.stopPropagation());
+                }
+                el.addEventListener("click", (e) => {
+                    const panel = document.getElementById(id);
+                    const target = e.target as HTMLElement | null;
+                    if (!panel || !target || !target.closest) return;
+                    if (target.closest('[data-pgpt-action="compact"]')) {
+                        e.preventDefault();
+                        const compact = panel.classList.toggle("pgpt-compact");
+                        try { localStorage.setItem("pgpt-compact", compact ? "1" : "0"); } catch { /* not saved */ }
+                        return;
+                    }
+                    const title = target.closest(".pgpt-section-title") as HTMLElement | null;
+                    const section = title?.closest(".pgpt-section[data-section]") as HTMLElement | null;
+                    if (!title || !section || !section.classList.contains("pgpt-collapsible") || !panel.contains(section)) return;
+                    const name = section.dataset.section ?? "";
+                    const collapsed = section.classList.toggle("pgpt-collapsed");
+                    title.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    let names: string[] = [];
+                    try { names = JSON.parse(panel.dataset.pgptCollapsed ?? "[]"); } catch { names = []; }
+                    names = names.filter((n) => n !== name);
+                    if (collapsed) names.push(name);
+                    panel.dataset.pgptCollapsed = JSON.stringify(names);
+                    try { localStorage.setItem("pgpt-collapsed", panel.dataset.pgptCollapsed); } catch { /* not saved */ }
+                });
+                el.addEventListener("keydown", (e) => {
+                    // keyboard: Enter or Space on a focused section title or button acts like a click
+                    const target = e.target as HTMLElement | null;
+                    if ((e.key === "Enter" || e.key === " ") && target && target.matches && target.matches(".pgpt-collapsible > .pgpt-section-title")) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        target.click();
+                    }
+                });
+                // drag by the header; the move and release listeners are on the window (capture phase, so
+                // they run even when the release lands on the panel)
+                el.addEventListener("mousedown", (e) => {
+                    const panel = document.getElementById(id);
+                    const target = e.target as HTMLElement | null;
+                    if (!panel || !target || !target.closest || e.button !== 0) return;
+                    if (!target.closest(".pgpt-header") || target.closest("[data-pgpt-action], button, a, input, select, textarea")) return;
+                    const rect = panel.getBoundingClientRect();
+                    panel.dataset.pgptDrag = `${e.clientX - rect.left},${e.clientY - rect.top}`;
+                    panel.classList.add("pgpt-dragging");
+                    e.preventDefault();
+                });
+                if (!(window as any).__pgpt_drag_bound) {
+                    (window as any).__pgpt_drag_bound = true;
+                    window.addEventListener("mousemove", (e) => {
+                        const panel = document.getElementById(id);
+                        if (!panel || !panel.dataset.pgptDrag) return;
+                        const [dx, dy] = panel.dataset.pgptDrag.split(",").map(Number);
+                        const left = Math.round(Math.min(Math.max(0, e.clientX - dx), Math.max(0, window.innerWidth - panel.offsetWidth)));
+                        const top = Math.round(Math.min(Math.max(0, e.clientY - dy), Math.max(0, window.innerHeight - Math.min(panel.offsetHeight, 96))));
+                        panel.dataset.pgptLeft = String(left);
+                        panel.dataset.pgptTop = String(top);
+                        panel.style.left = `${left}px`;
+                        panel.style.top = `${top}px`;
+                        panel.style.right = "auto";
+                        panel.style.maxHeight = `${Math.max(96, window.innerHeight - top - 12)}px`;
+                        panel.dataset.pgptMoved = "1";
+                        e.preventDefault();
+                    }, true);
+                    window.addEventListener("mouseup", () => {
+                        const panel = document.getElementById(id);
+                        if (!panel || !panel.dataset.pgptDrag) return;
+                        delete panel.dataset.pgptDrag;
+                        panel.classList.remove("pgpt-dragging");
+                        if (panel.dataset.pgptMoved !== "1") return;
+                        delete panel.dataset.pgptMoved;
+                        // the click that follows a drag released off the panel must not reach the table
+                        (window as any).__pgpt_swallow_click = true;
+                        setTimeout(() => { (window as any).__pgpt_swallow_click = false; }, 0);
+                        try {
+                            localStorage.setItem("pgpt-pos", JSON.stringify({ left: Number(panel.dataset.pgptLeft), top: Number(panel.dataset.pgptTop) }));
+                        } catch { /* not saved */ }
+                    }, true);
+                    window.addEventListener("click", (e) => {
+                        if (!(window as any).__pgpt_swallow_click) return;
+                        (window as any).__pgpt_swallow_click = false;
+                        e.stopPropagation();
+                        e.preventDefault();
+                    }, true);
+                    window.addEventListener("resize", () => {
+                        const panel = document.getElementById(id);
+                        if (!panel || panel.dataset.pgptLeft === undefined) return;
+                        const left = Math.min(Math.max(0, Number(panel.dataset.pgptLeft)), Math.max(0, window.innerWidth - panel.offsetWidth));
+                        const top = Math.min(Math.max(0, Number(panel.dataset.pgptTop)), Math.max(0, window.innerHeight - Math.min(panel.offsetHeight, 96)));
+                        panel.style.left = `${left}px`;
+                        panel.style.top = `${top}px`;
+                        panel.style.maxHeight = `${Math.max(96, window.innerHeight - top - 12)}px`;
+                    });
+                }
                 document.body.appendChild(el);
             }
-            // remember whether the user collapsed the details (kept on the element across redraws,
-            // including the brief "analyzing" state that has no details section)
-            const previous = el.querySelector("details") as HTMLDetailsElement | null;
-            if (previous) el.dataset.detailsOpen = previous.open ? "1" : "0";
-            const details_open = el.dataset.detailsOpen !== "0";
-            const thinking = status === "thinking";
-            const accent = thinking ? "#fbbf24" : "#4ade80";
-            el.style.background = "rgba(10,20,15,0.95)";
-            el.style.border = `2px solid ${accent}`;
-            el.style.opacity = "1";
-            el.style.animation = thinking ? "none" : "pgpt-pulse 1s ease 0s 2";
-            el.replaceChildren();
 
-            // no helper functions in here: the page runs this code without the build tool's helpers
-            const rows: [string, string, string][] = [];
-            rows.push([`${thinking ? "◌" : "●"} ${header}${reason ? " · hover for reason" : ""}`, `font-size:11px;font-weight:600;color:${accent};letter-spacing:0.03em;`, "header"]);
-            if (context) rows.push([context, "font-size:11px;color:#9ca3af;margin-bottom:2px;", ""]);
-            rows.push([main, `font-size:20px;font-weight:700;color:${thinking ? "#fde68a" : "#ffffff"};letter-spacing:0.02em;`, ""]);
-            if (chips) rows.push([chips, "font-size:12px;color:#86efac;", ""]);
-            // what kind of bet this is (value, semi-bluff, bluff; lead or c-bet) and why, always visible
-            if (tag.text) rows.push([tag.text, `font-size:13px;font-weight:700;color:${tag.color};margin-top:3px;`, ""]);
-            for (const line of tag.lines) rows.push([line, "font-size:11px;color:#e5e7eb;line-height:1.35;", ""]);
-            for (const w of warnings) rows.push([`⚠ ${w}`, "font-size:11px;color:#fbbf24;margin-top:3px;", ""]);
-            for (const [text, css, cls] of rows) {
-                const d = document.createElement("div");
-                d.textContent = text;
-                d.style.cssText = css;
-                if (cls) d.className = cls;
-                el.appendChild(d);
-            }
-            // the detail sections sit in a native collapsible element (click "Details" to hide/show)
-            if (sections.length > 0) {
-                const box = document.createElement("details");
-                box.open = details_open;
-                const summary = document.createElement("summary");
-                summary.textContent = "Details";
-                summary.style.cssText = "font-size:10px;color:#9ca3af;cursor:pointer;margin-top:6px;";
-                box.appendChild(summary);
-                for (const section of sections) {
-                    const title = document.createElement("div");
-                    title.textContent = section.title.toUpperCase();
-                    title.style.cssText = "font-size:9.5px;font-weight:600;color:#6ee7b7;letter-spacing:0.08em;margin-top:7px;";
-                    box.appendChild(title);
-                    for (const line of section.lines) {
-                        const d = document.createElement("div");
-                        d.textContent = line;
-                        d.style.cssText = "font-size:11.5px;color:#e5e7eb;line-height:1.35;white-space:pre-wrap;";
-                        box.appendChild(d);
-                    }
+            if (html !== null) {
+                // keep the scroll position while redrawing the same hand, start at the top for a new one
+                const scroll = el.scrollTop;
+                const same_hand = hand !== "" && el.dataset.pgptHand === hand;
+                el.innerHTML = html;
+                el.dataset.pgptHand = hand;
+                el.scrollTop = same_hand ? scroll : 0;
+
+                // sections: the action banner and the Why box always stay open
+                let collapsed: string[] = [];
+                try { collapsed = JSON.parse(el.dataset.pgptCollapsed ?? "[]"); } catch { collapsed = []; }
+                for (const section of Array.from(el.querySelectorAll(".pgpt-section[data-section]")) as HTMLElement[]) {
+                    const name = section.dataset.section ?? "";
+                    const title = section.querySelector(".pgpt-section-title") as HTMLElement | null;
+                    if (!title || name === "action" || name === "why" || section.dataset.collapsible === "false") continue;
+                    section.classList.add("pgpt-collapsible");
+                    title.setAttribute("role", "button");
+                    title.setAttribute("tabindex", "0");
+                    const is_collapsed = collapsed.includes(name);
+                    section.classList.toggle("pgpt-collapsed", is_collapsed);
+                    title.setAttribute("aria-expanded", is_collapsed ? "false" : "true");
                 }
-                el.appendChild(box);
+                const compact_button = el.querySelector('[data-pgpt-action="compact"]');
+                if (compact_button) compact_button.setAttribute("aria-pressed", el.classList.contains("pgpt-compact") ? "true" : "false");
+
+                // countdown while the AI thinks: width from its current share of the budget down to 0
+                for (const bar of Array.from(el.querySelectorAll(".pgpt-countdown[data-budget-ms][data-started-at]")) as HTMLElement[]) {
+                    const budget = Number(bar.dataset.budgetMs);
+                    const started = Number(bar.dataset.startedAt);
+                    if (!(budget > 0) || !Number.isFinite(started)) continue;
+                    const remaining = Math.max(0, Math.min(budget, budget - (Date.now() - started)));
+                    bar.style.transition = "none";
+                    bar.style.width = `${(remaining / budget) * 100}%`;
+                    void bar.offsetWidth;
+                    bar.style.transition = `width ${Math.round(remaining)}ms linear`;
+                    bar.style.width = "0%";
+                }
+
+                // a short glow in the action's color when a new decision arrives
+                if (status === "final" && el.dataset.pgptFresh !== fresh_key) {
+                    el.classList.remove("pgpt-flash");
+                    void el.offsetWidth;
+                    el.classList.add("pgpt-flash");
+                }
+                el.dataset.pgptFresh = status === "final" ? fresh_key : "";
+                if (tone) el.dataset.tone = tone;
+                else delete el.dataset.tone;
             }
-            if (reason) {
-                const d = document.createElement("div");
-                d.textContent = reason;
-                d.className = "pgpt-reason";
-                d.style.cssText = "font-size:12px;color:#a3e4b0;line-height:1.5;border-top:1px solid rgba(74,222,128,0.3);padding-top:8px;";
-                el.appendChild(d);
+
+            // status (a stale panel stays readable but greyed, with a "Previous turn" label)
+            el.dataset.status = status;
+            const panel_root = el.querySelector(".pgpt-panel") as HTMLElement | null;
+            if (panel_root) panel_root.dataset.status = status;
+            if (status === "stale") {
+                el.classList.remove("pgpt-flash");
+                for (const bar of Array.from(el.querySelectorAll(".pgpt-countdown")) as HTMLElement[]) {
+                    bar.style.transition = "none";
+                    bar.style.width = "0%";
+                }
+                if (!el.querySelector(".pgpt-stale-banner")) {
+                    const banner = document.createElement("div");
+                    banner.className = "pgpt-stale-banner";
+                    banner.textContent = "Previous turn · not your current decision";
+                    (panel_root ?? el).prepend(banner);
+                }
             }
-        }, status, header, context, main, chips, warnings, sections, reason, tag);
+
+            // position: saved spot (clamped to the window) or the top-right corner
+            if (el.dataset.pgptLeft !== undefined && el.dataset.pgptTop !== undefined) {
+                const left = Math.min(Math.max(0, Number(el.dataset.pgptLeft)), Math.max(0, window.innerWidth - el.offsetWidth));
+                const top = Math.min(Math.max(0, Number(el.dataset.pgptTop)), Math.max(0, window.innerHeight - Math.min(el.offsetHeight, 96)));
+                el.style.left = `${left}px`;
+                el.style.top = `${top}px`;
+                el.style.right = "auto";
+                el.style.maxHeight = `${Math.max(96, window.innerHeight - top - 12)}px`;
+            } else {
+                el.style.left = "auto";
+                el.style.top = "16px";
+                el.style.right = "16px";
+                el.style.maxHeight = "calc(100vh - 32px)";
+            }
+        }, html, css, HOST_CSS, status, tone, hand, fresh_key);
     }
 
     /**
-     * Dim the suggestion overlay after the player's turn ends,
-     * so the user knows it's from the previous round.
+     * Switches the panel to a clear "Previous turn" state after the player's turn ends: greyed but
+     * readable, so the user knows it's not for the current decision.
      */
     async dimSuggestion(): Promise<void> {
-        await this.page.evaluate(() => {
-            const el = document.getElementById("pokernow-gpt-suggestion") as HTMLElement | null;
-            if (!el) return;
-            el.style.animation = "none";
-            el.style.opacity = "0.35";
-            el.style.border = "2px solid rgba(255,255,255,0.15)";
-            el.style.background = "rgba(0,0,0,0.7)";
-            const label = el.querySelector(".header") as HTMLElement | null;
-            if (label) {
-                label.style.color = "#888";
-                label.textContent = "○ Previous turn (not current)";
-            }
-        });
+        const last = this.last_panel;
+        if (last) {
+            const { html, css } = renderPanel({ ...last, status: "stale", thinking: undefined });
+            await this.renderOverlay(html, css, "stale", last.tone, handKey(last.context), "");
+        } else {
+            await this.renderOverlay(null, "", "stale", "", "", "");
+        }
     }
-    
+
     // game has not started yet -> "waiting state"
     // joined when hand is currently in progress -> "in next hand"
     // if player is in waiting state, wait for next hand
@@ -798,3 +914,55 @@ export class PuppeteerService {
         }
     }
 }
+
+/** "Hand #14" from the panel's context line (for keeping the scroll position within a hand). */
+function handKey(context: string): string {
+    return /Hand #\d+/.exec(context)?.[0] ?? context;
+}
+
+/**
+ * Styles the in-page host needs whatever the panel design: placement, dragging, collapsed sections,
+ * the stale state and the brief "analyzing" panel. The renderer's CSS comes after it, so it can override.
+ */
+const HOST_CSS = `
+#pokernow-gpt-suggestion{position:fixed;z-index:2147483000;width:384px;max-width:calc(100vw - 16px);box-sizing:border-box;
+  overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;border-radius:14px;cursor:default;text-align:left;
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;
+  scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.4) transparent;transition:opacity .3s ease,filter .3s ease;
+  --pgpt-host-accent:#94a3b8}
+#pokernow-gpt-suggestion[data-tone="fold"]{--pgpt-host-accent:#ef4444}
+#pokernow-gpt-suggestion[data-tone="check"]{--pgpt-host-accent:#eab308}
+#pokernow-gpt-suggestion[data-tone="go"]{--pgpt-host-accent:#22c55e}
+#pokernow-gpt-suggestion::-webkit-scrollbar{width:8px}
+#pokernow-gpt-suggestion::-webkit-scrollbar-thumb{background:rgba(148,163,184,.35);border-radius:8px}
+#pokernow-gpt-suggestion .pgpt-header{cursor:grab;user-select:none;-webkit-user-select:none}
+#pokernow-gpt-suggestion.pgpt-dragging,#pokernow-gpt-suggestion.pgpt-dragging *{cursor:grabbing !important;user-select:none;-webkit-user-select:none}
+#pokernow-gpt-suggestion.pgpt-dragging{transition:none;opacity:.92}
+#pokernow-gpt-suggestion [data-pgpt-action]{cursor:pointer}
+#pokernow-gpt-suggestion .pgpt-collapsible>.pgpt-section-title{cursor:pointer;user-select:none;-webkit-user-select:none}
+#pokernow-gpt-suggestion .pgpt-collapsible>.pgpt-section-title::after{content:"\\25BE";margin-left:auto;padding-left:6px;float:right;opacity:.55;display:inline-block;transition:transform .15s ease}
+#pokernow-gpt-suggestion .pgpt-collapsible.pgpt-collapsed>.pgpt-section-title::after{transform:rotate(-90deg)}
+#pokernow-gpt-suggestion .pgpt-collapsible>.pgpt-section-title:focus-visible{outline:2px solid rgba(148,163,184,.7);outline-offset:2px;border-radius:4px}
+#pokernow-gpt-suggestion .pgpt-collapsed>.pgpt-section-body{display:none}
+#pokernow-gpt-suggestion .pgpt-countdown{will-change:width}
+@keyframes pgpt-host-flash{0%{box-shadow:0 0 0 0 var(--pgpt-host-accent)}100%{box-shadow:0 0 0 16px rgba(0,0,0,0)}}
+#pokernow-gpt-suggestion.pgpt-flash{animation:pgpt-host-flash .9s ease-out 2}
+#pokernow-gpt-suggestion[data-status="stale"]{filter:grayscale(1) brightness(.8)}
+#pokernow-gpt-suggestion[data-status="stale"]:hover{filter:grayscale(.6) brightness(.95)}
+#pokernow-gpt-suggestion .pgpt-stale-banner{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:5px 10px;border-radius:8px;
+  background:rgba(148,163,184,.18);border:1px dashed rgba(148,163,184,.55);color:#e2e8f0;font-size:11px;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase}
+#pokernow-gpt-suggestion .pgpt-stale-banner::before{content:"";width:7px;height:7px;border-radius:50%;background:#94a3b8;flex:none}
+#pokernow-gpt-suggestion .pgpt-status-panel{background:rgba(12,17,28,.96);border:1px solid rgba(148,163,184,.35);border-radius:14px;
+  padding:12px 14px 12px;color:#e5e7eb;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+#pokernow-gpt-suggestion .pgpt-status-panel .pgpt-header{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;
+  letter-spacing:.07em;text-transform:uppercase;color:#cbd5e1}
+@keyframes pgpt-host-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
+#pokernow-gpt-suggestion .pgpt-status-dot{width:8px;height:8px;border-radius:50%;background:#60a5fa;flex:none;animation:pgpt-host-dot 1.1s ease-in-out infinite}
+#pokernow-gpt-suggestion .pgpt-status-main{margin-top:6px;font-size:20px;font-weight:800;color:#f8fafc;letter-spacing:.02em}
+#pokernow-gpt-suggestion .pgpt-status-track{position:relative;height:4px;margin-top:10px;border-radius:4px;background:rgba(148,163,184,.2);overflow:hidden}
+@keyframes pgpt-host-slide{0%{left:-40%}100%{left:100%}}
+#pokernow-gpt-suggestion .pgpt-status-bar{position:absolute;top:0;bottom:0;width:40%;border-radius:4px;
+  background:linear-gradient(90deg,rgba(96,165,250,0),#60a5fa,rgba(96,165,250,0));animation:pgpt-host-slide 1.2s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){#pokernow-gpt-suggestion *,#pokernow-gpt-suggestion{animation:none !important}}
+`;
