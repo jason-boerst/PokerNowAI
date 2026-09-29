@@ -1,0 +1,61 @@
+{
+    "_about": "Preflop strategy for full-ring (7-9 player) cash games against loose, passive players. These are hand-built approximations of common full-ring ranges with exploitative adjustments, NOT solver output. Edit freely; notation: 77+ (pairs 77 and up), ATs+ (ATs..AKs), TT-66, A5s-A2s, KQo, KQ (both suited and offsuit).",
+
+    "open": {
+        "UTG":   "88+ ATs+ KJs+ QJs AQo+",
+        "UTG+1": "77+ ATs+ KTs+ QJs JTs AQo+",
+        "MP":    "66+ A9s+ KTs+ QTs+ JTs T9s AJo+ KQo",
+        "LJ":    "55+ A7s+ A5s KTs+ QTs+ JTs T9s 98s ATo+ KQo",
+        "HJ":    "44+ A2s+ K9s+ Q9s+ J9s+ T9s 98s 87s ATo+ KJo+",
+        "CO":    "22+ A2s+ K7s+ Q8s+ J8s+ T8s+ 97s+ 87s 76s 65s A8o+ KTo+ QTo+ JTo",
+        "BU":    "22+ A2s+ K2s+ Q5s+ J7s+ T7s+ 96s+ 86s+ 75s+ 65s 54s A2o+ K8o+ Q9o+ J9o+ T9o",
+        "SB":    "22+ A2s+ K5s+ Q8s+ J8s+ T8s+ 98s 87s 76s A7o+ KTo+ QJo"
+    },
+
+    "isolate_limpers": {
+        "early":  "99+ AJs+ KQs AQo+",
+        "middle": "88+ ATs+ KJs+ AJo+ KQo",
+        "late":   "77+ ATs+ KTs+ QJs AJo+ KQo",
+        "blinds": "99+ AJs+ KQs AQo+"
+    },
+    "overlimp_in_position": "22+ A2s+ KTs+ QTs+ JTs T9s 98s 87s 76s 65s 54s",
+    "complete_small_blind": "22+ A2s+ K9s+ Q9s+ J9s+ T9s 98s 87s 76s 65s",
+
+    "three_bet_value": {
+        "default":   "QQ+ AKs AKo",
+        "vs_loose":  "JJ+ AQs+ AKo",
+        "vs_nit":    "KK+"
+    },
+    "call_raise": {
+        "in_position": "22+ AJs+ ATs KQs KJs QJs JTs T9s 98s AQo",
+        "small_blind": "22+ AQs AJs KQs AQo",
+        "big_blind":   "22+ A2s+ KTs+ QTs+ J9s+ T9s 98s 87s 76s AJo+ KQo",
+        "vs_nit":      "22+ AQs AKo"
+    },
+    "call_raise_multiway": "22+ A2s+ KTs+ QTs+ JTs T9s 98s 87s AQo+",
+
+    "four_bet_value": "KK+",
+    "call_three_bet": "QQ JJ TT AKs AKo AQs",
+    "continue_vs_four_bet": "KK+",
+
+    "sizing": {
+        "open_bb": 3,
+        "open_extra_bb_vs_loose_field": 1,
+        "isolate_base_bb": 4,
+        "isolate_per_limper_bb": 1,
+        "out_of_position_extra_bb": 1,
+        "three_bet_multiplier_in_position": 3,
+        "three_bet_multiplier_out_of_position": 4,
+        "three_bet_extra_per_caller": 1,
+        "four_bet_multiplier": 2.3,
+        "set_mine_min_stack_to_call_ratio": 15,
+        "all_in_when_raise_uses_share_of_stack": 0.4
+    },
+
+    "player_types": {
+        "loose_vpip": 40,
+        "loose_raiser_pfr": 20,
+        "nit_pfr": 6,
+        "min_hands": 20
+    }
+}

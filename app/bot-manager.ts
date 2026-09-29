@@ -84,7 +84,7 @@ const bot_manager = async function() {
     await log_service.init();
 
     const recorder = new HandRecorder(db_service);
-    const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder);
+    const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder, { preflop_engine: bot_config.preflop_engine ?? true });
     startLiveCommands(ai_service, ai_config);
     await bot.run();
 }

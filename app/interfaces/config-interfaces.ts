@@ -21,7 +21,9 @@ export interface BotConfig {
     debug_mode: DebugMode,
     query_retries: number,
     /** When true, AI only shows suggestion in top-right; user clicks actions manually. */
-    assistant_mode: boolean
+    assistant_mode: boolean,
+    /** Preflop decisions from the rule-based engine (app/configs/preflop-ranges.json) instead of the AI. Default true. */
+    preflop_engine?: boolean
 }
 
 export interface WebDriverConfig {

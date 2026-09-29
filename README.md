@@ -125,6 +125,11 @@ Manual steps: `npm run chrome` in one terminal, `npm run start:bot` in another. 
 | Browser | Your visible Chrome window | Your Chrome window, or a headless browser the bot launches if `webdriver-config.json` has `"use_existing_browser": false` |
 | Config | `bot-config.json`: `"assistant_mode": true` | `bot-config.json`: `"assistant_mode": false` (the bot asks for a name and stack and requests the seat itself) |
 
+## How decisions are made
+
+- **Preflop:** a rule-based engine answers instantly, with no AI call. It covers unopened pots, limpers, a raise (with or without callers), 3-bets and 4-bets, and adjusts for opponents' stats: bigger raises when the players left to act or the limpers call too much, wider value 3-bets against loose raisers, tighter play against nits, and folding small pairs when stacks are too short to set-mine. The ranges and sizes are in `app/configs/preflop-ranges.json`. They are hand-built approximations for loose full-ring games, not solver output, and you can edit them. Set `"preflop_engine": false` in `app/configs/bot-config.json` to use the AI preflop instead.
+- **Flop, turn and river:** the AI model, with the `[Engine]` equity estimate printed alongside.
+
 ## Measuring how well it plays
 
 Every decision and every finished hand is recorded in `app/pokernow-gpt.db` while the bot runs.

@@ -6,7 +6,8 @@ import { HandRecorder } from './services/hand-recorder.ts';
 import { formatSpot } from './engine/spot-format.ts';
 import { equity } from './engine/equity.ts';
 import { requiredEquity } from './engine/odds.ts';
-import { opponentModels } from './engine/opponent-range.ts';
+import { ObservedStats, opponentModels } from './engine/opponent-range.ts';
+import { preflopAdvice } from './engine/preflop.ts';
 import { rangePercent } from './engine/ranges.ts';
 import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
 
@@ -27,6 +28,11 @@ import { postProcessLogs, postProcessLogsAfterHand, preProcessLogs } from './uti
 import { getIdToInitialStackFromMsg, getIdToNameFromMsg, getIdToTableSeatFromMsg, getNameToIdFromMsg, getPlayerStacksMsg, getTableSeatToIdFromMsg, validateAllMsg } from './utils/message-processing-utils.ts';
 import { convertToBBs, convertToValue } from './utils/value-conversion-utils.ts'
 
+export interface BotOptions {
+    /** Use the rule-based preflop engine instead of the AI for preflop decisions. */
+    preflop_engine: boolean
+}
+
 export class Bot {
     private log_service: LogService;
     private ai_service: AIService;
@@ -40,6 +46,7 @@ export class Bot {
 
     private first_created: string;
     private recorder?: HandRecorder;
+    private options: BotOptions;
     /** Current hand's log lines at the latest decision point (for recording and the hand state). */
     private current_hand_messages: string[] = [];
     /** True when the blinds were typed in because the page text could not be parsed. */
@@ -58,9 +65,11 @@ export class Bot {
                 debug_mode: DebugMode,
                 query_retries: number,
                 assistant_mode: boolean = false,
-                recorder?: HandRecorder) 
+                recorder?: HandRecorder,
+                options: Partial<BotOptions> = {}) 
     {
         this.recorder = recorder;
+        this.options = { preflop_engine: true, ...options };
         this.log_service = log_service;
         this.ai_service = ai_service;
         this.player_service = player_service;
@@ -248,18 +257,27 @@ export class Bot {
                     // If logs never succeeded (first_fetch still true), the name→id map is
                     // not yet populated so updateHero and constructQuery would both crash.
                     // Skip everything AI-related and wait for the next turn.
-                    if (processed_logs.first_fetch) {
+                    // preflop: deterministic engine, no AI call (null if disabled or the spot isn't covered)
+                    const engine_action = this.preflopEngineAction(hand_state);
+                    if (processed_logs.first_fetch && !engine_action) {
                         console.log("Skipping AI query: logs not yet available, waiting for next turn.");
                     } else {
-                        await this.updateHero(hand, convertToBBs(stack_size, this.game.getBigBlind()));
-                        // post process logs and construct query
-                        await postProcessLogs(this.table.getLogsQueue(), this.game);
-                        const query = constructQuery(this.game);
-                        // query chatGPT and make action
+                        if (!processed_logs.first_fetch) {
+                            // keep the legacy table state (used by the AI prompt) in sync every turn
+                            await this.updateHero(hand, convertToBBs(stack_size, this.game.getBigBlind()));
+                            await postProcessLogs(this.table.getLogsQueue(), this.game);
+                        }
                         try {
                             const started = Date.now();
-                            const bot_action = await this.queryBotAction(query, this.query_retries);
-                            await this.recordDecision(hand_state, hand, query, bot_action, Date.now() - started);
+                            let bot_action: BotAction;
+                            let query = "";
+                            if (engine_action) {
+                                bot_action = engine_action;
+                            } else {
+                                query = constructQuery(this.game);
+                                bot_action = await this.queryBotAction(query, this.query_retries);
+                            }
+                            await this.recordDecision(hand_state, hand, query, bot_action, Date.now() - started, engine_action ? "engine" : "llm");
                             this.table.resetPlayerActions();
                             if (this.assistant_mode) {
                                 await this.puppeteer_service.injectSuggestion(bot_action.action_str, bot_action.bet_size_in_BBs, bot_action.reason ?? "", this.game.getBigBlind());
@@ -332,14 +350,7 @@ export class Bot {
     private printEquity(state: HandState, view: HeroView): void {
         if (state.hero_cards.length !== 2 || view.active_opponents.length === 0) return;
         try {
-            const models = opponentModels(state, (name) => {
-                try {
-                    const st = this.table.getPlayerStatsFromName(name);
-                    return { vpip: st.computeVPIPStat(), pfr: st.computePFRStat(), hands: st.getTotalHands() };
-                } catch {
-                    return undefined;
-                }
-            });
+            const models = opponentModels(state, (name) => this.statsLookup(name));
             const result = equity({ hero: state.hero_cards, board: state.board, opponents: models.map((m) => m.model), time_budget_ms: 150 });
             const need = view.to_call > 0 ? ` (need ${Math.round(requiredEquity(view.to_call, view.pot) * 100)}% to call)` : "";
             const ranges = models.map((m) => `${m.seat.position} ~${Math.round(rangePercent(m.model.range))}%`).join(", ");
@@ -349,9 +360,31 @@ export class Bot {
         }
     }
 
-    private async recordDecision(state: HandState | null, dom_hand: string[], prompt: string, action: BotAction, latency_ms: number): Promise<void> {
+    /** Player stats by name for the engine (undefined if the player isn't known yet). */
+    private statsLookup(name: string): ObservedStats | undefined {
+        try {
+            const st = this.table.getPlayerStatsFromName(name);
+            return { vpip: st.computeVPIPStat(), pfr: st.computePFRStat(), hands: st.getTotalHands() };
+        } catch {
+            return undefined;
+        }
+    }
+
+    /** Preflop advice from the rule-based engine, as a bot action (null when not applicable). */
+    private preflopEngineAction(state: HandState | null): BotAction | null {
+        if (!this.options.preflop_engine || !state || state.street !== "preflop") return null;
+        const view = heroView(state);
+        if (!view) return null;
+        const advice = preflopAdvice(state, view, (name) => this.statsLookup(name));
+        if (!advice) return null;
+        const size = advice.action === "raise" || advice.action === "all-in" ? ` to ${advice.size_bb} BB` : "";
+        console.log(`[Preflop] ${advice.action.toUpperCase()}${size} (${advice.scenario}): ${advice.reason}`);
+        return { action_str: advice.action, bet_size_in_BBs: advice.size_bb, reason: advice.reason };
+    }
+
+    private async recordDecision(state: HandState | null, dom_hand: string[], prompt: string, action: BotAction, latency_ms: number, source: "llm" | "engine" = "llm"): Promise<void> {
         if (!this.recorder || this.current_hand_messages.length === 0) return;
-        const last = this.hand_history[this.hand_history.length - 1];
+        const last = source === "llm" ? this.hand_history[this.hand_history.length - 1] : undefined;
         await this.recorder.recordDecision({
             game_id: this.game_id,
             hand_number: state?.hand_number ?? null,
@@ -361,10 +394,10 @@ export class Bot {
             hero_cards: state?.hero_cards.length ? state.hero_cards : parseCards(dom_hand.join(" ")),
             big_blind: this.game.getBigBlind(),
             prompt,
-            response: last && last.metadata.role !== "user" ? last.text_content : "",
+            response: source === "engine" ? action.reason ?? "" : last && last.metadata.role !== "user" ? last.text_content : "",
             action,
-            model: this.ai_service.getModelName(),
-            source: "llm",
+            model: source === "engine" ? "preflop-engine" : this.ai_service.getModelName(),
+            source,
             latency_ms
         });
     }

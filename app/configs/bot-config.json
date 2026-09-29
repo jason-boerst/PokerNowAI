@@ -1,5 +1,6 @@
 {
     "debug_mode": 1,
     "query_retries": 2,
-    "assistant_mode": true
+    "assistant_mode": true,
+    "preflop_engine": true
 }
