@@ -197,9 +197,10 @@ export async function startDashboard(port: number, db_file = "./app/pokernow-gpt
     }));
 
     // how the bot's suggestions worked out, by where they came from (filled in by the results tracker)
-    app.get("/api/results", (_req, res) => {
-        res.json({ sources: [], note: "No tracked suggestions yet. They are recorded while the bot runs." });
-    });
+    // how each suggestion source did, when you followed it vs when you didn't
+    app.get("/api/results", handle(async (_req, res) => {
+        res.json(await recorder.results());
+    }));
 
     app.post("/api/import", handle(async (req, res) => {
         const files: { name: string, text: string }[] = req.body?.files ?? [];
