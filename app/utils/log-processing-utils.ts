@@ -30,7 +30,8 @@ export function preProcessLogs(logs: Array<Array<string>>, game: Game) {
     const table = game.getTable();
     logs = logs.reverse();
     logs.forEach((element) => {
-        if (element[2] === 'posts' && element[4] === game.getSmallBlind().toString()) {
+        // compare numerically: the log may write "0.10" for a 0.1 small blind
+        if (element[2] === 'posts' && Number(element[4]) === game.getSmallBlind()) {
             table.setFirstSeatOrderId(element[0]);
         }
         table.updateLogsQueue(element);

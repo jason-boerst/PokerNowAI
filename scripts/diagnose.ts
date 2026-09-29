@@ -60,4 +60,32 @@ const blinds = await game_page.$eval(".game-infos > .blind-value-ctn > .blind-va
 console.log(`\nBlinds text: ${blinds === null ? "(not found)" : JSON.stringify(blinds)}`);
 console.log("\nIf items marked \"expected always\" are missing while the table is visible, PokerNow's page layout has changed.");
 
+// Game log: the bot reads each hand's actions from this endpoint (fetched inside the tab, like PokerNow does).
+const game_id = game_page.url().split("/games/")[1]?.split(/[?#/]/)[0];
+const log = await game_page.evaluate(async (path) => {
+    const res = await fetch(path, { credentials: "include", headers: { "Accept": "application/json" } });
+    return { status: res.status, text: await res.text() };
+}, `/games/${game_id}/log?before_at=&after_at=&mm=false&v=2`).catch((err) => ({ status: -1, text: String(err) }));
+
+console.log(`\nGame log: HTTP ${log.status}`);
+let parsed: any = null;
+try {
+    parsed = JSON.parse(log.text);
+} catch {
+    console.log(`  not JSON; starts with: ${JSON.stringify(log.text.slice(0, 120))}`);
+}
+if (parsed) {
+    const logs = Array.isArray(parsed.logs) ? parsed.logs : null;
+    console.log(`  top-level keys: ${Object.keys(parsed).join(", ") || "none"}`);
+    if (logs) {
+        const msgs: string[] = logs.map((l: any) => typeof l?.msg === "string" ? l.msg : JSON.stringify(l));
+        console.log(`  entries: ${logs.length}; entry keys: ${Object.keys(logs[0] ?? {}).join(", ")}`);
+        console.log(`  contains "starting hand #": ${msgs.some((m) => m.includes("starting hand #"))}; contains "Player stacks": ${msgs.some((m) => m.includes("Player stacks"))}`);
+        console.log("  newest entries (player names replaced with <player>):");
+        for (const m of msgs.slice(0, 15)) {
+            console.log(`    ${m.replace(/"[^"]*"/g, '"<player>"').slice(0, 160)}`);
+        }
+    }
+}
+
 await browser.disconnect();

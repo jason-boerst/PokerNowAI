@@ -126,6 +126,7 @@ Manual steps: `npm run chrome` in one terminal, `npm run start:bot` in another. 
 ## Troubleshooting
 
 - **The bot stops or seems stuck after opening the game:** with the game open in the bot's Chrome window, run `npm run diagnose` in a second terminal. It lists which table elements the bot can see (element counts and the blinds text only, no names or cards). If items marked "expected always" are missing while the table is visible, PokerNow has changed its page layout and the bot's selectors need updating.
+- **"Failed to pull logs: ..."** the message after the colon says why (HTTP status, not JSON, no hand start found). The game log is fetched from inside the game tab, so the game must stay open in the bot's Chrome window. `npm run diagnose` also checks the log and prints its newest entries with player names hidden.
 - **"Could not read the blinds from the page":** the bot shows the text it found and asks you to type the blinds (e.g. `10/20`). Please report that text so the parser can be fixed.
 
 ## Development

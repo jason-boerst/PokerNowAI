@@ -78,7 +78,7 @@ const bot_manager = async function() {
 
     const player_service = new PlayerService(db_service);
 
-    const log_service = new LogService(game_id);
+    const log_service = new LogService(game_id, (path) => puppeteer_service.fetchInPage(path));
     await log_service.init();
 
     const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode);

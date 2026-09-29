@@ -215,7 +215,7 @@ export class Bot {
                                 await sleep(500);
                                 return await this.pullAndProcessLogs(processed_logs.last_created, processed_logs.first_fetch);
                             } catch (err) {
-                                console.log("Failed to pull logs.");
+                                console.log("Failed to pull logs:", err instanceof Error ? err.message : err);
                                 return processed_logs;
                             }
                         })(),
@@ -278,7 +278,7 @@ export class Bot {
             await postProcessLogsAfterHand(processed_logs.valid_msgs, this.game);
             await this.table.processPlayers();
         } catch (err) {
-            console.log("Failed to process players:", err);
+            console.log("Failed to process players:", err instanceof Error ? err.message : err);
         }
         
         logResponse(await this.puppeteer_service.waitForHandEnd(), this.debug_mode);
@@ -346,7 +346,7 @@ export class Bot {
                 first_fetch: first_fetch
             }
         } else {
-            throw new Error("Failed to pull logs.");
+            throw log.error;
         }
     }
 

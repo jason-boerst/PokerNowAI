@@ -1,6 +1,11 @@
 import { Action, Street } from "./log-processing-utils.ts";
 import { convertToBBs } from "./value-conversion-utils.ts";
 
+/** Parses a chip amount such as "1,000" or "19.90". */
+export function parseAmount(text: string): number {
+    return Number(text.replace(/,/g, ""));
+}
+
 export function getPlayer(msg: string): Array<string> {
     const res = new Array<string>;
     const split = msg.split(" @ ");
@@ -37,11 +42,11 @@ export function getPlayerStacksMsg(msgs: Array<string>): string {
 }
 
 export function getIdToInitialStackFromMsg(msg: string, stakes: number): Map<string, number>{
-    const re = RegExp('\\@\\s([^"]*)\\"\\s\\((\\d+)\\)', 'g');
+    const re = RegExp('\\@\\s([^"]*)\\"\\s\\(([\\d,]+(?:\\.\\d+)?)\\)', 'g');
     const res = new Map<string, number>;
     const matches = [...msg.matchAll(re)];
     matches.forEach((element) => {
-        res.set(element[1], convertToBBs(Number(element[2]), stakes));
+        res.set(element[1], convertToBBs(parseAmount(element[2]), stakes));
     })
     return res;
 }
@@ -117,7 +122,8 @@ export function validateAllMsg(msgs: Array<string>): Array<Array<string>> {
             const player_action  = getPlayerAction(message, player[0]);
             const validate = validateMsg(player_action);
             if (!(validate === undefined || validate.length == 0)) {
-                let value = validate[1].replace(/\D/g, "");
+                // first number in the action, keeping decimals ("calls 0.20" -> "0.20")
+                let value = (validate[1].match(/\d[\d,]*(?:\.\d+)?/)?.[0] ?? "").replace(/,/g, "");
                 let curr = player.concat(validate).concat(value);
                 res.push(curr);
             }

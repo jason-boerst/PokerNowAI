@@ -40,6 +40,17 @@ export class PuppeteerService {
         }
     }
 
+    /**
+     * Fetches a same-origin path (e.g. "/games/<id>/log?...") from inside the game tab, so the
+     * request uses the page's domain (pokernow.com or .club) and the user's login cookies.
+     */
+    async fetchInPage(path: string): Promise<{ status: number, text: string }> {
+        return await this.page.evaluate(async (p) => {
+            const res = await fetch(p, { credentials: "include", headers: { "Accept": "application/json" } });
+            return { status: res.status, text: await res.text() };
+        }, path);
+    }
+
     async closeBrowser(): Promise<void> {
         if (this.use_existing_browser) {
             // Don't close the user's browser – just disconnect.
@@ -219,7 +230,7 @@ export class PuppeteerService {
         if (betSizeInBBs > 0) {
             sub = ` ${betSizeInBBs} BB`;
             if (bigBlind > 0) {
-                const chips = Math.round(betSizeInBBs * bigBlind * 10) / 10;
+                const chips = Math.round(betSizeInBBs * bigBlind * 100) / 100;
                 chipSub = ` (= ${chips} chips)`;
             }
         }
