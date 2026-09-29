@@ -15,6 +15,7 @@ import { BotConfig, WebDriverConfig } from './interfaces/config-interfaces.ts';
 import { AIServiceFactory, resolveAIConfig } from './helpers/ai-service-factory.ts';
 import { chooseModelIfNeeded } from './helpers/model-picker.ts';
 import { ask } from './helpers/terminal.ts';
+import { startLiveCommands } from './helpers/live-commands.ts';
 
 const bot_config: BotConfig = bot_config_json;
 const webdriver_config: WebDriverConfig = webdriver_config_json;
@@ -82,6 +83,7 @@ const bot_manager = async function() {
     await log_service.init();
 
     const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode);
+    startLiveCommands(ai_service, ai_config);
     await bot.run();
 }
 

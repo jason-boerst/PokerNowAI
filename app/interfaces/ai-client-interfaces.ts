@@ -44,6 +44,11 @@ export abstract class AIService {
         return this.model_name;
     }
 
+    /** Switches models; takes effect from the next query. */
+    setModelName(model_name: string): void {
+        this.model_name = model_name;
+    }
+
     getPlaystyle(): string {
         return this.playstyle;
     }

@@ -56,20 +56,32 @@ export function searchModels(models: OpenRouterModel[], query: string): OpenRout
     });
 }
 
+export interface PickModelOptions {
+    /** Output function (defaults to console.log). */
+    print?: (...args: unknown[]) => void,
+    /** When true, typing "q" returns "" to cancel (used for switching models mid-game). */
+    allow_cancel?: boolean
+}
+
 /**
  * Interactive model menu. `ask` returns the user's answer, or null if input was cancelled.
  * Accepts a search, a number from the last list shown, an exact model ID, "all", or Enter for the last model used.
  */
-export async function pickModel(models: OpenRouterModel[], ask: (question: string) => Promise<string | null> | string | null, last_model?: string): Promise<string> {
+export async function pickModel(models: OpenRouterModel[], ask: (question: string) => Promise<string | null> | string | null, last_model?: string, options: PickModelOptions = {}): Promise<string> {
+    const print = options.print ?? console.log;
     let shown: OpenRouterModel[] = [];
-    console.log(`\nOpenRouter currently lists ${models.length} models.`);
+    print(`\nOpenRouter currently lists ${models.length} models.`);
     while (true) {
         const default_hint = last_model ? `, or press Enter for ${last_model}` : "";
-        const answer = await ask(`Search models (e.g. "claude", "gpt", "gemini", "free"), type "all", or a number from the list${default_hint}: `);
+        const cancel_hint = options.allow_cancel ? `, "q" to cancel` : "";
+        const answer = await ask(`Search models (e.g. "claude", "gpt", "gemini", "free"), type "all", or a number from the list${default_hint}${cancel_hint}: `);
         if (answer === null) {
             process.exit(0);
         }
         const input = answer.trim();
+        if (options.allow_cancel && input.toLowerCase() === "q") {
+            return "";
+        }
 
         if (!input) {
             if (last_model) {
@@ -82,7 +94,7 @@ export async function pickModel(models: OpenRouterModel[], ask: (question: strin
             if (picked) {
                 return picked.id;
             }
-            console.log("No model with that number in the list above.");
+            print("No model with that number in the list above.");
             continue;
         }
         const exact = models.find((m) => m.id === input);
@@ -93,18 +105,18 @@ export async function pickModel(models: OpenRouterModel[], ask: (question: strin
         const show_all = input.toLowerCase() === "all";
         const matches = show_all ? models : searchModels(models, input);
         if (matches.length === 0) {
-            console.log("No models match that search.");
+            print("No models match that search.");
             continue;
         }
         shown = show_all ? matches : matches.slice(0, MAX_SHOWN);
-        shown.forEach((m, i) => console.log(`  ${String(i + 1).padStart(3)}. ${describeModel(m)}`));
+        shown.forEach((m, i) => print(`  ${String(i + 1).padStart(3)}. ${describeModel(m)}`));
         if (matches.length > shown.length) {
-            console.log(`  ... and ${matches.length - shown.length} more. Add words to narrow the search.`);
+            print(`  ... and ${matches.length - shown.length} more. Add words to narrow the search.`);
         }
     }
 }
 
-function readLastModel(): string | undefined {
+export function readLastModel(): string | undefined {
     try {
         return readFileSync(LAST_MODEL_FILE, "utf8").trim() || undefined;
     } catch {
@@ -112,7 +124,7 @@ function readLastModel(): string | undefined {
     }
 }
 
-function saveLastModel(model: string): void {
+export function saveLastModel(model: string): void {
     try {
         writeFileSync(LAST_MODEL_FILE, model + "\n");
     } catch {
