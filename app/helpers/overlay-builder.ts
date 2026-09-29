@@ -1,38 +1,19 @@
-// Builds the content of the in-game suggestion overlay: everything needed to decide at a glance.
+// Builds the content of the in-game suggestion panel (a PanelModel): everything needed to decide at a
+// glance. How it is drawn lives in ui/panel-render.ts; the opponent cards come from ui/opponent-cards.ts.
 import { HandState, HeroView } from "../engine/hand-parser.ts";
 import { describeHand } from "../engine/hand-strength.ts";
-import { ObservedStats, opponentModels } from "../engine/opponent-range.ts";
-import { MIN_HANDS_FOR_TYPE, PlayerRef } from "../engine/player-profile.ts";
+import { ObservedStats } from "../engine/opponent-range.ts";
+import { PlayerRef } from "../engine/player-profile.ts";
 import type { PlayerLookup } from "../services/profile-service.ts";
-import { PostflopAnalysis } from "../engine/postflop.ts";
+import { Candidate, PostflopAnalysis } from "../engine/postflop.ts";
 import { explainBet, matchCandidate, shortTag } from "./bet-explain.ts";
 import { PreflopAdvice } from "../engine/preflop.ts";
-import { rangePercent } from "../engine/ranges.ts";
 import { bb } from "../engine/spot-format.ts";
+import { opponentCards } from "../ui/opponent-cards.ts";
+import { PanelModel, PanelOption, toneFor } from "../ui/panel-model.ts";
 
-export interface OverlaySection {
-    title: string,
-    lines: string[]
-}
-
-export interface OverlayContent {
-    /** "thinking" while waiting for the AI (shown with the engine's provisional pick), else "final". */
-    status: "thinking" | "final",
-    /** Who decided, e.g. "Engine · clear spot". */
-    header: string,
-    /** Which hand and street this is for, so a stale suggestion is obvious. */
-    context: string,
-    action: string,
-    size_bb: number,
-    big_blind: number,
-    sections: OverlaySection[],
-    warnings: string[],
-    reason: string,
-    /** Bets and raises: what kind of bet it is (e.g. "Bluff · lead into the preflop raiser"), its color, and why. */
-    tag?: string,
-    tag_color?: string,
-    tag_lines?: string[]
-}
+/** @deprecated The panel content is a PanelModel now; kept so older imports still compile. */
+export type OverlayContent = PanelModel;
 
 export interface OverlayInputs {
     state: HandState,
@@ -43,176 +24,316 @@ export interface OverlayInputs {
     notes?: string[]
 }
 
+/** A post-flop decision as decidePostflop returns it (only the fields the panel needs). */
+export interface PanelDecision {
+    action: string,
+    size_bb: number,
+    reason: string,
+    source: string,
+    confidence: number,
+    ai_skipped?: string
+}
+
+/** The most reasoning lines shown. */
+const MAX_REASON_LINES = 5;
+/** How many opponents get a card; the rest are counted. */
+const MAX_OPPONENT_CARDS = 4;
+
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const signed = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
+const round2 = (x: number) => Math.round(x * 100) / 100;
+const aggressive = (action: string) => action === "bet" || action === "raise" || action === "all-in";
 
-export function contextLine(s: HandState, v: HeroView): string {
+const VERB: Record<string, string> = { fold: "FOLD", check: "CHECK", call: "CALL", bet: "BET", raise: "RAISE TO", "all-in": "ALL-IN" };
+
+export function contextLine(s: HandState, v: HeroView, in_position?: boolean): string {
     const street = s.street[0].toUpperCase() + s.street.slice(1);
-    return `Hand #${s.hand_number ?? "?"} · ${street} · you: ${v.position}`;
+    const where = in_position === undefined ? "" : in_position ? " (in position)" : " (out of position)";
+    return `Hand #${s.hand_number ?? "?"} · ${street} · you: ${v.position}${where}`;
 }
 
-/**
- * The table notes on one line (none when there are no notes). An "Effective stack" note is left out:
- * the Spot section already shows the live effective stack.
- */
-function tableSection(inputs: OverlayInputs): OverlaySection[] {
-    const notes = (inputs.notes ?? []).map((n) => n.trim()).filter((n) => n && !/^effective stack/i.test(n));
-    return notes.length ? [{ title: "Table", lines: [notes.join(" · ")] }] : [];
+/** Plain text for the panel: no em or en dashes, single spaces. */
+function plain(text: string): string {
+    return text.replace(/\s*[—–]\s*/g, ", ").replace(/\s+/g, " ").trim();
 }
 
-function spotSection(s: HandState, v: HeroView): OverlaySection {
+/** A reason split into short sentences (one per line). */
+export function sentences(text: string): string[] {
+    return plain(text).split(/(?<=[.!?])\s+(?=[A-Z0-9("'])/).map((x) => x.trim()).filter(Boolean);
+}
+
+/** Reasoning lines: plain, no repeats, at most MAX_REASON_LINES, never empty. */
+function reasonLines(lines: string[], fallback: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const line of lines.map(plain)) {
+        const key = line.toLowerCase().replace(/[.!?]+$/, "");
+        if (!line || seen.has(key)) continue;
+        seen.add(key);
+        out.push(line);
+    }
+    return out.length ? out.slice(0, MAX_REASON_LINES) : [fallback];
+}
+
+/** Returns the model with a warning shown first (not repeated when it is already there). */
+export function withWarning(model: PanelModel, text: string): PanelModel {
+    const warning = plain(text);
+    if (!warning || model.warnings.includes(warning)) return model;
+    return { ...model, warnings: [warning, ...model.warnings] };
+}
+
+/** The action line: verb, size in BB and chips, and a bet or raise as a share of the pot. */
+function actionOf(s: HandState, v: HeroView, action: string, size_bb: number): PanelModel["action"] {
+    const a = action.toLowerCase();
+    const verb = VERB[a] ?? a.toUpperCase();
+    const b = s.big_blind;
+    let size = 0;
+    if (a === "call") size = size_bb > 0 ? size_bb : bb(v.to_call, b);
+    else if (aggressive(a)) size = size_bb > 0 ? size_bb : a === "all-in" ? bb(v.max_raise_to, b) : 0;
+    if (!(size > 0) || !(b > 0)) return { verb };
+    const out: PanelModel["action"] = { verb, size_bb: round2(size), chips: round2(size * b) };
+    // chips hero adds over the current pot (a raise-to size includes what hero already put in)
+    const hero_in = s.seats.find((p) => p.id === s.hero_id)?.street_contribution ?? 0;
+    const added = size * b - hero_in;
+    if (aggressive(a) && v.pot > 0 && added > 0 && size * b > s.current_bet) out.pot_share = round2(added / v.pot);
+    return out;
+}
+
+/** The table notes that change decisions. An "Effective stack" note is left out: the spot shows it live. */
+function tableNotes(inputs: OverlayInputs): string[] {
+    return (inputs.notes ?? []).map((n) => plain(n)).filter((n) => n && !/^effective stack/i.test(n));
+}
+
+function spotOf(inputs: OverlayInputs, in_position?: boolean): PanelModel["spot"] {
+    const { state: s, view: v } = inputs;
     const b = (chips: number) => bb(chips, s.big_blind);
-    const to_call = v.to_call > 0 ? `To call ${b(v.to_call)} BB (${pct(v.pot_odds)} of pot after calling)` : "No bet to call";
     return {
-        title: "Spot",
-        lines: [
-            `Pot ${b(v.pot)} BB · ${to_call}`,
-            `Your stack ${b(v.stack)} BB · effective ${b(v.effective_stack)} BB · ${s.street === "preflop" ? "flop SPR if you call" : "SPR"} ${Math.round(v.spr * 10) / 10}`,
-            ...(v.min_raise_to !== null ? [`Min raise to ${b(v.min_raise_to)} BB · max ${b(v.max_raise_to)} BB`] : [])
-        ]
+        pot_bb: b(v.pot),
+        to_call_bb: b(v.to_call),
+        pot_odds: v.pot_odds,
+        stack_bb: b(v.stack),
+        effective_bb: b(v.effective_stack),
+        spr: Math.round(v.spr * 10) / 10,
+        spr_label: s.street === "preflop" ? "flop SPR if you call" : "SPR",
+        ...(v.min_raise_to !== null ? { min_raise_bb: b(v.min_raise_to), max_raise_bb: b(v.max_raise_to) } : {}),
+        ...(in_position !== undefined ? { in_position } : {}),
+        notes: tableNotes(inputs)
     };
 }
 
-function handSection(s: HandState): OverlaySection {
+function handOf(s: HandState): PanelModel["hand"] {
     const h = describeHand(s.hero_cards, s.board);
-    const lines = [`${s.hero_cards.join(" ")}${s.board.length ? ` on ${s.board.join(" ")}` : ""}: ${h.made}`];
+    const hand: PanelModel["hand"] = { cards: [...s.hero_cards], board: [...s.board], made: h.made };
     if (h.draws.length) {
         const odds = s.board.length === 3
             ? `${pct(h.hit_next)} next card, ${pct(h.hit_by_river)} by the river`
             : `${pct(h.hit_next)} on the river`;
-        lines.push(`${h.draws.join(" + ")}: ${h.outs} outs to a straight/flush, ${odds}`);
+        hand.draws = `${h.draws.join(" + ")}: ${h.outs} outs, ${odds}`;
     }
-    return { title: "Your hand", lines };
+    return hand;
 }
 
-function opponentsSection(inputs: OverlayInputs, warnings: string[]): OverlaySection {
-    const { state: s, view: v } = inputs;
-    const b = (chips: number) => bb(chips, s.big_blind);
-    const models = new Map(opponentModels(s, inputs.stats).map((m) => [m.seat.id, m]));
-    const lines: string[] = [];
-    const facing_bet = v.to_call > 0;
-    let unknown = 0;
-    const shown = v.active_opponents.slice(0, 4);
-    for (const seat of shown) {
-        const info = inputs.players(seat);
-        const p = info.current;
-        const range = models.get(seat.id);
-        const range_text = range ? ` · range ~${Math.round(rangePercent(range.model.range))}%` : "";
-        if (!p || p.hands < MIN_HANDS_FOR_TYPE) unknown++;
-        if (!p) {
-            lines.push(`${seat.position} ${seat.name} · ${b(seat.stack)} BB · no history${range_text}`);
-            continue;
-        }
-        const history = info.long && info.session ? `${info.long.hands} before + ${info.session.hands} today`
-            : info.session ? `${info.session.hands} today` : `${p.hands}`;
-        lines.push(`${seat.position} ${seat.name} · ${b(seat.stack)} BB · ${p.type} (${history} hands)${range_text}`);
-        // the stats that matter for this decision: facing a bet -> how often they bluff/barrel;
-        // able to bet -> how often they fold
-        const key = facing_bet
-            ? `aggression ${pct(p.aggression.value)} [${p.aggression.n}], goes to showdown ${pct(p.went_to_showdown.value)} [${p.went_to_showdown.n}]`
-            : `folds to c-bet ${pct(p.fold_to_cbet.value)} [${p.fold_to_cbet.n}], goes to showdown ${pct(p.went_to_showdown.value)} [${p.went_to_showdown.n}]`;
-        lines.push(`   VPIP ${pct(p.vpip.value)} PFR ${pct(p.pfr.value)} · ${key}`);
-        if (info.long && info.session && info.session.hands > 0) {
-            const today = info.session;
-            const raw = (r: { k: number, n: number }) => r.n ? `${Math.round(r.k / r.n * 100)}%` : "-";
-            lines.push(`   usually VPIP ${pct(info.long.vpip.value)} PFR ${pct(info.long.pfr.value)} · today ${raw(today.vpip)} / ${raw(today.pfr)} over ${today.hands} hands`);
-        }
-        for (const d of info.deviations) lines.push(`   ⚑ ${d.text}`);
-        const sd = p.showdowns[0];
-        if (sd) lines.push(`   last showdown: ${sd.cards.join(" ")} after ${sd.line.replace(/\w+: /g, "").replace(/ \| /g, ", ")}`);
-    }
-    if (v.active_opponents.length > shown.length) lines.push(`+${v.active_opponents.length - shown.length} more opponent(s)`);
-    if (unknown > 0) warnings.push(`${unknown} opponent(s) have under ${MIN_HANDS_FOR_TYPE} hands: their stats are mostly population defaults.`);
-    return { title: `Opponents in the hand (${v.active_opponents.length})`, lines };
+function opponentsOf(inputs: OverlayInputs): { opponents: PanelModel["opponents"], more_opponents: number, warnings: string[] } {
+    const { cards, more, warnings } = opponentCards({ state: inputs.state, view: inputs.view, players: inputs.players, stats: inputs.stats }, MAX_OPPONENT_CARDS);
+    return { opponents: cards, more_opponents: more, warnings };
 }
 
-/** Overlay for a preflop chart decision. */
-export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equity: { equity: number, need: number } | null): OverlayContent {
+/** Panel for a preflop chart decision. */
+export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equity: { equity: number, need: number } | null): PanelModel {
     const { state: s, view: v } = inputs;
-    const warnings: string[] = [];
-    const math: string[] = [];
-    if (equity) math.push(`Equity ${pct(equity.equity)} vs their likely hands${equity.need > 0 ? ` · need ${pct(equity.need)} to call` : ""}`);
-    math.push(`Chart spot: ${advice.scenario}`);
+    const opp = opponentsOf(inputs);
+    const odds: PanelModel["odds"] = { chart_spot: advice.scenario };
+    if (equity) {
+        odds.equity = equity.equity;
+        if (equity.need > 0) odds.need = equity.need;
+    }
+    const fallback = equity
+        ? `Chart play for ${advice.scenario}, with ${pct(equity.equity)} equity vs their likely hands.`
+        : `Chart play for ${advice.scenario}.`;
     return {
         status: "final",
-        header: "Preflop chart",
+        tone: toneFor(advice.action),
+        source: { label: "Preflop chart" },
         context: contextLine(s, v),
-        action: advice.action,
-        size_bb: advice.size_bb,
-        big_blind: s.big_blind,
-        sections: [...tableSection(inputs), spotSection(s, v), handSection(s), { title: "Odds", lines: math }, opponentsSection(inputs, warnings)],
-        warnings,
-        reason: advice.reason
+        action: actionOf(s, v, advice.action, advice.size_bb),
+        reasoning: reasonLines(sentences(advice.reason), fallback),
+        warnings: opp.warnings.map(plain),
+        spot: spotOf(inputs),
+        hand: handOf(s),
+        odds,
+        options: [],
+        opponents: opp.opponents,
+        more_opponents: opp.more_opponents
     };
+}
+
+/** A decision's size in BB; an all-in without a size is hero's whole stack. */
+function targetBB(v: HeroView, action: string, size_bb: number, big_blind: number): number {
+    return action.toLowerCase() === "all-in" && !(size_bb > 0) ? bb(v.max_raise_to, big_blind) : size_bb;
+}
+
+/** The candidate a decision picked: same action (bets and raises as one), closest size. */
+function chosenCandidate(a: PostflopAnalysis, action: string, size_bb: number, big_blind: number): Candidate | undefined {
+    const act = action.toLowerCase();
+    if (!aggressive(act)) return a.candidates.find((c) => c.action === act);
+    const matched = matchCandidate(a, act, size_bb, big_blind);
+    if (!matched || matched.action === "all-in" && act === "all-in" || !(size_bb > 0)) return matched;
+    // a size far from every option (an AI size, or an all-in when no option is one) matches none of them
+    const off = Math.abs(matched.to / big_blind - size_bb);
+    return off <= Math.max(0.26, 0.1 * size_bb) ? matched : undefined;
+}
+
+/** The best option of a different kind (bets, raises and all-ins count as one kind). */
+function bestAlternative(a: PostflopAnalysis, chosen: Candidate): Candidate | undefined {
+    return a.candidates.filter((c) => c !== chosen && c.action !== chosen.action && !(aggressive(c.action) && aggressive(chosen.action)))
+        .reduce<Candidate | undefined>((best, c) => (!best || c.ev > best.ev ? c : best), undefined);
+}
+
+/** The engine's reasons for a candidate: why this bet, or the equity against the price, and the EV comparison. */
+function engineLines(a: PostflopAnalysis, v: HeroView, chosen: Candidate | undefined, big_blind: number, margin_note: boolean): string[] {
+    const lines: string[] = [];
+    if (margin_note && a.note) lines.push(a.note);
+    const bet = chosen ? explainBet(a, chosen) : null;
+    if (bet) lines.push(...bet.lines);
+    else if (v.to_call > 0 && a.required_equity > 0) {
+        const enough = a.equity >= a.required_equity;
+        lines.push(`You have ${pct(a.equity)} equity and need ${pct(a.required_equity)} to call${enough ? ": the price is right." : ": not enough for the price."}`);
+    } else {
+        lines.push(`You have ${pct(a.equity)} equity vs their likely hands${chosen?.action === "check" ? ", and checking is free." : "."}`);
+    }
+    if (chosen) {
+        const alt = bestAlternative(a, chosen);
+        const b = (x: number) => signed(x / big_blind);
+        lines.push(`${chosen.label[0].toUpperCase()}${chosen.label.slice(1)} is worth about ${b(chosen.ev)} BB${alt ? ` vs ${b(alt.ev)} BB for ${alt.label}` : ""}.`);
+    }
+    if (!margin_note && a.note && !lines.includes(a.note)) lines.push(a.note);
+    return lines;
 }
 
 /**
- * Overlay for a post-flop decision (or the engine's provisional pick while the AI thinks).
- * `llm_timeout_ms` is the time the AI was actually given (its budget), shown while it thinks.
+ * Panel for a post-flop decision, or the engine's provisional pick (decision null) while the AI thinks.
+ * `budget_ms` is the time the AI was actually given, for the countdown.
  */
 export function postflopOverlay(
-    inputs: OverlayInputs, a: PostflopAnalysis,
-    decision: { action: string, size_bb: number, reason: string, source: string, confidence: number, ai_skipped?: string } | null,
-    model_name: string, llm_timeout_ms: number
-): OverlayContent {
+    inputs: OverlayInputs, a: PostflopAnalysis, decision: PanelDecision | null,
+    model_name: string, budget_ms: number
+): PanelModel {
     const { state: s, view: v } = inputs;
-    const warnings: string[] = [];
     const b = s.big_blind;
     const top = a.candidates[0];
-    const chosen = decision ?? { action: top.action, size_bb: top.to > 0 ? Math.round(top.to / b * 100) / 100 : 0, reason: "", source: "thinking", confidence: 0 };
+    const chosen = decision ?? { action: top.action, size_bb: top.to > 0 ? round2(top.to / b) : 0, reason: "", source: "thinking", confidence: 0 };
+    const size_bb = targetBB(v, chosen.action, chosen.size_bb, b);
+    const chosen_candidate = chosenCandidate(a, chosen.action, size_bb, b);
+    const warnings: string[] = [];
 
-    const odds = [
-        `Equity ${pct(a.equity)} vs their likely hands · ${pct(a.equity_when_called)} if a bet gets called`,
-        v.to_call > 0 ? `Need ${pct(a.required_equity)} to call · you are ${a.in_position ? "in position" : "out of position"}` : `You are ${a.in_position ? "in position" : "out of position"}`
-    ];
-    const options = a.candidates.map((c) => {
-        const fold = a.fold_probability.get(c.to);
-        const is_chosen = c.action === chosen.action || (c.action === "bet" && chosen.action === "raise") || (c.action === "raise" && chosen.action === "bet");
-        const same_size = !chosen.size_bb || Math.abs(c.to / b - chosen.size_bb) < 0.26;
-        const mark = is_chosen && same_size ? "▶ " : "   ";
+    const options: PanelOption[] = a.candidates.map((c) => {
         const kind = shortTag(a, c);
-        return `${mark}${c.label}${kind ? ` (${kind})` : ""}: ${signed(c.ev / b)} BB${fold !== undefined ? ` · all fold ~${pct(fold)}` : ""}`;
+        return {
+            label: c.label,
+            ev_bb: round2(c.ev / b),
+            chosen: c === chosen_candidate,
+            ...(c.fold_chance !== undefined ? { fold_chance: c.fold_chance } : {}),
+            ...(c.raise_chance !== undefined ? { raise_chance: c.raise_chance } : {}),
+            ...(kind ? { kind } : {})
+        };
     });
-    // a bet or raise says what kind it is and why, right under the action
-    const matched = matchCandidate(a, chosen.action, chosen.size_bb, b);
-    const passive_by_margin = !matched && a.note && a.candidates[0]?.action === chosen.action;
-    const bet = matched ? explainBet(a, matched)
-        : passive_by_margin ? { tag: `${chosen.action === "check" ? "Check" : chosen.action === "call" ? "Call" : "Fold"}: a bluff here is too close to call`, color: "#9ca3af", lines: [a.note!] }
-        : null;
 
-    let header: string;
-    if (decision === null) {
-        header = `Engine pick · asking ${model_name} (up to ${Math.round(llm_timeout_ms / 1000)}s)`;
-    } else if (decision.source === "llm") {
-        header = `AI (${model_name}) · ${pct(decision.confidence)} confident`;
-        const agrees = top.action === decision.action || (top.action === "bet" && decision.action === "raise") || (top.action === "raise" && decision.action === "bet");
-        if (!agrees) warnings.push(`The AI disagrees with the engine's top option (${top.label}).`);
-    } else if (decision.source === "engine") {
-        header = decision.ai_skipped === "off" ? "Engine · close spot (AI off)"
-            : decision.ai_skipped === "time" ? "Engine · close spot (no time for AI)"
-            : "Engine · clear spot";
-    } else {
-        header = "Engine (AI fallback)";
-        warnings.push(decision.reason.split(". ")[0] + ".");
+    // a bet or raise says what kind it is; a check, call or fold picked over a marginal bluff says so
+    // (an AI size between options is tagged like the closest one; an all-in only like an all-in option)
+    const closest = chosen.action === "all-in" ? chosen_candidate : matchCandidate(a, chosen.action, size_bb, b);
+    const bet = closest ? explainBet(a, closest) : null;
+    const passive_by_margin = !aggressive(chosen.action) && !!a.note && top?.action === chosen.action;
+    let tag: PanelModel["tag"];
+    if (bet && closest?.purpose) tag = { text: bet.tag, kind: closest.purpose };
+    else if (passive_by_margin) {
+        const word = chosen.action === "check" ? "Check" : chosen.action === "call" ? "Call" : "Fold";
+        tag = { text: `${word}: a bluff here is too close to call`, kind: "neutral" };
     }
+
+    const engine = engineLines(a, v, chosen_candidate, b, passive_by_margin);
+    let source: PanelModel["source"];
+    let reasoning: string[];
+    if (decision === null) {
+        source = { label: "Engine pick", detail: `asking ${model_name} (up to ${Math.round(budget_ms / 1000)}s)` };
+        reasoning = engine;
+    } else if (decision.source === "llm") {
+        source = { label: `AI (${model_name})`, detail: `${pct(decision.confidence)} confident` };
+        const family = (x: string) => (x === "raise" ? "bet" : x);
+        if (family(top.action) !== family(decision.action)) warnings.push(`The AI disagrees with the engine's top option (${top.label}).`);
+        reasoning = sentences(decision.reason);
+        if (!reasoning.length) reasoning = engine;
+    } else if (decision.source === "engine") {
+        source = {
+            label: "Engine",
+            detail: decision.ai_skipped === "off" ? "close spot, AI off" : decision.ai_skipped === "time" ? "close spot, no time for AI" : "clear spot"
+        };
+        reasoning = engine;
+    } else {
+        source = { label: "Engine", detail: "AI fallback" };
+        const first = sentences(decision.reason)[0];
+        if (first) warnings.push(first);
+        reasoning = engine;
+    }
+
+    const opp = opponentsOf(inputs);
+    warnings.push(...opp.warnings);
+    const odds: PanelModel["odds"] = { equity: a.equity, equity_when_called: a.equity_when_called };
+    if (v.to_call > 0 && a.required_equity > 0) odds.need = a.required_equity;
 
     return {
         status: decision === null ? "thinking" : "final",
-        header,
-        context: contextLine(s, v),
-        action: chosen.action,
-        size_bb: chosen.size_bb,
-        big_blind: b,
-        sections: [
-            ...tableSection(inputs),
-            spotSection(s, v),
-            handSection(s),
-            { title: "Odds", lines: odds },
-            { title: "Options (rough EV)", lines: options },
-            opponentsSection(inputs, warnings)
-        ],
-        warnings,
-        reason: decision?.reason ?? "Waiting for the AI; this is the engine's best option so far.",
-        ...(bet ? { tag: bet.tag, tag_color: bet.color, tag_lines: bet.lines } : {})
+        tone: toneFor(chosen.action),
+        source,
+        context: contextLine(s, v, a.in_position),
+        action: actionOf(s, v, chosen.action, chosen.size_bb),
+        ...(tag ? { tag } : {}),
+        reasoning: reasonLines(reasoning, `${chosen.action[0].toUpperCase()}${chosen.action.slice(1)} is the engine's best option here.`),
+        warnings: [...new Set(warnings.map(plain))],
+        ...(decision === null ? { thinking: { model: model_name, budget_ms, started_at: Date.now() } } : {}),
+        spot: spotOf(inputs, a.in_position),
+        hand: handOf(s),
+        odds,
+        options,
+        opponents: opp.opponents,
+        more_opponents: opp.more_opponents
     };
+}
+
+export interface BasicPanelInputs {
+    action: string,
+    size_bb: number,
+    big_blind: number,
+    model_name: string,
+    reason: string,
+    /** The game when it isn't Hold'em (e.g. "Pot Limit Omaha Hi"); null when the hand state is missing. */
+    other_game: string | null,
+    state_warning?: string
+}
+
+/** Panel for the basic prompt (no engine): a hand that isn't Hold'em, or no readable hand state. */
+export function basicPanel(p: BasicPanelInputs): PanelModel {
+    const a = p.action.toLowerCase();
+    const verb = VERB[a] ?? a.toUpperCase();
+    const action: PanelModel["action"] = p.size_bb > 0 && (a === "call" || aggressive(a))
+        ? { verb, size_bb: round2(p.size_bb), ...(p.big_blind > 0 ? { chips: round2(p.size_bb * p.big_blind) } : {}) }
+        : { verb };
+    const warnings = [p.other_game
+        ? `This hand is ${p.other_game}. The equity engine, preflop charts and opponent stats are Hold'em only, so this is the AI's opinion without any math. Treat it with caution.`
+        : "The full hand history couldn't be read, so this used the basic prompt without the engine."];
+    const model: PanelModel = {
+        status: "final",
+        tone: toneFor(a),
+        source: { label: `AI (${p.model_name})`, detail: `basic prompt (${p.other_game ? `${p.other_game}: no engine` : "full hand state unavailable"})` },
+        context: p.other_game ? `${p.other_game} · no engine` : "Hand state unavailable",
+        action,
+        reasoning: reasonLines(sentences(p.reason), "The AI gave no reason for this action."),
+        warnings,
+        spot: { pot_bb: 0, to_call_bb: 0, pot_odds: 0, stack_bb: 0, effective_bb: 0, spr: 0, spr_label: "SPR", notes: [] },
+        hand: { cards: [], board: [], made: "" },
+        odds: {},
+        options: [],
+        opponents: [],
+        more_opponents: 0
+    };
+    return p.state_warning ? withWarning(model, p.state_warning) : model;
 }

@@ -2,7 +2,7 @@
 import { sleep } from './helpers/bot-helper.ts';
 import { ask } from './helpers/terminal.ts';
 import { BotStopped } from './helpers/stop.ts';
-import { OverlayContent, postflopOverlay, preflopOverlay } from './helpers/overlay-builder.ts';
+import { basicPanel, OverlayContent, postflopOverlay, preflopOverlay, withWarning } from './helpers/overlay-builder.ts';
 import { HandState, HeroView, heroView, parseCards, parseHand } from './engine/hand-parser.ts';
 import { HandRecorder } from './services/hand-recorder.ts';
 import { formatSpot } from './engine/spot-format.ts';
@@ -399,24 +399,12 @@ export class Bot {
                             if (this.assistant_mode) {
                                 // the engine only models Hold'em; other games (e.g. Omaha in a mixed game) get the AI alone
                                 const other_game = hand_state && !isHoldem(hand_state) ? hand_state.game_type : null;
-                                const overlay: OverlayContent = this.overlay_content ?? {
-                                    status: "final",
-                                    header: `AI (${this.ai_service.getModelName()}) · basic prompt (${other_game ? `${other_game}: no engine` : "full hand state unavailable"})`,
-                                    context: "", action: bot_action.action_str, size_bb: bot_action.bet_size_in_BBs,
-                                    big_blind: this.game.getBigBlind(), sections: [],
-                                    warnings: [other_game
-                                        ? `This hand is ${other_game}. The equity engine, preflop charts and opponent stats are Hold'em only, so this is the AI's opinion without any math. Treat it with caution.`
-                                        : "The full hand history couldn't be read, so this used the basic prompt without the engine."],
-                                    reason: bot_action.reason ?? ""
-                                };
-                                this.overlay_content = null;
-                                if (this.state_warning) overlay.warnings.unshift(this.state_warning);
-                                await this.puppeteer_service.injectSuggestion({
-                                    ...overlay,
-                                    action: bot_action.action_str,
-                                    size_bb: bot_action.bet_size_in_BBs,
-                                    reason: bot_action.reason ?? overlay.reason
+                                const overlay: OverlayContent = this.overlay_content ?? basicPanel({
+                                    action: bot_action.action_str, size_bb: bot_action.bet_size_in_BBs, big_blind: this.game.getBigBlind(),
+                                    model_name: this.ai_service.getModelName(), reason: bot_action.reason ?? "", other_game
                                 });
+                                this.overlay_content = null;
+                                await this.puppeteer_service.injectSuggestion(this.state_warning ? withWarning(overlay, this.state_warning) : overlay);
                                 console.log("Suggestion shown in top-right. Please act in the browser.");
                             } else {
                                 await this.performBotAction(bot_action);

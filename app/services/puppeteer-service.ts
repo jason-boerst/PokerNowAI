@@ -306,12 +306,28 @@ export class PuppeteerService {
      * with textContent (never as HTML), since it includes AI output and player names.
      */
     async injectSuggestion(content: OverlayContent): Promise<void> {
-        const verb: Record<string, string> = { raise: "RAISE TO", bet: "BET", call: "CALL", check: "CHECK", fold: "FOLD", "all-in": "ALL-IN" };
-        const label = verb[content.action.toLowerCase()] ?? content.action.toUpperCase();
-        const main = `${label}${content.size_bb > 0 ? ` ${content.size_bb} BB` : ""}`;
-        const chips = content.size_bb > 0 && content.big_blind > 0 ? `= ${Math.round(content.size_bb * content.big_blind * 100) / 100} chips` : "";
-        const tag = { text: content.tag ?? "", color: content.tag_color ?? "#e5e7eb", lines: content.tag_lines ?? [] };
-        await this.renderOverlay(content.status, content.header, content.context, main, chips, content.warnings, content.sections, content.reason, tag);
+        // interim adapter from the panel model to the old overlay (replaced by the panel renderer)
+        const a = content.action;
+        const main = `${a.verb}${a.size_bb ? ` ${a.size_bb} BB` : ""}`;
+        const chips = a.chips ? `= ${a.chips} chips` : "";
+        const header = `${content.source.label}${content.source.detail ? ` · ${content.source.detail}` : ""}`;
+        const color = { value: "#4ade80", "semi-bluff": "#fbbf24", bluff: "#f87171", neutral: "#9ca3af" }[content.tag?.kind ?? "neutral"];
+        const tag = { text: content.tag?.text ?? "", color, lines: content.reasoning };
+        const pct = (x: number) => `${Math.round(x * 100)}%`;
+        const sp = content.spot, h = content.hand, o = content.odds;
+        const sections = [
+            ...(sp.notes.length ? [{ title: "Table", lines: [sp.notes.join(" · ")] }] : []),
+            { title: "Spot", lines: [
+                `Pot ${sp.pot_bb} BB · ${sp.to_call_bb > 0 ? `To call ${sp.to_call_bb} BB (${pct(sp.pot_odds)} of pot after calling)` : "No bet to call"}`,
+                `Your stack ${sp.stack_bb} BB · effective ${sp.effective_bb} BB · ${sp.spr_label} ${sp.spr}`,
+                ...(sp.min_raise_bb !== undefined ? [`Min raise to ${sp.min_raise_bb} BB · max ${sp.max_raise_bb} BB`] : [])
+            ] },
+            ...(h.cards.length ? [{ title: "Your hand", lines: [`${h.cards.join(" ")}${h.board.length ? ` on ${h.board.join(" ")}` : ""}: ${h.made}`, ...(h.draws ? [h.draws] : [])] }] : []),
+            ...(o.equity !== undefined ? [{ title: "Odds", lines: [`Equity ${pct(o.equity)}${o.need ? ` · need ${pct(o.need)} to call` : ""}${o.chart_spot ? ` · ${o.chart_spot}` : ""}`] }] : []),
+            ...(content.options.length ? [{ title: "Options (rough EV)", lines: content.options.map((x) => `${x.chosen ? "▶ " : "   "}${x.label}${x.kind ? ` (${x.kind})` : ""}: ${x.ev_bb >= 0 ? "+" : ""}${x.ev_bb.toFixed(1)} BB`) }] : []),
+            ...(content.opponents.length ? [{ title: "Opponents", lines: content.opponents.map((x) => `${x.seat} ${x.name} · ${x.stack_bb.toFixed(1)} BB · ${x.type}`) }] : [])
+        ];
+        await this.renderOverlay(content.status, header, content.context, main, chips, content.warnings, sections, "", tag);
     }
 
     /** Minimal overlay, e.g. "Your turn: analyzing..." before the analysis is ready. */
