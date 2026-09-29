@@ -1,6 +1,7 @@
 import type { Response } from '../utils/error-handling-utils.ts';
 import { Data, Log } from '../interfaces/log-processing-interfaces.ts';
 import { AFTER_HAND_LINE } from '../engine/hand-parser.ts';
+import { GameRules, hasKeyRules, parseGameRules } from '../engine/game-rules.ts';
 
 /** Fetches a same-origin path and returns the HTTP status and body text. */
 export type PageFetcher = (path: string) => Promise<{ status: number, text: string }>;
@@ -127,13 +128,32 @@ export class LogService {
         return [...after, ...entries.slice(end, start + 1)].map((e) => e.msg).reverse();
     }
 
-    /** Fetches pages (newest first) until `found` returns an index >= 0, up to `max_pages`. */
-    private async fetchUntil(found: (logs: Log[]) => number, max_pages: number = 4): Promise<Log[]> {
+    /**
+     * The game's house rules (action clock, 7-2 bounty, antes, straddles, bomb pots, run it twice)
+     * from its settings changes and recent hands. Pages back through the log (newest first) until
+     * it has seen the clock and the bounty settings, up to `max_pages` (one request each, so call
+     * it in the background). Never throws: returns what the pages it could read show, or {}.
+     */
+    async fetchGameRules(max_pages: number = 10): Promise<GameRules> {
+        try {
+            const entries = await this.fetchUntil((logs) => hasKeyRules(logs.map((e) => e.msg)) ? 0 : -1, max_pages, true);
+            return parseGameRules(entries.map((e) => e.msg).reverse());
+        } catch {
+            return {};
+        }
+    }
+
+    /**
+     * Fetches pages (newest first) until `found` returns an index >= 0, up to `max_pages`.
+     * With `partial`, a failed page ends the paging and returns the pages read so far.
+     */
+    private async fetchUntil(found: (logs: Log[]) => number, max_pages: number = 4, partial: boolean = false): Promise<Log[]> {
         let entries: Log[] = [];
         let before = "";
         for (let page = 0; page < max_pages; page++) {
             const res = await this.fetchData(before, "");
             if (res.code !== "success") {
+                if (partial) break;
                 throw res.error;
             }
             const logs = this.getData(res).logs;
