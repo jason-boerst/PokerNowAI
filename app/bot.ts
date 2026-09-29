@@ -1,9 +1,13 @@
 
 import { sleep } from './helpers/bot-helper.ts';
 import { ask } from './helpers/terminal.ts';
-import { HandState, heroView, parseCards, parseHand } from './engine/hand-parser.ts';
+import { HandState, HeroView, heroView, parseCards, parseHand } from './engine/hand-parser.ts';
 import { HandRecorder } from './services/hand-recorder.ts';
 import { formatSpot } from './engine/spot-format.ts';
+import { equity } from './engine/equity.ts';
+import { requiredEquity } from './engine/odds.ts';
+import { opponentModels } from './engine/opponent-range.ts';
+import { rangePercent } from './engine/ranges.ts';
 import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
 
 import { AIMessage, AIService, BotAction, defaultCheckAction, defaultFoldAction } from './interfaces/ai-client-interfaces.ts';
@@ -313,6 +317,7 @@ export class Bot {
                 return state;
             }
             console.log(`[State] ${formatSpot(state, view)}`);
+            this.printEquity(state, view);
             if (state.unparsed.length > 0) {
                 console.log(`[State] ${state.unparsed.length} log line(s) not understood, e.g. ${JSON.stringify(state.unparsed[0])}`);
             }
@@ -320,6 +325,27 @@ export class Bot {
         } catch (err) {
             console.log("[State] Could not build the hand state:", err instanceof Error ? err.message : err);
             return null;
+        }
+    }
+
+    /** Estimates hero's equity against each remaining opponent's likely range and prints it. */
+    private printEquity(state: HandState, view: HeroView): void {
+        if (state.hero_cards.length !== 2 || view.active_opponents.length === 0) return;
+        try {
+            const models = opponentModels(state, (name) => {
+                try {
+                    const st = this.table.getPlayerStatsFromName(name);
+                    return { vpip: st.computeVPIPStat(), pfr: st.computePFRStat(), hands: st.getTotalHands() };
+                } catch {
+                    return undefined;
+                }
+            });
+            const result = equity({ hero: state.hero_cards, board: state.board, opponents: models.map((m) => m.model), time_budget_ms: 150 });
+            const need = view.to_call > 0 ? ` (need ${Math.round(requiredEquity(view.to_call, view.pot) * 100)}% to call)` : "";
+            const ranges = models.map((m) => `${m.seat.position} ~${Math.round(rangePercent(m.model.range))}%`).join(", ");
+            console.log(`[Engine] equity ${Math.round(result.equity * 100)}%${need} vs estimated ranges: ${ranges}`);
+        } catch (err) {
+            console.log("[Engine] Could not estimate equity:", err instanceof Error ? err.message : err);
         }
     }
 

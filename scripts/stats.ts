@@ -3,6 +3,8 @@
 import { DBService } from "../app/services/db-service.ts";
 import { HandRecorder } from "../app/services/hand-recorder.ts";
 import { summarizeWinrate, WinrateSummary } from "../app/engine/winrate.ts";
+import { parseHand } from "../app/engine/hand-parser.ts";
+import { allInAdjustedNet } from "../app/engine/allin-ev.ts";
 
 const db = new DBService("./app/pokernow-gpt.db");
 await db.init();
@@ -21,6 +23,16 @@ if (hands.length === 0) {
     console.log("No recorded hands yet. Hands are recorded automatically while the bot runs.");
 } else {
     console.log(line("All hands", summarizeWinrate(hands.map((h) => h.hero_net! / h.big_blind!))));
+
+    // luck-adjusted: all-ins before the river with both hands shown count at hero's equity share
+    let adjusted_count = 0;
+    const adjusted = hands.map((h) => {
+        const state = parseHand(JSON.parse(h.messages_json), { hero_name: h.hero_name ?? undefined, big_blind: h.big_blind! });
+        const adj = state.hero_id ? allInAdjustedNet(state, state.hero_id) : null;
+        if (adj !== null) adjusted_count++;
+        return (adj ?? h.hero_net!) / h.big_blind!;
+    });
+    console.log(line(`All-in adjusted (${adjusted_count} all-in hand(s))`, summarizeWinrate(adjusted)));
 
     // attribute each hand to the model that made most of its decisions
     const model_of = new Map<string, string>();
