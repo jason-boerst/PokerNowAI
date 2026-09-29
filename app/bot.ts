@@ -1,6 +1,8 @@
 
 import { sleep } from './helpers/bot-helper.ts';
 import { ask } from './helpers/terminal.ts';
+import { HandState, heroView, parseCards, parseHand } from './engine/hand-parser.ts';
+import { HandRecorder } from './services/hand-recorder.ts';
 import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
 
 import { AIMessage, AIService, BotAction, defaultCheckAction, defaultFoldAction } from './interfaces/ai-client-interfaces.ts';
@@ -32,6 +34,9 @@ export class Bot {
     private assistant_mode: boolean;
 
     private first_created: string;
+    private recorder?: HandRecorder;
+    /** Current hand's log lines at the latest decision point (for recording and the hand state). */
+    private current_hand_messages: string[] = [];
     /** True when the blinds were typed in because the page text could not be parsed. */
     private manual_blinds: boolean = false;
     private hand_history: AIMessage[];
@@ -47,8 +52,10 @@ export class Bot {
                 game_id: string,
                 debug_mode: DebugMode,
                 query_retries: number,
-                assistant_mode: boolean = false) 
+                assistant_mode: boolean = false,
+                recorder?: HandRecorder) 
     {
+        this.recorder = recorder;
         this.log_service = log_service;
         this.ai_service = ai_service;
         this.player_service = player_service;
@@ -209,7 +216,7 @@ export class Bot {
                     console.log("Performing bot's turn.");
 
                     // fetch logs, hand, pot and stack concurrently to minimise latency
-                    const [logsResult, pot_size, hand, stack_size] = await Promise.all([
+                    const [logsResult, pot_size, hand, stack_size, hand_messages] = await Promise.all([
                         (async () => {
                             try {
                                 await sleep(500);
@@ -222,8 +229,14 @@ export class Bot {
                         this.getPotSize(),
                         this.getHand(),
                         this.getStackSize(),
+                        this.log_service.fetchCurrentHand().catch((err) => {
+                            console.log("Could not read the full hand history:", err instanceof Error ? err.message : err);
+                            return [] as string[];
+                        }),
                     ]);
                     processed_logs = logsResult;
+                    this.current_hand_messages = hand_messages;
+                    const hand_state = hand_messages.length > 0 ? this.buildHandState(hand_messages, hand) : null;
 
                     this.table.setPot(convertToBBs(pot_size, this.game.getBigBlind()));
 
@@ -239,7 +252,9 @@ export class Bot {
                         const query = constructQuery(this.game);
                         // query chatGPT and make action
                         try {
+                            const started = Date.now();
                             const bot_action = await this.queryBotAction(query, this.query_retries);
+                            await this.recordDecision(hand_state, hand, query, bot_action, Date.now() - started);
                             this.table.resetPlayerActions();
                             if (this.assistant_mode) {
                                 await this.puppeteer_service.injectSuggestion(bot_action.action_str, bot_action.bet_size_in_BBs, bot_action.reason ?? "", this.game.getBigBlind());
@@ -282,7 +297,73 @@ export class Bot {
         }
         
         logResponse(await this.puppeteer_service.waitForHandEnd(), this.debug_mode);
+        await this.recordCompletedHand();
         console.log("Completed a hand.\n");
+    }
+
+    /** Parses the current hand's log into a full state and prints a one-line summary of hero's spot. */
+    private buildHandState(messages: string[], dom_hand: string[]): HandState | null {
+        try {
+            const bb = this.game.getBigBlind();
+            const state = parseHand(messages, { hero_name: this.bot_name, hero_cards: parseCards(dom_hand.join(" ")), big_blind: bb });
+            const view = heroView(state);
+            if (!view) {
+                console.log(`[State] Could not find "${this.bot_name}" among the players in the hand log.`);
+                return state;
+            }
+            const inBB = (chips: number) => `${Math.round(chips / (state.big_blind || bb) * 100) / 100} BB`;
+            const parts = [
+                `${view.position}`,
+                `${state.street}${state.board.length ? ` [${state.board.join(" ")}]` : ""}`,
+                `pot ${inBB(view.pot)}`,
+                view.to_call > 0 ? `to call ${inBB(view.to_call)} (pot odds ${Math.round(view.pot_odds * 100)}%)` : "no bet to call",
+                view.min_raise_to !== null ? `min raise to ${inBB(view.min_raise_to)}` : "can't raise",
+                `eff. stack ${inBB(view.effective_stack)}`,
+                `SPR ${Math.round(view.spr * 10) / 10}`,
+                `${view.active_opponents.length} opponent(s)`
+            ];
+            if (state.street === "preflop" && view.limpers > 0) parts.push(`${view.limpers} limper(s)`);
+            console.log(`[State] ${parts.join(" | ")}`);
+            if (state.unparsed.length > 0) {
+                console.log(`[State] ${state.unparsed.length} log line(s) not understood, e.g. ${JSON.stringify(state.unparsed[0])}`);
+            }
+            return state;
+        } catch (err) {
+            console.log("[State] Could not build the hand state:", err instanceof Error ? err.message : err);
+            return null;
+        }
+    }
+
+    private async recordDecision(state: HandState | null, dom_hand: string[], prompt: string, action: BotAction, latency_ms: number): Promise<void> {
+        if (!this.recorder || this.current_hand_messages.length === 0) return;
+        const last = this.hand_history[this.hand_history.length - 1];
+        await this.recorder.recordDecision({
+            game_id: this.game_id,
+            hand_number: state?.hand_number ?? null,
+            street: state?.street ?? "",
+            messages: this.current_hand_messages,
+            hero_name: this.bot_name,
+            hero_cards: state?.hero_cards.length ? state.hero_cards : parseCards(dom_hand.join(" ")),
+            big_blind: this.game.getBigBlind(),
+            prompt,
+            response: last && last.metadata.role !== "user" ? last.text_content : "",
+            action,
+            model: this.ai_service.getModelName(),
+            source: "llm",
+            latency_ms
+        });
+    }
+
+    private async recordCompletedHand(): Promise<void> {
+        if (!this.recorder) return;
+        try {
+            const messages = await this.log_service.fetchLastCompletedHand();
+            if (messages) {
+                await this.recorder.recordHand(this.game_id, messages, this.bot_name, this.game.getBigBlind());
+            }
+        } catch (err) {
+            console.log("Could not record the finished hand:", err instanceof Error ? err.message : err);
+        }
     }
 
     private async updateGameInfo() {

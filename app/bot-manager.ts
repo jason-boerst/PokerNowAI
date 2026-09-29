@@ -10,6 +10,7 @@ import { DBService } from './services/db-service.ts';
 import { LogService } from './services/log-service.ts';
 import { PlayerService } from './services/player-service.ts';
 import { PuppeteerService } from './services/puppeteer-service.ts';
+import { HandRecorder } from './services/hand-recorder.ts';
 
 import { BotConfig, WebDriverConfig } from './interfaces/config-interfaces.ts';
 import { AIServiceFactory, resolveAIConfig } from './helpers/ai-service-factory.ts';
@@ -82,7 +83,8 @@ const bot_manager = async function() {
     const log_service = new LogService(game_id, (path) => puppeteer_service.fetchInPage(path));
     await log_service.init();
 
-    const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode);
+    const recorder = new HandRecorder(db_service);
+    const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder);
     startLiveCommands(ai_service, ai_config);
     await bot.run();
 }

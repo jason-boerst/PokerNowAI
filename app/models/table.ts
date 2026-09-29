@@ -5,6 +5,7 @@ import { PlayerStats } from "./player-stats.ts";
 import { PlayerService } from "../services/player-service.ts";
 
 import { Queue } from "../utils/data-structures.ts"
+import { positionLabels } from "../engine/hand-parser.ts";
 import { getPlayerStacksMsg, getIdToInitialStackFromMsg as getPlayerInitialStacksFromMsg } from "../utils/message-processing-utils.ts";
 
 export class Table {
@@ -217,40 +218,12 @@ export class Table {
         }
     }
     public convertOrderToPosition(curr: string | undefined, total_players: number): string {
-        if (!(typeof curr === 'undefined')) {
-            let num = parseInt(curr)
-            if (num == total_players) {
-                if (total_players == 2) {
-                    return "BB"
-                }
-                return "BU";
-            }
-            if ((total_players >= 5) && (num == total_players - 1)) {
-                return "CO";
-            }
-            if (total_players <= 6) {
-                switch (num) {
-                    case 1: return "SB";
-                    case 2: return "BB";
-                    case 3: return "UTG";
-                    case 4: return "HJ";
-                    default: return curr;
-                }
-            } else {
-                switch (num) {
-                    case 1: return "SB";
-                    case 2: return "BB";
-                    case 3: return "UTG";
-                    case 4: return "UTG+1";
-                    case 5: return "MP";
-                    case 6: return "MP";
-                    case 7: return "LJ";
-                    case 8: return "HJ";
-                    default: return curr;
-                }
-            }
+        if (typeof curr === 'undefined') {
+            return "";
         }
-        return "";
+        // order 1 = small blind ... order n = button
+        const label = positionLabels(total_players)[parseInt(curr) - 1];
+        return label ?? curr;
     }
 
     public getSeatNumberFromId(player_id: string): number {

@@ -92,6 +92,56 @@ export class LogService {
         return arr[0];
     }
     
+    /**
+     * The most recent hand's log lines in chronological order, starting at its "starting hand #" line.
+     * Pages back through older entries if the hand doesn't fit in one page.
+     */
+    async fetchCurrentHand(): Promise<string[]> {
+        const entries = await this.fetchUntil((logs) => logs.findIndex((e) => e.msg.includes("starting hand #")));
+        const start = entries.findIndex((e) => e.msg.includes("starting hand #"));
+        if (start === -1) {
+            throw new Error(`Could not find the start of the current hand in the game log (no "starting hand #" among ${entries.length} entries).`);
+        }
+        return entries.slice(0, start + 1).map((e) => e.msg).reverse();
+    }
+
+    /** The most recently finished hand's log lines in chronological order, or null if none is complete. */
+    async fetchLastCompletedHand(): Promise<string[] | null> {
+        const findStart = (logs: Log[]) => {
+            const end = logs.findIndex((e) => /^-- ending hand #\d+/.test(e.msg));
+            if (end === -1) return -1;
+            const number = logs[end].msg.match(/#(\d+)/)![1];
+            return logs.findIndex((e, i) => i > end && e.msg.startsWith(`-- starting hand #${number} `));
+        };
+        const entries = await this.fetchUntil(findStart);
+        const end = entries.findIndex((e) => /^-- ending hand #\d+/.test(e.msg));
+        const start = findStart(entries);
+        if (end === -1 || start === -1) {
+            return null;
+        }
+        return entries.slice(end, start + 1).map((e) => e.msg).reverse();
+    }
+
+    /** Fetches pages (newest first) until `found` returns an index >= 0, up to `max_pages`. */
+    private async fetchUntil(found: (logs: Log[]) => number, max_pages: number = 4): Promise<Log[]> {
+        let entries: Log[] = [];
+        let before = "";
+        for (let page = 0; page < max_pages; page++) {
+            const res = await this.fetchData(before, "");
+            if (res.code !== "success") {
+                throw res.error;
+            }
+            const logs = this.getData(res).logs;
+            if (logs.length === 0) break;
+            entries = entries.concat(logs);
+            if (found(entries) >= 0) break;
+            const oldest = logs[logs.length - 1].created_at;
+            if (!oldest || oldest === before) break;
+            before = oldest;
+        }
+        return entries;
+    }
+
     pruneLogsBeforeCurrentHand(data: Data): Data {
         //starts from the top of logs (newest first) and keeps everything up to the start of the current hand
         const start = data.logs.findIndex((entry) => entry.msg.includes("starting hand #"));

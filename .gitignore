@@ -137,3 +137,6 @@ dist
 *.env
 # model last chosen in the OpenRouter menu
 .last-model
+
+# exported hand histories
+hand-export*.json

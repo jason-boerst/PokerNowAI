@@ -15,7 +15,8 @@
     "test": "mocha",
     "test:live": "mocha --spec './test/live/*.spec.ts'",
     "list-models": "tsx scripts/list-models.ts",
-    "diagnose": "tsx scripts/diagnose.ts"
+    "diagnose": "tsx scripts/diagnose.ts",
+    "export-hands": "tsx scripts/export-hands.ts"
   },
   "keywords": [],
   "author": "",
