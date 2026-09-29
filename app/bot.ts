@@ -2,8 +2,8 @@
 import { sleep } from './helpers/bot-helper.ts';
 import { ask } from './helpers/terminal.ts';
 import { BotStopped } from './helpers/stop.ts';
-import { OverlayContent, postflopOverlay, preflopOverlay } from './helpers/overlay-builder.ts';
-import { PanelModel, toneFor } from './ui/panel-model.ts';
+import { basicPanel, postflopOverlay, preflopOverlay, withWarning } from './helpers/overlay-builder.ts';
+import { PanelModel } from './ui/panel-model.ts';
 import { HandState, HeroView, heroView, parseCards, parseHand } from './engine/hand-parser.ts';
 import { HandRecorder } from './services/hand-recorder.ts';
 import { formatSpot } from './engine/spot-format.ts';
@@ -400,24 +400,12 @@ export class Bot {
                             if (this.assistant_mode) {
                                 // the engine only models Hold'em; other games (e.g. Omaha in a mixed game) get the AI alone
                                 const other_game = hand_state && !isHoldem(hand_state) ? hand_state.game_type : null;
-                                const overlay: OverlayContent = this.overlay_content ?? {
-                                    status: "final",
-                                    header: `AI (${this.ai_service.getModelName()}) · basic prompt (${other_game ? `${other_game}: no engine` : "full hand state unavailable"})`,
-                                    context: "", action: bot_action.action_str, size_bb: bot_action.bet_size_in_BBs,
-                                    big_blind: this.game.getBigBlind(), sections: [],
-                                    warnings: [other_game
-                                        ? `This hand is ${other_game}. The equity engine, preflop charts and opponent stats are Hold'em only, so this is the AI's opinion without any math. Treat it with caution.`
-                                        : "The full hand history couldn't be read, so this used the basic prompt without the engine."],
-                                    reason: bot_action.reason ?? ""
-                                };
+                                const overlay: PanelModel = this.overlay_content ?? basicPanel({
+                                    action: bot_action.action_str, size_bb: bot_action.bet_size_in_BBs, big_blind: this.game.getBigBlind(),
+                                    model_name: this.ai_service.getModelName(), reason: bot_action.reason ?? "", other_game
+                                });
                                 this.overlay_content = null;
-                                if (this.state_warning) overlay.warnings.unshift(this.state_warning);
-                                await this.puppeteer_service.injectSuggestion(panelFromOverlay({
-                                    ...overlay,
-                                    action: bot_action.action_str,
-                                    size_bb: bot_action.bet_size_in_BBs,
-                                    reason: bot_action.reason ?? overlay.reason
-                                }));
+                                await this.puppeteer_service.injectSuggestion(this.state_warning ? withWarning(overlay, this.state_warning) : overlay);
                                 console.log("Suggestion shown in top-right. Please act in the browser.");
                             } else {
                                 await this.performBotAction(bot_action);
@@ -524,7 +512,7 @@ export class Bot {
 
     private described_hand: number | null = null;
     /** Overlay content for the current decision, set by whichever path made it. */
-    private overlay_content: OverlayContent | null = null;
+    private overlay_content: PanelModel | null = null;
     /** Latest preflop equity estimate, for the overlay. */
     private last_equity: { equity: number, need: number } | null = null;
 
@@ -579,7 +567,7 @@ export class Bot {
                 if (!this.assistant_mode) return;
                 const provisional = postflopOverlay(inputs, analysis, null, this.ai_service.getModelName(), budget_ms);
                 if (this.state_warning) provisional.warnings.unshift(this.state_warning);
-                await this.puppeteer_service.injectSuggestion(panelFromOverlay(provisional)).catch(() => undefined);
+                await this.puppeteer_service.injectSuggestion(provisional).catch(() => undefined);
             }
         });
         const a = d.analysis;
@@ -924,24 +912,4 @@ export class Bot {
                 break;
         }
     }
-}
-
-/** Temporary adapter from the overlay builders' content to the panel model (until they build PanelModel directly). */
-function panelFromOverlay(o: OverlayContent): PanelModel {
-    const verbs: Record<string, string> = { raise: "RAISE TO", bet: "BET", call: "CALL", check: "CHECK", fold: "FOLD", "all-in": "ALL-IN" };
-    const sized = o.size_bb > 0;
-    return {
-        status: o.status, tone: toneFor(o.action), source: { label: o.header }, context: o.context,
-        action: {
-            verb: verbs[o.action.toLowerCase()] ?? o.action.toUpperCase(),
-            size_bb: sized ? o.size_bb : undefined,
-            chips: sized && o.big_blind > 0 ? Math.round(o.size_bb * o.big_blind * 100) / 100 : undefined
-        },
-        tag: o.tag ? { text: o.tag, kind: /^semi-bluff/i.test(o.tag) ? "semi-bluff" : /^bluff/i.test(o.tag) ? "bluff" : /^value/i.test(o.tag) ? "value" : "neutral" } : undefined,
-        reasoning: [...(o.reason ? [o.reason] : []), ...(o.tag_lines ?? [])],
-        warnings: o.warnings,
-        spot: { pot_bb: 0, to_call_bb: 0, pot_odds: 0, stack_bb: 0, effective_bb: 0, spr: 0, spr_label: "SPR", notes: [] },
-        hand: { cards: [], board: [], made: "" },
-        odds: {}, options: [], opponents: [], more_opponents: 0
-    };
 }
