@@ -1,6 +1,7 @@
 {
-    "_about": "Preflop strategy for full-ring (7-9 player) cash games against loose, passive players. These are hand-built approximations of common full-ring ranges with exploitative adjustments, NOT solver output. Edit freely; notation: 77+ (pairs 77 and up), ATs+ (ATs..AKs), TT-66, A5s-A2s, KQo, KQ (both suited and offsuit).",
+    "_about": "Preflop strategy for full-ring (7-10 player) cash games against loose, passive players, with straddles, antes, deep stacks and the 7-2 bounty. These are hand-built approximations of common full-ring ranges with exploitative adjustments, NOT solver output. Edit freely; notation: 77+ (pairs 77 and up), ATs+ (ATs..AKs), TT-66, A5s-A2s, KQo, KQ (both suited and offsuit). All sizes are in big blinds; when someone straddles, every size is multiplied by the straddle (in big blinds), so a 3 BB open becomes 3 straddles.",
     "open": {
+        "_about": "First in, picked by how many players (not counting the blinds) act after you, so short tables use later-seat ranges. The straddler counts as a player after you because they act last.",
         "UTG": "88+ ATs+ KJs+ QJs AQo+",
         "UTG+1": "77+ ATs+ KTs+ QJs JTs AQo+",
         "MP": "66+ A9s+ KTs+ QTs+ JTs T9s AJo+ KQo",
@@ -25,6 +26,7 @@
         "vs_nit": "KK+"
     },
     "call_raise": {
+        "_about": "Calling one raise. in_position: you are not in the blinds. small_blind / big_blind: you are in that blind. When someone straddles, the straddler uses big_blind and the big blind uses small_blind (it has only half a straddle in).",
         "in_position": "22+ AJs+ ATs KQs KJs QJs JTs T9s 98s AQo",
         "small_blind": "22+ AQs AJs KQs AQo",
         "big_blind": "22+ A2s+ KTs+ QTs+ J9s+ T9s 98s 87s 76s AJo+ KQo",
@@ -38,14 +40,83 @@
         "small_blind": "22+ ATs+ KJs+ QJs AJo+ KQo",
         "big_blind": "22+ A2s+ A7o+ K5s+ K9o+ Q8s+ QTo+ J8s+ JTo T7s+ T9o 97s+ 86s+ 75s+ 65s 54s"
     },
-    "four_bet_value": "KK+",
-    "call_three_bet": "QQ JJ TT AKs AKo AQs",
-    "continue_vs_four_bet": "KK+",
+    "facing_three_bet": {
+        "_about": "When you face a 3-bet. The 3-bettor's measured 3-bet % picks the column: tight (under tight_below %), loose (loose_at_least % or more), otherwise normal. Players with no 3-bet history (under min_hands hands, unless their stats are already blended toward your games' averages) use normal. Your games average about 9% 3-bets, which is a fairly wide range, so normal calls more than a textbook tight game would. call_after_opening: you raised first and got 3-bet. call_cold: someone raised, someone else 3-bet, and you have not raised; calling cold is riskier (the first raiser can still 4-bet and you are often dominated), so those ranges are tighter. in_position_extra is added to call_after_opening when you act after the 3-bettor on later streets. Deep stacks add more (see deep_stacks).",
+        "tight_below": 6,
+        "loose_at_least": 10,
+        "min_hands": 30,
+        "tight": {
+            "four_bet_value": "KK+",
+            "call_after_opening": "QQ JJ AKs AKo",
+            "call_cold": "QQ AKs",
+            "in_position_extra": "TT AQs"
+        },
+        "normal": {
+            "four_bet_value": "KK+ AKs",
+            "call_after_opening": "QQ JJ TT AKo AQs",
+            "call_cold": "QQ JJ AKo",
+            "in_position_extra": "99 AJs KQs AQo"
+        },
+        "loose": {
+            "four_bet_value": "QQ+ AKs AKo",
+            "call_after_opening": "JJ-99 AQs AJs KQs AQo",
+            "call_cold": "JJ TT AQs",
+            "in_position_extra": "88 77 ATs KJs QJs JTs AJo KQo"
+        }
+    },
+    "facing_four_bet": {
+        "_about": "When you face a 4-bet or more. all_in: get all your chips in. call: call and see a flop. Everything else folds. vs_loose_all_in / vs_loose_call are used when the raiser 3-bets a lot (facing_three_bet.loose_at_least) or raises a lot preflop (player_types.loose_raiser_pfr). Home-game 4-bets are almost always very strong. Deep stacks use tighter ranges (see deep_stacks). When the 4-bet already puts a big share of the stack in (sizing.all_in_when_raise_uses_share_of_stack), the call hands get it in too.",
+        "all_in": "KK+",
+        "call": "",
+        "vs_loose_all_in": "QQ+ AKs AKo",
+        "vs_loose_call": ""
+    },
+    "deep_stacks": {
+        "_about": "Changes when the effective stack (the smaller of your stack and the raiser's; before any raise, the smaller of yours and the biggest other stack) is deep, in big blinds (in straddles when there is a straddle). Your games start with a median of about 240 BB, and a quarter of stacks are 400 BB or more. Each tier applies from its number up to the next tier ('150' covers 150 to 300 BB, '300' covers 300 BB and up); under 150 BB nothing here applies. add_to_calls is added to the ranges for calling a raise or limping behind when you are not in the blinds; add_to_calls_from_blinds is added to the small and big blind calling ranges (neither is added against a nit, whose call_raise.vs_nit range is used as it is). Deep stacks pay off hands that can make sets, straights and flushes. remove_from_calls is taken out of the ranges for calling a raise from early or middle position (or a raise with callers): offsuit hands that make second-best pairs and lose big pots. add_to_three_bet_calls_in_position is added when you opened, got 3-bet, and will act after the 3-bettor. facing_four_bet replaces those ranges: at this depth only AA wants all the money in.",
+        "150": {
+            "add_to_calls": "22+ A2s+ KTs+ QTs+ JTs T9s 98s 87s 76s 65s",
+            "add_to_calls_from_blinds": "22+ A5s A4s KJs QJs JTs T9s 98s 87s",
+            "remove_from_calls": "AJo KJo QJo KTo",
+            "add_to_three_bet_calls_in_position": "88 77 ATs KJs QJs JTs",
+            "facing_four_bet": {
+                "all_in": "AA",
+                "call": "KK",
+                "vs_loose_all_in": "KK+",
+                "vs_loose_call": "QQ AKs AKo"
+            }
+        },
+        "300": {
+            "add_to_calls": "22+ A2s+ K9s+ Q9s+ J9s+ T8s+ 97s+ 86s+ 75s+ 65s 54s",
+            "add_to_calls_from_blinds": "22+ A2s+ KTs+ QTs+ JTs T9s 98s 87s 76s 65s",
+            "remove_from_calls": "AJo KJo QJo KTo ATo QTo JTo KQo",
+            "add_to_three_bet_calls_in_position": "99-22 ATs A5s A4s KJs QJs JTs T9s 98s",
+            "facing_four_bet": {
+                "all_in": "AA",
+                "call": "KK",
+                "vs_loose_all_in": "AA",
+                "vs_loose_call": "KK QQ AKs"
+            }
+        }
+    },
+    "antes": {
+        "_about": "Dead money (small blind + big blind + antes + straddle + any dead blinds) makes the pot bigger before anyone acts, so stealing it is worth more and defending is cheaper. It is counted in big blinds, or in straddles when there is a straddle (raise sizes grow with the straddle too); with no antes it is 1.5. Your games have 0.1 to 0.5 BB antes in about a third of hands: 0.25 BB antes at 9 players make 3.75 BB. At widen_when_dead_money_bb_at_least you open with the next-later seat's range (one step wider: MP uses LJ, the small blind uses BU), at widen_two_steps_when_dead_money_bb_at_least two steps; BU is already the widest. The blinds also defend a little wider (the *_defense_extra ranges are added to their calling ranges, except against a nit). open_extra_bb_per_bb_of_antes adds this much to opens and isolation raises for each big blind of antes in the pot, so callers don't get too good a price.",
+        "widen_when_dead_money_bb_at_least": 2.5,
+        "widen_two_steps_when_dead_money_bb_at_least": 4.5,
+        "big_blind_defense_extra": "K9s Q9s T8s 97s 86s 75s 65s 64s 54s ATo KJo QJo",
+        "small_blind_defense_extra": "ATs A9s A5s KJs QJs JTs T9s AJo KQo",
+        "open_extra_bb_per_bb_of_antes": 0.5
+    },
+    "bounty": {
+        "_about": "7-2 game: whoever wins a hand holding 7-2 (suited or not) collects the bounty from every other player dealt in, even when everyone folds. Your games pay 3 to 4 BB per player, so with 9 players a 3 BB bounty is worth 24 BB on top of the pot. With 72: first in or over limpers, raise it like a normal open. Facing one raise (with at most max_callers_for_three_bet callers), 3-bet when the bounty is worth at least three_bet_when_bounty_at_least_x_cost times the chips the 3-bet costs; this assumes the raiser folds about a third of the time and 72 still wins sometimes when called. Facing a 3-bet or more, fold.",
+        "three_bet_when_bounty_at_least_x_cost": 1,
+        "max_callers_for_three_bet": 1
+    },
     "sizing": {
         "open_bb": 3,
         "open_extra_bb_vs_loose_field": 1,
         "isolate_base_bb": 4,
         "isolate_per_limper_bb": 1,
+        "isolate_extra_bb_vs_loose_limpers": 1,
         "out_of_position_extra_bb": 1,
         "three_bet_multiplier_in_position": 3,
         "three_bet_multiplier_out_of_position": 4,
