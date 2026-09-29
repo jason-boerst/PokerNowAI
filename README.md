@@ -111,17 +111,19 @@ This opens a dedicated Chrome window (with its own profile in `~/.pokernow-gpt/c
 1. Pick a model from the menu (or press Enter to reuse your last one).
 2. The terminal asks for the game. Paste the ID (`pgl-3YEOMYb8pdkfOtoGwyHPQ`) or the full URL. You can also pass it directly: `npm start -- https://www.pokernow.club/games/pgl-...`
 3. In the Chrome window, open the game, click an empty seat, enter a name and stack, and wait for the host to approve.
-4. Once seated, the bot monitors the table. On your turn a panel appears in the top-right corner:
-   - **Header:** who decided ("Preflop chart", "Engine · clear spot", "AI (model) · 70% confident", or "Engine (AI fallback)"), plus the hand number, street and your seat, so an old suggestion is obvious. While the AI is thinking, the border is amber and you already see the engine's pick; it turns green when final.
-   - **Action:** what to do and how much, in big blinds and chips.
-   - **Warnings:** for example, opponents with too few hands for reliable stats, the AI disagreeing with the engine, or the game log lagging behind the table.
-   - **Spot:** pot, amount to call and pot odds, your stack, effective stack, SPR, and legal raise sizes.
-   - **Your hand:** what you have ("Top pair, Ace kicker"), your draws, outs to a straight or flush, and the chance of hitting them.
-   - **Odds:** your equity against each opponent's likely hands (and if a bet gets called) versus the equity you need, and whether you're in position.
-   - **Options:** every option with its rough EV, with ▶ marking the suggestion.
-   - **Opponents:** everyone still in the hand, with stack, type, sample size, estimated range, the stats that matter for this decision (how often they fold when you could bet; how aggressive they are when you're facing a bet), and their last showdown.
+4. Once seated, the bot monitors the table. On your turn a panel appears in the top-right corner. Its color is the action: **red = fold, yellow = check, green = call, bet, raise or all-in.** From top to bottom:
+   - **Header:** who decided ("Preflop chart", "Engine · clear spot", "AI (model) · 70% confident", or "Engine · AI fallback"), plus the hand number, street, your seat and whether you're in position, so an old suggestion is obvious.
+   - **Action banner:** what to do and how much, in big blinds, chips and share of the pot. While the AI is thinking it says "Provisional pick" with a countdown bar and shows the engine's pick; after your turn it turns grey and says "Previous turn".
+   - **Bet label:** for bets and raises, "Value bet", "Semi-bluff" or "Bluff" plus lead, c-bet, barrel or stab, with a short reason.
+   - **Key numbers:** equity (green when it beats the price, red when it doesn't), equity needed, pot, amount to call and SPR, in one line.
+   - **Why:** always visible, the main reason in bold and up to four supporting points (measured fold rates, the EV comparison, margin notes).
+   - **Warnings:** for example, the AI disagreeing with the engine, few hands on an opponent, or the game log lagging behind the table.
+   - **Opponents:** one card per opponent still in the hand: seat, name, stack, type badge (nit, TAG, LAG, calling station, maniac...), "Acts after you", hands seen, estimated range. The one or two stats that matter most for this decision get a full row with a bar and a mark at your pool's average (for example "Fold to flop bet" when you could bet); the rest sit in a grid. Each stat shows its sample size and the pool average; orange with ▲ means well above the pool, blue with ▼ well below, grey means too few hands to judge. Then today's numbers, flagged changes (⚑), their last showdown and a one-line exploit.
+   - **Odds:** an equity bar with a marker at the equity you need, and your equity when a bet gets called.
+   - **Options:** every option with its rough EV as a bar (green positive, red negative), how often they fold or raise, and ▶ on the suggestion.
+   - **Your hand** (cards, board, what you have, draws) and **Spot** (pot, to call, stacks, SPR, legal raise sizes, position).
 
-   Click "Details" to collapse or expand the sections; your choice is remembered. Hover over the panel for the reasoning.
+   Drag the panel by its header; its position is remembered. Click a section title to collapse it (remembered), or the ▤ button for a compact view with just the action, key numbers and Why. The panel stops above PokerNow's action buttons and clicks on it never reach the table. To preview every panel state without a game: `npx tsx scripts/panel-gallery.ts <folder>` writes PNG screenshots.
 
 **Stopping:** the bot stops by itself, printing why, when you close the game tab or Chrome, when the tab leaves the game, when you've been unseated for 60 seconds, when fewer than 2 players have been at the table for 2 minutes, or when nothing has happened for 10 minutes. The limits are in `app/configs/bot-config.json` (`stop_after_unseated_seconds`, `stop_after_short_table_minutes`, `stop_after_idle_minutes`). Ctrl+C also stops it.
 
