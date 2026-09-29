@@ -111,7 +111,14 @@ This opens a dedicated Chrome window (with its own profile in `~/.pokernow-gpt/c
 1. Pick a model from the menu (or press Enter to reuse your last one).
 2. The terminal asks for the game. Paste the ID (`pgl-3YEOMYb8pdkfOtoGwyHPQ`) or the full URL. You can also pass it directly: `npm start -- https://www.pokernow.club/games/pgl-...`
 3. In the Chrome window, open the game, click an empty seat, enter a name and stack, and wait for the host to approve.
-4. Once seated, the bot monitors the table. On your turn a suggestion appears in the top-right corner; hover it for the reasoning.
+4. Once seated, the bot monitors the table. On your turn a suggestion appears in the top-right corner, showing:
+   - the action and size ("RAISE TO 6 BB", with the chip amount)
+   - who decided ("Preflop chart", "Engine · clear spot", "AI (model) · 70% confident", or "Engine (AI fallback)")
+   - your equity against the equity needed to call
+   - the next-best option, or the engine's pick if the AI disagreed
+   - the key opponent's type and sample size
+
+   Hover over it for the reasoning.
 
 **Switching models mid-game:** while the bot runs, type `m` in its terminal and press Enter. The model menu opens (bot messages are held back until you finish), and the model you pick is used from the next suggestion; you stay seated. `m provider/model-name` switches directly, and `q` in the menu cancels. The choice is also saved as your default for next time.
 

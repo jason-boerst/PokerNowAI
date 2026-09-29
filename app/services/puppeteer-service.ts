@@ -6,6 +6,19 @@ import type { Response } from '../utils/error-handling-utils.ts';
 
 import { GameInfo, parseGameInfo } from '../utils/game-info-utils.ts';
 
+export interface SuggestionView {
+    action: string,
+    /** Total bet or raise-to size in big blinds (0 for other actions). */
+    size_bb: number,
+    big_blind: number,
+    /** Who decided, e.g. "Engine · clear spot" or "AI (model) · 70% confident". */
+    header: string,
+    /** Short lines of key numbers shown under the action. */
+    details?: string[],
+    /** Shown on hover. */
+    reason: string
+}
+
 export class PuppeteerService {
     private default_timeout: number;
     private headless_flag: boolean;
@@ -223,23 +236,19 @@ export class PuppeteerService {
      * Shows bright with a pulse animation when fresh. Hover reveals the reason.
      * Call dimSuggestion() after the turn ends.
      */
-    async injectSuggestion(actionStr: string, betSizeInBBs: number, reason: string = "", bigBlind: number = 0): Promise<void> {
-        const label = actionStr.toUpperCase();
-        let sub = "";
-        let chipSub = "";
-        if (betSizeInBBs > 0) {
-            sub = ` ${betSizeInBBs} BB`;
-            if (bigBlind > 0) {
-                const chips = Math.round(betSizeInBBs * bigBlind * 100) / 100;
-                chipSub = ` (= ${chips} chips)`;
-            }
-        }
-        const mainText = `🤖 ${label}${sub}`;
-        const chipHint = chipSub;
-        await this.page.evaluate((mainText: string, reason: string, chipHint: string) => {
+    /**
+     * Shows the suggestion overlay in the top-right corner of the game page: the action and size,
+     * a line about who decided, key numbers, and the reason on hover. All text is inserted with
+     * textContent (never as HTML), since it includes AI output and player names.
+     */
+    async injectSuggestion(view: SuggestionView): Promise<void> {
+        const verb: Record<string, string> = { raise: "RAISE TO", bet: "BET", call: "CALL", check: "CHECK", fold: "FOLD", "all-in": "ALL-IN" };
+        const label = verb[view.action.toLowerCase()] ?? view.action.toUpperCase();
+        const size = view.size_bb > 0 ? ` ${view.size_bb} BB` : "";
+        const chips = view.size_bb > 0 && view.big_blind > 0 ? `= ${Math.round(view.size_bb * view.big_blind * 100) / 100} chips` : "";
+        const main = `${label}${size}`;
+        await this.page.evaluate((main: string, chips: string, header: string, details: string[], reason: string) => {
             const id = "pokernow-gpt-suggestion";
-
-            // Inject keyframe + hover styles once
             if (!document.getElementById("pokernow-gpt-style")) {
                 const style = document.createElement("style");
                 style.id = "pokernow-gpt-style";
@@ -254,65 +263,46 @@ export class PuppeteerService {
                         to   { opacity: 1; transform: translateY(0); }
                     }
                     #pokernow-gpt-suggestion .pgpt-reason {
-                        max-height: 0;
-                        overflow: hidden;
-                        opacity: 0;
+                        max-height: 0; overflow: hidden; opacity: 0; margin-top: 0;
                         transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
-                        margin-top: 0;
                     }
-                    #pokernow-gpt-suggestion:hover .pgpt-reason {
-                        max-height: 120px;
-                        opacity: 1;
-                        margin-top: 8px;
-                    }
+                    #pokernow-gpt-suggestion:hover .pgpt-reason { max-height: 160px; opacity: 1; margin-top: 8px; }
                 `;
                 document.head.appendChild(style);
             }
-
             let el = document.getElementById(id) as HTMLElement | null;
             if (!el) {
                 el = document.createElement("div");
                 el.id = id;
                 el.style.cssText = [
-                    "position: fixed",
-                    "top: 16px",
-                    "right: 16px",
-                    "z-index: 999999",
-                    "padding: 12px 16px",
-                    "border-radius: 10px",
-                    "font-family: system-ui, sans-serif",
-                    "max-width: 280px",
-                    "cursor: default",
-                    "transition: opacity 0.6s ease, background 0.6s ease, border-color 0.6s ease",
+                    "position: fixed", "top: 16px", "right: 16px", "z-index: 999999", "padding: 12px 16px",
+                    "border-radius: 10px", "font-family: system-ui, sans-serif", "max-width: 300px", "cursor: default",
+                    "transition: opacity 0.6s ease, background 0.6s ease, border-color 0.6s ease"
                 ].join(";");
                 document.body.appendChild(el);
             }
-
-            // Fresh state: bright green border + pulse animation
             el.style.background = "rgba(10,30,15,0.95)";
             el.style.border = "2px solid #4ade80";
             el.style.opacity = "1";
             el.style.animation = "pgpt-fadein 0.3s ease, pgpt-pulse 1s ease 0.3s 2";
+            el.replaceChildren();
 
-            const reasonHtml = reason
-                ? `<div class="pgpt-reason" style="font-size:12px;color:#a3e4b0;line-height:1.5;border-top:1px solid rgba(74,222,128,0.3);padding-top:8px;">${reason}</div>`
-                : "";
-
-            const chipHintHtml = chipHint
-                ? `<div style="font-size:12px;color:#86efac;margin-top:2px;">${chipHint}</div>`
-                : "";
-
-            el.innerHTML = `
-                <div style="font-size:11px;font-weight:500;color:#4ade80;letter-spacing:0.05em;margin-bottom:4px;">
-                    ● AI Suggestion (this turn)${reason ? ' · hover for reason' : ''}
-                </div>
-                <div style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:0.02em;">
-                    ${mainText}
-                </div>
-                ${chipHintHtml}
-                ${reasonHtml}
-            `;
-        }, mainText, reason, chipHint);
+            // no helper functions in here: the page runs this code without the build tool's helpers
+            const rows: [string, string, string][] = [
+                [`● ${header}${reason ? " · hover for reason" : ""}`, "font-size:11px;font-weight:500;color:#4ade80;letter-spacing:0.05em;margin-bottom:4px;", ""],
+                [main, "font-size:20px;font-weight:700;color:#ffffff;letter-spacing:0.02em;", ""]
+            ];
+            if (chips) rows.push([chips, "font-size:12px;color:#86efac;margin-top:2px;", ""]);
+            for (const line of details) rows.push([line, "font-size:12px;color:#d1fae5;margin-top:3px;", ""]);
+            if (reason) rows.push([reason, "font-size:12px;color:#a3e4b0;line-height:1.5;border-top:1px solid rgba(74,222,128,0.3);padding-top:8px;", "pgpt-reason"]);
+            for (const [text, css, cls] of rows) {
+                const d = document.createElement("div");
+                d.textContent = text;
+                d.style.cssText = css;
+                if (cls) d.className = cls;
+                el.appendChild(d);
+            }
+        }, main, chips, view.header, view.details ?? [], view.reason);
     }
 
     /**
@@ -330,7 +320,7 @@ export class PuppeteerService {
             const label = el.querySelector("div:first-child") as HTMLElement | null;
             if (label) {
                 label.style.color = "#888";
-                label.textContent = "○ AI Suggestion (last turn)";
+                label.textContent = "○ Suggestion (last turn)";
             }
         });
     }

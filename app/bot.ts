@@ -300,13 +300,22 @@ export class Bot {
                             await this.recordDecision(hand_state, hand, query, bot_action, Date.now() - started, source, response);
                             this.table.resetPlayerActions();
                             if (this.assistant_mode) {
-                                await this.puppeteer_service.injectSuggestion(bot_action.action_str, bot_action.bet_size_in_BBs, bot_action.reason ?? "", this.game.getBigBlind());
-                                console.log("AI suggestion shown in top-right. Please act in the browser.");
+                                const overlay = this.overlay_info ?? { header: `AI (${this.ai_service.getModelName()}) · basic prompt`, details: [] };
+                                this.overlay_info = null;
+                                await this.puppeteer_service.injectSuggestion({
+                                    action: bot_action.action_str,
+                                    size_bb: bot_action.bet_size_in_BBs,
+                                    big_blind: this.game.getBigBlind(),
+                                    header: overlay.header,
+                                    details: overlay.details,
+                                    reason: bot_action.reason ?? ""
+                                });
+                                console.log("Suggestion shown in top-right. Please act in the browser.");
                             } else {
                                 await this.performBotAction(bot_action);
                             }
                         } catch (err) {
-                            console.log("Failed to query and perform bot action.")
+                            console.log("Failed to query and perform bot action:", err instanceof Error ? err.message : err);
                         }
                     }
 
@@ -368,6 +377,10 @@ export class Bot {
     }
 
     private described_hand: number | null = null;
+    /** Header and detail lines for the overlay, set by whichever path made the current decision. */
+    private overlay_info: { header: string, details: string[] } | null = null;
+    /** Latest preflop equity estimate, for the overlay. */
+    private last_equity: { equity: number, need: number } | null = null;
 
     /** Prints each opponent's profile once per hand. */
     private printOpponents(state: HandState): void {
@@ -382,6 +395,7 @@ export class Bot {
 
     /** Estimates hero's equity against each remaining opponent's likely range and prints it. */
     private printEquity(state: HandState, view: HeroView): void {
+        this.last_equity = null;
         if (state.hero_cards.length !== 2 || view.active_opponents.length === 0) return;
         try {
             const models = opponentModels(state, (name) => this.statsLookup(name));
@@ -389,6 +403,7 @@ export class Bot {
             const need = view.to_call > 0 ? ` (need ${Math.round(requiredEquity(view.to_call, view.pot) * 100)}% to call)` : "";
             const ranges = models.map((m) => `${m.seat.position} ~${Math.round(rangePercent(m.model.range))}%`).join(", ");
             console.log(`[Engine] equity ${Math.round(result.equity * 100)}%${need} vs estimated ranges: ${ranges}`);
+            this.last_equity = { equity: result.equity, need: view.to_call > 0 ? requiredEquity(view.to_call, view.pot) : 0 };
         } catch (err) {
             console.log("[Engine] Could not estimate equity:", err instanceof Error ? err.message : err);
         }
@@ -410,7 +425,32 @@ export class Bot {
         const who = d.source === "llm" ? `AI (${this.ai_service.getModelName()}, confidence ${Math.round(d.confidence * 100)}%)` : d.source === "engine" ? "engine (clear spot)" : "engine (AI fallback)";
         const size = d.size_bb > 0 ? ` ${d.size_bb} BB` : "";
         console.log(`[Decision] ${who}: ${d.action.toUpperCase()}${size}. ${d.reason}`);
+
+        const details = [equityLine(a.equity, a.required_equity)];
+        const fmt = (c: { label: string, ev: number }) => `${c.label} ${(c.ev / bb >= 0 ? "+" : "")}${(c.ev / bb).toFixed(1)} BB`;
+        const top = a.candidates[0];
+        const same_as_top = top && (d.action === top.action || (d.action === "raise" && top.action === "bet") || (d.action === "bet" && top.action === "raise"));
+        if (d.source === "llm" && top && !same_as_top) details.push(`Engine's pick: ${fmt(top)}`);
+        else if (a.candidates[1]) details.push(`Next best: ${fmt(a.candidates[1])}`);
+        const opp = this.keyOpponentLine(state);
+        if (opp) details.push(opp);
+        const header = d.source === "llm" ? `AI (${this.ai_service.getModelName()}) · ${Math.round(d.confidence * 100)}% confident`
+            : d.source === "engine" ? "Engine · clear spot" : "Engine (AI fallback)";
+        this.overlay_info = { header, details };
         return d;
+    }
+
+    /** One line about the opponent who matters most: the last one to bet or raise, else the first one still in. */
+    private keyOpponentLine(state: HandState): string | null {
+        const active = state.seats.filter((p) => p.id !== state.hero_id && !p.folded);
+        if (active.length === 0) return null;
+        const aggressor_id = [...state.actions].reverse().find((a) => a.player_id !== state.hero_id && (a.type === "bet" || a.type === "raise"))?.player_id;
+        const seat = active.find((p) => p.id === aggressor_id) ?? active[0];
+        const profile = this.options.profiles?.profile(seat.name);
+        const more = active.length > 1 ? ` (+${active.length - 1} more)` : "";
+        return profile
+            ? `${seat.position} ${seat.name}: ${profile.type}, ${profile.hands} hands${more}`
+            : `${seat.position} ${seat.name}: no history${more}`;
     }
 
     /** Player stats by name for the engine (undefined if the player isn't known yet). */
@@ -434,6 +474,11 @@ export class Bot {
         if (!advice) return null;
         const size = advice.action === "raise" || advice.action === "all-in" ? ` to ${advice.size_bb} BB` : "";
         console.log(`[Preflop] ${advice.action.toUpperCase()}${size} (${advice.scenario}): ${advice.reason}`);
+        const details = [`Spot: ${advice.scenario}`];
+        if (this.last_equity) details.push(equityLine(this.last_equity.equity, this.last_equity.need));
+        const opp = this.keyOpponentLine(state);
+        if (opp) details.push(opp);
+        this.overlay_info = { header: "Preflop chart", details };
         return { action_str: advice.action, bet_size_in_BBs: advice.size_bb, reason: advice.reason };
     }
 
@@ -687,4 +732,7 @@ export class Bot {
                 break;
         }
     }
+}
+function equityLine(equity: number, need: number): string {
+    return `Equity ${Math.round(equity * 100)}%${need > 0 ? ` · need ${Math.round(need * 100)}%` : ""}`;
 }
