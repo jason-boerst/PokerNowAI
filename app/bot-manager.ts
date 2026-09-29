@@ -88,7 +88,12 @@ const bot_manager = async function() {
     const profiles = new ProfileService(recorder);
     const loaded = await profiles.load();
     if (loaded > 0) console.log(`Loaded opponent history from ${loaded} recorded hand(s).`);
-    const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder, { preflop_engine: bot_config.preflop_engine ?? true, profiles });
+    const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder, {
+        preflop_engine: bot_config.preflop_engine ?? true,
+        llm_timeout_ms: bot_config.llm_timeout_ms ?? 20000,
+        always_ask_llm: bot_config.always_ask_llm ?? false,
+        profiles
+    });
     startLiveCommands(ai_service, ai_config);
     await bot.run();
 }

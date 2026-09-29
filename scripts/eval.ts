@@ -14,6 +14,7 @@ import { DBService } from "../app/services/db-service.ts";
 import { DecisionRow, HandRecorder } from "../app/services/hand-recorder.ts";
 import { actionsAgree, checkLegality, parseSuggestedAction, SuggestedAction } from "../app/engine/legality.ts";
 import { spotFromRecord } from "../app/engine/spot-format.ts";
+import { parseDecision } from "../app/helpers/decision-prompt.ts";
 
 dotenv.config();
 const arg = (name: string) => {
@@ -33,6 +34,7 @@ const db = new DBService("./app/pokernow-gpt.db");
 await db.init();
 await db.createTables();
 const rows: DecisionRow[] = (await new HandRecorder(db).decisions())
+    // only AI decisions have a prompt to replay (engine decisions don't)
     .filter((d) => d.prompt && (!labeled_only || d.label))
     .slice(-limit);
 if (rows.length === 0) {
@@ -64,7 +66,8 @@ async function evaluate(model: string): Promise<Score> {
                 const res = await service.query(row.prompt, []);
                 score.latencies.push(Date.now() - started);
                 const b = res.bot_action;
-                const suggested: SuggestedAction | null = b.action_str ? parseSuggestedAction(`${b.action_str} ${b.bet_size_in_BBs || ""}`) : null;
+                const suggested: SuggestedAction | null = parseDecision(res.curr_message?.text_content ?? "")
+                    ?? (b.action_str ? parseSuggestedAction(`${b.action_str} ${b.bet_size_in_BBs || ""}`) : null);
                 if (!suggested) continue;
                 score.parsed++;
                 if (checkLegality(suggested, view, state.big_blind).legal) score.legal++;

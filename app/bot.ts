@@ -9,6 +9,7 @@ import { requiredEquity } from './engine/odds.ts';
 import { ObservedStats, opponentModels } from './engine/opponent-range.ts';
 import { preflopAdvice } from './engine/preflop.ts';
 import { describeProfile } from './engine/player-profile.ts';
+import { decidePostflop, Decision, opponentTendencies } from './helpers/decision-maker.ts';
 import { ProfileService } from './services/profile-service.ts';
 import { rangePercent } from './engine/ranges.ts';
 import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
@@ -33,6 +34,10 @@ import { convertToBBs, convertToValue } from './utils/value-conversion-utils.ts'
 export interface BotOptions {
     /** Use the rule-based preflop engine instead of the AI for preflop decisions. */
     preflop_engine: boolean,
+    /** Post-flop: give up on the AI after this long and use the engine's pick. */
+    llm_timeout_ms: number,
+    /** Post-flop: ask the AI even when the engine's best option is clearly ahead. */
+    always_ask_llm: boolean,
     /** Opponent profiles from recorded hand histories. */
     profiles?: ProfileService
 }
@@ -73,7 +78,7 @@ export class Bot {
                 options: Partial<BotOptions> = {}) 
     {
         this.recorder = recorder;
-        this.options = { preflop_engine: true, ...options };
+        this.options = { preflop_engine: true, llm_timeout_ms: 20000, always_ask_llm: false, ...options };
         this.log_service = log_service;
         this.ai_service = ai_service;
         this.player_service = player_service;
@@ -263,7 +268,8 @@ export class Bot {
                     // Skip everything AI-related and wait for the next turn.
                     // preflop: deterministic engine, no AI call (null if disabled or the spot isn't covered)
                     const engine_action = this.preflopEngineAction(hand_state);
-                    if (processed_logs.first_fetch && !engine_action) {
+                    const postflop_view = hand_state && hand_state.street !== "preflop" && hand_state.hero_cards.length === 2 ? heroView(hand_state) : null;
+                    if (processed_logs.first_fetch && !engine_action && !postflop_view) {
                         console.log("Skipping AI query: logs not yet available, waiting for next turn.");
                     } else {
                         if (!processed_logs.first_fetch) {
@@ -275,13 +281,23 @@ export class Bot {
                             const started = Date.now();
                             let bot_action: BotAction;
                             let query = "";
+                            let response: string | undefined;
+                            let source: string = "llm";
                             if (engine_action) {
                                 bot_action = engine_action;
+                                source = "engine";
+                            } else if (hand_state && postflop_view) {
+                                const d = await this.postflopDecision(hand_state, postflop_view);
+                                bot_action = { action_str: d.action, bet_size_in_BBs: d.size_bb, reason: d.reason };
+                                query = d.prompt;
+                                response = d.response;
+                                source = d.source;
                             } else {
+                                // fallback when the full hand state isn't available: the original prompt
                                 query = constructQuery(this.game);
                                 bot_action = await this.queryBotAction(query, this.query_retries);
                             }
-                            await this.recordDecision(hand_state, hand, query, bot_action, Date.now() - started, engine_action ? "engine" : "llm");
+                            await this.recordDecision(hand_state, hand, query, bot_action, Date.now() - started, source, response);
                             this.table.resetPlayerActions();
                             if (this.assistant_mode) {
                                 await this.puppeteer_service.injectSuggestion(bot_action.action_str, bot_action.bet_size_in_BBs, bot_action.reason ?? "", this.game.getBigBlind());
@@ -340,7 +356,7 @@ export class Bot {
             }
             console.log(`[State] ${formatSpot(state, view)}`);
             this.printOpponents(state);
-            this.printEquity(state, view);
+            if (state.street === "preflop") this.printEquity(state, view);
             if (state.unparsed.length > 0) {
                 console.log(`[State] ${state.unparsed.length} log line(s) not understood, e.g. ${JSON.stringify(state.unparsed[0])}`);
             }
@@ -378,6 +394,25 @@ export class Bot {
         }
     }
 
+    /** Post-flop decision: engine analysis, the AI for close spots, validated with an engine fallback. */
+    private async postflopDecision(state: HandState, view: HeroView): Promise<Decision> {
+        const profiles = (name: string) => this.options.profiles?.profile(name);
+        const opponents = opponentTendencies(state, (name) => this.statsLookup(name), profiles);
+        const d = await decidePostflop(state, view, this.ai_service, opponents, profiles, {
+            llm_timeout_ms: this.options.llm_timeout_ms,
+            always_ask_llm: this.options.always_ask_llm
+        });
+        const a = d.analysis;
+        const bb = state.big_blind;
+        console.log(`[Engine] equity ${Math.round(a.equity * 100)}% (${Math.round(a.equity_when_called * 100)}% when called)` +
+            `${a.required_equity > 0 ? `, need ${Math.round(a.required_equity * 100)}%` : ""} | ` +
+            a.candidates.map((c) => `${c.label} ${(c.ev / bb >= 0 ? "+" : "")}${(c.ev / bb).toFixed(1)}`).join(", "));
+        const who = d.source === "llm" ? `AI (${this.ai_service.getModelName()}, confidence ${Math.round(d.confidence * 100)}%)` : d.source === "engine" ? "engine (clear spot)" : "engine (AI fallback)";
+        const size = d.size_bb > 0 ? ` ${d.size_bb} BB` : "";
+        console.log(`[Decision] ${who}: ${d.action.toUpperCase()}${size}. ${d.reason}`);
+        return d;
+    }
+
     /** Player stats by name for the engine (undefined if the player isn't known yet). */
     private statsLookup(name: string): ObservedStats | undefined {
         const profiled = this.options.profiles?.stats(name);
@@ -402,9 +437,9 @@ export class Bot {
         return { action_str: advice.action, bet_size_in_BBs: advice.size_bb, reason: advice.reason };
     }
 
-    private async recordDecision(state: HandState | null, dom_hand: string[], prompt: string, action: BotAction, latency_ms: number, source: "llm" | "engine" = "llm"): Promise<void> {
+    private async recordDecision(state: HandState | null, dom_hand: string[], prompt: string, action: BotAction, latency_ms: number, source: string, response?: string): Promise<void> {
         if (!this.recorder || this.current_hand_messages.length === 0) return;
-        const last = source === "llm" ? this.hand_history[this.hand_history.length - 1] : undefined;
+        const last = response === undefined && source === "llm" ? this.hand_history[this.hand_history.length - 1] : undefined;
         await this.recorder.recordDecision({
             game_id: this.game_id,
             hand_number: state?.hand_number ?? null,
@@ -414,9 +449,9 @@ export class Bot {
             hero_cards: state?.hero_cards.length ? state.hero_cards : parseCards(dom_hand.join(" ")),
             big_blind: this.game.getBigBlind(),
             prompt,
-            response: source === "engine" ? action.reason ?? "" : last && last.metadata.role !== "user" ? last.text_content : "",
+            response: response ?? (source === "engine" ? action.reason ?? "" : last && last.metadata.role !== "user" ? last.text_content : ""),
             action,
-            model: source === "engine" ? "preflop-engine" : this.ai_service.getModelName(),
+            model: source === "llm" ? this.ai_service.getModelName() : source === "engine" && state?.street === "preflop" ? "preflop-engine" : source === "engine" ? "postflop-engine" : `engine (fallback from ${this.ai_service.getModelName()})`,
             source,
             latency_ms
         });

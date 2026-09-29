@@ -23,7 +23,11 @@ export interface BotConfig {
     /** When true, AI only shows suggestion in top-right; user clicks actions manually. */
     assistant_mode: boolean,
     /** Preflop decisions from the rule-based engine (app/configs/preflop-ranges.json) instead of the AI. Default true. */
-    preflop_engine?: boolean
+    preflop_engine?: boolean,
+    /** Post-flop: give up on the AI after this many milliseconds and use the engine's pick. Default 20000. */
+    llm_timeout_ms?: number,
+    /** Post-flop: ask the AI even in clear spots. Default false. */
+    always_ask_llm?: boolean
 }
 
 export interface WebDriverConfig {

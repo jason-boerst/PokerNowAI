@@ -2,5 +2,7 @@
     "debug_mode": 1,
     "query_retries": 2,
     "assistant_mode": true,
-    "preflop_engine": true
+    "preflop_engine": true,
+    "llm_timeout_ms": 20000,
+    "always_ask_llm": false
 }
