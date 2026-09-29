@@ -74,6 +74,31 @@ export const PRIORS: Record<RateKey, { mean: number, weight: number }> = {
     won_at_showdown: { mean: 0.50, weight: 10 }
 };
 
+const DEFAULT_PRIORS: Record<RateKey, { mean: number, weight: number }> = structuredClone(PRIORS);
+
+/**
+ * How many chances the built-in guesses above count as when averaged with your own games. With a
+ * few thousand hands stored, the averages of the players you actually play against take over.
+ */
+export const POOL_PRIOR_WEIGHT = 200;
+
+/**
+ * Replaces the built-in population guesses with the average of the players in your games (pooled
+ * over every opponent's chances, blended with the built-in guess for small databases). Players
+ * with little or no history are then assumed to play like your pool, not like a generic table.
+ */
+export function calibratePriors(pool: Record<RateKey, { k: number, n: number }>): void {
+    for (const key of RATE_KEYS) {
+        const d = DEFAULT_PRIORS[key].mean;
+        PRIORS[key].mean = (pool[key].k + d * POOL_PRIOR_WEIGHT) / (pool[key].n + POOL_PRIOR_WEIGHT);
+    }
+}
+
+/** Back to the built-in guesses (tests). */
+export function resetPriors(): void {
+    for (const key of RATE_KEYS) PRIORS[key].mean = DEFAULT_PRIORS[key].mean;
+}
+
 /** Hands before a player is given a type other than "unknown". */
 export const MIN_HANDS_FOR_TYPE = 20;
 
@@ -281,6 +306,20 @@ export class ProfileBuilder {
 
     keys(): string[] {
         return [...this.players.keys()];
+    }
+
+    /** Raw counts summed over every player except `exclude` (the pool's averages). */
+    poolCounts(exclude: (key: string) => boolean = () => false): Record<RateKey, Counter> {
+        const pool = {} as Record<RateKey, Counter>;
+        for (const key of RATE_KEYS) pool[key] = { k: 0, n: 0 };
+        for (const [key, acc] of this.players) {
+            if (exclude(key)) continue;
+            for (const stat of RATE_KEYS) {
+                pool[stat].k += acc.c[stat].k;
+                pool[stat].n += acc.c[stat].n;
+            }
+        }
+        return pool;
     }
 
     all(): PlayerProfile[] {

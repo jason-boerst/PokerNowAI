@@ -14,6 +14,7 @@ import { HandRecorder } from './services/hand-recorder.ts';
 import { ProfileService } from './services/profile-service.ts';
 import { importFiles } from './import/importer.ts';
 import { existsSync } from 'node:fs';
+import { PRIORS } from './engine/player-profile.ts';
 
 const LOGS_FOLDER = 'logs';
 
@@ -98,6 +99,11 @@ const bot_manager = async function() {
     }
     const loaded = await profiles.load(game_id);
     if (loaded > 0) console.log(`Loaded opponent history from ${loaded} stored hand(s); hands from this game count as today's session.`);
+    if (profiles.pool_hands > 0) {
+        const pct = (x: number) => `${Math.round(x * 100)}%`;
+        console.log(`Players with little history are assumed to play like your games' average (from ${profiles.pool_hands} opponent hands): ` +
+            `VPIP ${pct(PRIORS.vpip.mean)}, PFR ${pct(PRIORS.pfr.mean)}, 3-bet ${pct(PRIORS.three_bet.mean)}, fold to c-bet ${pct(PRIORS.fold_to_cbet.mean)}, aggression ${pct(PRIORS.aggression.mean)}.`);
+    }
     const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder, {
         preflop_engine: bot_config.preflop_engine ?? true,
         llm_timeout_ms: bot_config.llm_timeout_ms ?? 20000,

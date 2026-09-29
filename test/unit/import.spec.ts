@@ -2,7 +2,8 @@ import { expect } from "chai";
 import { readFileSync } from "node:fs";
 
 import { netResult, parseHand } from "../../app/engine/hand-parser.ts";
-import { blendSession, classify, isHoldem, PlayerProfile, sessionDeviations } from "../../app/engine/player-profile.ts";
+import { blendSession, calibratePriors, classify, isHoldem, PlayerProfile, POOL_PRIOR_WEIGHT, PRIORS, RATE_KEYS, resetPriors, sessionDeviations } from "../../app/engine/player-profile.ts";
+import { POPULATION_TENDENCIES } from "../../app/engine/opponent-range.ts";
 import { importLog } from "../../app/import/importer.ts";
 import { detectHero, gameIdFromFileName, handsDealtToYou, ImportedHand, parseCsv, potBalances, readLogRows, splitHands } from "../../app/import/pokernow-csv.ts";
 import { DBService } from "../../app/services/db-service.ts";
@@ -129,6 +130,13 @@ describe("finding your seat in a log", () => {
 describe("importing logs", () => {
     let recorder: HandRecorder;
 
+    // loading profiles sets the population averages; don't leak them into other tests
+    afterEach(() => {
+        resetPriors();
+        POPULATION_TENDENCIES.vpip = PRIORS.vpip.mean * 100;
+        POPULATION_TENDENCIES.pfr = PRIORS.pfr.mean * 100;
+    });
+
     beforeEach(async () => {
         const db = new DBService(":memory:");
         await db.init();
@@ -177,6 +185,24 @@ describe("importing logs", () => {
         expect(live.session?.hands).to.equal(me.long!.hands);
         expect(service.gameView("fixtureGame01").map((e) => e.key)).to.include(ME);
         expect(service.gamesOf(ME)).to.have.length(1);
+    });
+});
+
+describe("population averages from your games", () => {
+    afterEach(resetPriors);
+
+    it("moves the assumed averages toward your pool as hands accumulate", () => {
+        const built_in = PRIORS.vpip.mean;
+        const pool = Object.fromEntries(RATE_KEYS.map((k) => [k, { k: 0, n: 0 }])) as Record<typeof RATE_KEYS[number], { k: number, n: number }>;
+        pool.vpip = { k: 50, n: 200 };                      // 25% over a small sample: halfway
+        calibratePriors(pool);
+        expect(PRIORS.vpip.mean).to.be.closeTo((50 + built_in * POOL_PRIOR_WEIGHT) / (200 + POOL_PRIOR_WEIGHT), 1e-9);
+        expect(PRIORS.pfr.mean).to.not.equal(undefined);
+        pool.vpip = { k: 5000, n: 20000 };                  // big sample: nearly all pool
+        calibratePriors(pool);
+        expect(PRIORS.vpip.mean).to.be.closeTo(0.25, 0.01);
+        resetPriors();
+        expect(PRIORS.vpip.mean).to.equal(built_in);
     });
 });
 

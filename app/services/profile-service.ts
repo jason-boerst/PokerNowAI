@@ -1,6 +1,6 @@
 import { HandState, parseHand } from "../engine/hand-parser.ts";
-import { ObservedStats } from "../engine/opponent-range.ts";
-import { blendSession, Deviation, PlayerProfile, PlayerRef, ProfileBuilder, sessionDeviations } from "../engine/player-profile.ts";
+import { ObservedStats, POPULATION_TENDENCIES } from "../engine/opponent-range.ts";
+import { blendSession, calibratePriors, Deviation, PlayerProfile, PlayerRef, PRIORS, ProfileBuilder, RATE_KEYS, RateKey, resetPriors, sessionDeviations } from "../engine/player-profile.ts";
 import { HandRecorder, HandRow, ME } from "./hand-recorder.ts";
 
 export { ME } from "./hand-recorder.ts";
@@ -54,12 +54,28 @@ export class ProfileService {
             at: row.started_at ?? row.recorded_at
         }));
         for (const h of hands) (h.row.game_id === live_game_id ? session : long).addHand(h.state, h.at);
+        this.calibrate(long, session);
         this.live_game_id = live_game_id;
         this.links = links;
         this.hands = hands;
         this.long = long;
         this.session = session;
         return hands.length;
+    }
+
+    /** Opponent chances the population averages were computed from (0: built-in guesses). */
+    pool_hands = 0;
+
+    /** Sets the population averages (used for players with little history) from everyone but you. */
+    private calibrate(long: ProfileBuilder, session: ProfileBuilder): void {
+        const a = long.poolCounts((key) => key === ME), b = session.poolCounts((key) => key === ME);
+        const pool = {} as Record<RateKey, { k: number, n: number }>;
+        for (const key of RATE_KEYS) pool[key] = { k: a[key].k + b[key].k, n: a[key].n + b[key].n };
+        if (pool.vpip.n === 0) resetPriors();
+        else calibratePriors(pool);
+        POPULATION_TENDENCIES.vpip = PRIORS.vpip.mean * 100;
+        POPULATION_TENDENCIES.pfr = PRIORS.pfr.mean * 100;
+        this.pool_hands = pool.vpip.n;
     }
 
     /** Adds a finished hand from the live game. */

@@ -3,7 +3,10 @@ import { OpponentModel, PostflopAction } from "./equity.ts";
 import type { PlayerRef } from "./player-profile.ts";
 import { PreflopLine, PreflopTendencies, positionWidth, preflopRange } from "./ranges.ts";
 
-/** Population defaults for players with too few hands to judge (assumed loose home-game field). */
+/**
+ * Population defaults for players with too few hands to judge (assumed loose home-game field).
+ * Replaced by your own games' averages when profiles load (ProfileService).
+ */
 export const POPULATION_TENDENCIES: PreflopTendencies = { vpip: 35, pfr: 12 };
 /** Hands observed before a player's own stats replace the population default. */
 export const MIN_HANDS_FOR_STATS = 20;
