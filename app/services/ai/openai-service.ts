@@ -4,7 +4,7 @@ import type { ReasoningEffort } from "openai/resources/shared";
 import { AIMessage, AIResponse, AIService, BotAction } from "../../interfaces/ai-client-interfaces.ts";
 import { appendUserInput, getPromptFromPlaystyle, parseResponse} from "../../helpers/ai-query-helper.ts";
 
-// Also used for any OpenAI-compatible endpoint (OpenRouter, xAI, DeepSeek, Ollama, ...) via base_url.
+// Also used for any OpenAI-compatible endpoint (xAI, DeepSeek, Ollama, ...) via base_url.
 export class OpenAIService extends AIService {
     private agent!: OpenAI;
 
@@ -27,11 +27,11 @@ export class OpenAIService extends AIService {
         }
         prev_messages = appendUserInput(prev_messages, input);
 
-        const effort = this.getOptions().effort as ReasoningEffort | undefined;
+        const effort = this.getOptions().effort;
         const completion = await this.agent.chat.completions.create({
             messages: this.processMessages(prev_messages),
             model: this.getModelName(),
-            ...(effort ? { reasoning_effort: effort } : {})
+            ...(effort ? this.effortParams(effort) : {})
         });
 
         const choice = completion.choices[0];
@@ -57,6 +57,11 @@ export class OpenAIService extends AIService {
                 }
             }
         }
+    }
+
+    /** Request fields that carry the reasoning effort setting. */
+    protected effortParams(effort: string): object {
+        return { reasoning_effort: effort as ReasoningEffort };
     }
 
     processMessages(messages: AIMessage[]): ChatCompletionMessageParam[] {

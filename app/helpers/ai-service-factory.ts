@@ -3,6 +3,7 @@ import { AIConfig } from "../interfaces/config-interfaces.ts";
 import { AnthropicService } from "../services/ai/anthropic-service.ts";
 import { GoogleAIService } from "../services/ai/googleai-service.ts";
 import { OpenAIService } from "../services/ai/openai-service.ts";
+import { OPENROUTER_BASE_URL, OpenRouterService } from "../services/ai/openrouter-service.ts";
 
 interface ProviderInfo {
     name: string,
@@ -13,6 +14,7 @@ interface ProviderInfo {
 // No model allowlist: any model ID the provider accepts will work, so new models can be used
 // the day they are released. The examples are only printed as hints.
 export const providers: ProviderInfo[] = [
+    { name: "OpenRouter", api_key_env: "OPENROUTER_API_KEY", example_models: ["pick from the menu at startup, or run `npm run list-models`"] },
     { name: "Anthropic", api_key_env: "ANTHROPIC_API_KEY", example_models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"] },
     { name: "OpenAI", api_key_env: "OPENAI_API_KEY", example_models: ["run `npm run list-models`"] },
     { name: "Google", api_key_env: "GOOGLEAI_API_KEY", example_models: ["run `npm run list-models`"] },
@@ -41,7 +43,7 @@ export class AIServiceFactory {
             throw new Error(`Unknown AI provider "${config.provider}". Use one of: ${providers.map((p) => p.name).join(", ")}.`);
         }
         if (!config.model_name) {
-            throw new Error("No model configured. Set model_name in app/configs/ai-config.json or AI_MODEL in .env.");
+            throw new Error("No model chosen. Pick one from the menu, or set model_name in app/configs/ai-config.json or AI_MODEL in .env.");
         }
 
         const options = {
@@ -65,6 +67,8 @@ export class AIServiceFactory {
             throw new Error(`Missing ${info.api_key_env}. Add it to your .env file (see .env.example).`);
         }
         switch (info.name) {
+            case "OpenRouter":
+                return new OpenRouterService(api_key, config.model_name, playstyle, { ...options, base_url: config.base_url ?? OPENROUTER_BASE_URL });
             case "Anthropic":
                 return new AnthropicService(api_key, config.model_name, playstyle, options);
             case "OpenAI":

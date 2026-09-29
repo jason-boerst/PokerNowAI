@@ -14,13 +14,13 @@ import { PuppeteerService } from './services/puppeteer-service.ts';
 
 import { BotConfig, WebDriverConfig } from './interfaces/config-interfaces.ts';
 import { AIServiceFactory, resolveAIConfig } from './helpers/ai-service-factory.ts';
+import { chooseModelIfNeeded } from './helpers/model-picker.ts';
 
 const io = prompt();
 const bot_config: BotConfig = bot_config_json;
 const webdriver_config: WebDriverConfig = webdriver_config_json;
 
 function init(): string {
-    dotenv.config();
     if (bot_config.assistant_mode) {
         console.log("=================================================");
         console.log(" AI Assistant Mode");
@@ -40,14 +40,17 @@ function init(): string {
 }
 
 const bot_manager = async function() {
-    const game_id = init();
+    dotenv.config();
 
-    // create the AI service first so a missing key or bad provider fails before the browser opens
+    // choose the model and create the AI service first, so a missing key or bad provider
+    // fails before the browser opens
     const ai_service_factory = new AIServiceFactory();
-    const ai_config = resolveAIConfig(ai_config_json);
+    const ai_config = await chooseModelIfNeeded(resolveAIConfig(ai_config_json));
     const ai_service = ai_service_factory.createAIService(ai_config);
     console.log(`Created AI service: ${ai_config.provider} ${ai_config.model_name} (effort: ${ai_config.effort ?? "model default"}) with playstyle: ${ai_config.playstyle}`);
     ai_service.init();
+
+    const game_id = init();
 
     const use_existing = webdriver_config.use_existing_browser ?? false;
     const debugging_port = webdriver_config.debugging_port ?? 9222;

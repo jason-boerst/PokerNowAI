@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 
 import ai_config_json from "../app/configs/ai-config.json" with { type: "json" };
 import { AIServiceFactory, resolveAIConfig } from "../app/helpers/ai-service-factory.ts";
+import { chooseModelIfNeeded } from "../app/helpers/model-picker.ts";
 
 dotenv.config();
 
@@ -25,7 +26,7 @@ const sample_query = [
     "Respond in this format: {action, bet_size_in_BBs BB} two sentence reason. First sentence: explain the decision based on hand strength and position. Second sentence: mention the most relevant opponent (use their position and name) and how their stats influenced the decision. Example: {raise, 8 BB} Top pair with strong kicker justifies a raise for value. UTG (Shawn0627, VPIP=0.62) is a loose caller so a larger sizing extracts more value."
 ].join("\n");
 
-const ai_config = resolveAIConfig(ai_config_json);
+const ai_config = await chooseModelIfNeeded(resolveAIConfig(ai_config_json));
 console.log(`Provider: ${ai_config.provider}\nModel:    ${ai_config.model_name}\nEffort:   ${ai_config.effort ?? "model default"}\n`);
 
 const start = Date.now();

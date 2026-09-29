@@ -135,3 +135,5 @@ dist
 
 # env file
 *.env
+# model last chosen in the OpenRouter menu
+.last-model

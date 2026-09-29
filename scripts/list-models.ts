@@ -5,6 +5,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 
+import { describeModel, fetchOpenRouterModels } from "../app/helpers/model-picker.ts";
+
 dotenv.config();
 
 async function listAnthropic(api_key: string) {
@@ -36,7 +38,12 @@ async function listGoogle(api_key: string) {
     return ids;
 }
 
+async function listOpenRouter(api_key: string) {
+    return (await fetchOpenRouterModels(api_key)).map(describeModel);
+}
+
 const jobs: Array<[string, string | undefined, (key: string) => Promise<string[]>]> = [
+    ["OpenRouter", process.env.OPENROUTER_API_KEY, listOpenRouter],
     ["Anthropic", process.env.ANTHROPIC_API_KEY, listAnthropic],
     ["OpenAI", process.env.OPENAI_API_KEY, (key) => listOpenAI(key)],
     ["Google", process.env.GOOGLEAI_API_KEY, listGoogle],

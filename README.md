@@ -6,9 +6,10 @@ An LLM-powered poker assistant for [PokerNow](https://www.pokernow.club). It rea
 
 This is a fork of [JaimeYeung/PokerNow-AI](https://github.com/JaimeYeung/PokerNow-AI), which is itself based on [csong2022/pokernow-gpt](https://github.com/csong2022/pokernow-gpt). Changes in this fork:
 
+- **One OpenRouter key, every model.** OpenRouter is the default provider. At startup you pick from a searchable menu of every model OpenRouter lists, with prices.
 - **Any model, including the newest.** The hardcoded model allowlist (GPT-4o era, Gemini 1.x) is gone. Any model ID your provider serves works.
 - **Claude support** through the official [Anthropic TypeScript SDK](https://github.com/anthropics/anthropic-sdk-typescript).
-- **OpenAI-compatible endpoints** (OpenRouter, xAI, DeepSeek, Ollama, LM Studio, ...) via a base URL.
+- **OpenAI-compatible endpoints** (xAI, DeepSeek, Ollama, LM Studio, ...) via a base URL.
 - **Gemini moved to the current `@google/genai` SDK.** The old `@google/generative-ai` package is deprecated and its README states support ended on August 31, 2025 ([npm page](https://www.npmjs.com/package/@google/generative-ai)).
 - **Reasoning effort setting** for models that support it.
 - **Runs on macOS, Windows and Linux.** The macOS-only `start-chrome.sh` is replaced by a Node script that finds Chrome, Chromium or Edge.
@@ -23,7 +24,7 @@ This is a fork of [JaimeYeung/PokerNow-AI](https://github.com/JaimeYeung/PokerNo
 
 - **Node.js 22.12 or newer.** Current `puppeteer` and `openai` releases require it (check with `node -v`).
 - **Google Chrome** (or Chromium / Microsoft Edge) for assistant mode.
-- An API key for at least one provider: [Anthropic](https://platform.claude.com/settings/keys), [OpenAI](https://platform.openai.com/api-keys), [Google AI Studio](https://aistudio.google.com/apikey), or any OpenAI-compatible endpoint.
+- An [OpenRouter](https://openrouter.ai) API key with credits. (Alternatively, a direct key from Anthropic, OpenAI or Google; see "Other providers" below.)
 
 ## Install
 
@@ -34,48 +35,62 @@ npm install
 cp .env.example .env      # Windows (cmd): copy .env.example .env
 ```
 
-Put your key(s) in `.env`, for example:
+Open `.env` in a text editor (`open -e .env` on macOS, `notepad .env` on Windows, `nano .env` on Linux) and fill in your key:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...
+OPENROUTER_API_KEY=sk-or-...
 ```
+
+That is the only required setting.
 
 `npm install` also downloads a bundled Chrome for puppeteer (used when `use_existing_browser` is `false`). To skip that download, set `PUPPETEER_SKIP_DOWNLOAD=1` before installing.
 
 ## Choose a model
 
-Edit `app/configs/ai-config.json`:
+When you run `npm start` or `npm run test-ai`, a menu lists every model OpenRouter currently offers:
 
-```json
-{
-    "provider": "Anthropic",
-    "model_name": "claude-opus-5-5",
-    "playstyle": "neutral",
-    "effort": "low",
-    "request_timeout_ms": 45000
-}
+```
+OpenRouter currently lists 312 models.
+Search models (e.g. "claude", "gpt", "gemini", "free"), type "all", or a number from the list: claude
+    1. anthropic/...  (in $3.00 / out $15.00 per 1M tokens, supports effort)
+    2. anthropic/...  (in $1.00 / out $5.00 per 1M tokens, supports effort)
+Search models ...: 1
+Using model: anthropic/...
 ```
 
-| Field | Values |
+- Type words to search model IDs and names (every word must match), then type the number of the one you want.
+- `all` lists everything; you can also type an exact model ID.
+- Your choice is saved in `.last-model`, so next time you can just press Enter to reuse it.
+- "supports effort" means OpenRouter reports that the model accepts a reasoning setting (see `AI_EFFORT` below).
+
+Prices are shown as OpenRouter reports them, in US dollars per million tokens. The model count and names above are illustrative; your menu shows the live list.
+
+### Optional settings in `.env`
+
+| Setting | Effect |
 |---|---|
-| `provider` | `Anthropic`, `OpenAI`, `Google`, `OpenAICompatible` |
-| `model_name` | Any model ID the provider serves. Run `npm run list-models` to see the exact IDs your keys can use. |
-| `playstyle` | `neutral`, `aggressive`, `passive`, `pro` |
-| `effort` | Optional. Sent as `output_config.effort` (Anthropic), `reasoning_effort` (OpenAI), or `thinkingConfig.thinkingLevel` (Google). Remove the line to use the model's default. Models without reasoning controls reject it, so remove it for those. |
-| `base_url` | Only for `OpenAICompatible`, e.g. `https://openrouter.ai/api/v1` or `http://localhost:11434/v1` (Ollama). Can also be set as `OPENAI_COMPATIBLE_BASE_URL` in `.env`. |
-| `request_timeout_ms` | Per-request timeout. |
+| `AI_MODEL=provider/model-name` | Always use this model and skip the menu. |
+| `AI_EFFORT=low` | Reasoning effort (`low`, `medium`, `high`) for models that support it, sent as OpenRouter's `reasoning: { effort }`. Unset by default, which uses the model's default. Lower effort is usually faster. |
+| `AI_PLAYSTYLE=neutral` | `neutral`, `aggressive`, `passive` or `pro`. |
 
-You can override the JSON from `.env` or the command line without editing it: `AI_PROVIDER`, `AI_MODEL`, `AI_EFFORT`, `AI_PLAYSTYLE`, `AI_BASE_URL`.
+These override `app/configs/ai-config.json`, which you can also edit directly (`provider`, `model_name`, `playstyle`, `effort`, `request_timeout_ms`). Leave `model_name` empty there to get the menu.
 
-```sh
-AI_PROVIDER=OpenAI AI_MODEL=<model id> npm run test-ai
-```
+`npm run list-models` prints the full OpenRouter list with prices without starting anything.
 
-**Claude model IDs** (current list: [Anthropic models overview](https://platform.claude.com/docs/en/models/overview)): `claude-opus-5-5` (default here), `claude-sonnet-5-5` (cheaper per token), `claude-haiku-4-5` (cheapest; does not accept `effort`, so remove that line). For OpenAI and Google, use `npm run list-models` rather than a list in this README, because their catalogs change frequently and I did not verify current IDs for them.
+**Speed matters:** PokerNow turns are timed, and I have not measured how fast any particular model answers. `npm run test-ai` prints the latency for one sample spot; pick a model and effort that answer comfortably inside your table's turn timer.
 
-**About `effort`:** it trades answer quality against latency and cost. The default here is `low` because PokerNow turns are timed; Claude Opus 5.5 defaults to `medium` if you omit it ([effort docs](https://platform.claude.com/docs/en/build-with-claude/effort)). I have not measured decision quality or latency at different settings; `npm run test-ai` prints the latency for one sample spot so you can check it yourself.
+### Other providers
 
-For Claude Opus 5.5, Sonnet 5.5, Opus 5 and Fable 5.1, requests enable server-side refusal fallbacks (`fallbacks: "default"`), so if a safety classifier declines a request the API retries it on another model instead of returning nothing.
+You can skip OpenRouter and call a provider directly by setting `AI_PROVIDER` and its key in `.env`:
+
+| `AI_PROVIDER` | Key variable | Notes |
+|---|---|---|
+| `Anthropic` | `ANTHROPIC_API_KEY` | Claude models, e.g. `claude-opus-5-5` ([model list](https://platform.claude.com/docs/en/models/overview)). Sends `effort` as `output_config.effort`, and enables server-side refusal fallbacks on Opus 5.5, Sonnet 5.5, Opus 5 and Fable 5.1. |
+| `OpenAI` | `OPENAI_API_KEY` | Sends `effort` as `reasoning_effort`. |
+| `Google` | `GOOGLEAI_API_KEY` | Sends `effort` as `thinkingConfig.thinkingLevel`. |
+| `OpenAICompatible` | `OPENAI_COMPATIBLE_API_KEY` | Any OpenAI-style API; also set `OPENAI_COMPATIBLE_BASE_URL` (e.g. `http://localhost:11434/v1` for Ollama). |
+
+For these, set `AI_MODEL` too (the menu is OpenRouter-only); `npm run list-models` shows the IDs each key can use.
 
 ## Check that the model works
 
@@ -93,9 +108,10 @@ npm start
 
 This opens a dedicated Chrome window (with its own profile in `~/.pokernow-gpt/chrome-profile`, so a PokerNow login persists) and starts the bot. If a debuggable Chrome is already open on the port, it is reused.
 
-1. The terminal asks for the game. Paste the ID (`pgl-3YEOMYb8pdkfOtoGwyHPQ`) or the full URL. You can also pass it directly: `npm start -- https://www.pokernow.club/games/pgl-...`
-2. In the Chrome window, open the game, click an empty seat, enter a name and stack, and wait for the host to approve.
-3. Once seated, the bot monitors the table. On your turn a suggestion appears in the top-right corner; hover it for the reasoning.
+1. Pick a model from the menu (or press Enter to reuse your last one).
+2. The terminal asks for the game. Paste the ID (`pgl-3YEOMYb8pdkfOtoGwyHPQ`) or the full URL. You can also pass it directly: `npm start -- https://www.pokernow.club/games/pgl-...`
+3. In the Chrome window, open the game, click an empty seat, enter a name and stack, and wait for the host to approve.
+4. Once seated, the bot monitors the table. On your turn a suggestion appears in the top-right corner; hover it for the reasoning.
 
 Manual steps: `npm run chrome` in one terminal, `npm run start:bot` in another. If Chrome is not found, set `CHROME_PATH` in `.env` to the browser executable.
 

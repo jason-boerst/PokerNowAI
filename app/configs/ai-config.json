@@ -1,7 +1,6 @@
 {
-    "provider": "Anthropic",
-    "model_name": "claude-opus-5-5",
+    "provider": "OpenRouter",
+    "model_name": "",
     "playstyle": "neutral",
-    "effort": "low",
     "request_timeout_ms": 45000
 }
