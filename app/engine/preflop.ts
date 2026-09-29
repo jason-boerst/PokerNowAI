@@ -3,6 +3,7 @@ import { HandState, HeroView, SeatState } from "./hand-parser.ts";
 import { classOf, HandClass } from "./hand-classes.ts";
 import { MIN_HANDS_FOR_STATS, ObservedStats, POPULATION_TENDENCIES } from "./opponent-range.ts";
 import { parseRange } from "./range-notation.ts";
+import type { PlayerRef } from "./player-profile.ts";
 
 export type PreflopConfig = typeof default_config;
 
@@ -14,7 +15,7 @@ export interface PreflopAdvice {
     reason: string
 }
 
-type StatsLookup = (name: string) => ObservedStats | undefined;
+type StatsLookup = (player: PlayerRef) => ObservedStats | undefined;
 
 const PREFLOP_ORDER_FROM_BUTTON = ["BU", "CO", "HJ", "LJ", "MP", "UTG+1", "UTG"];
 const CATEGORY: Record<string, "early" | "middle" | "late" | "blinds"> = {
@@ -104,7 +105,7 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     if (s.seats.length === 2 && raises.length <= 2) {
         const hu = config.heads_up;
         const villain = s.seats.find((p) => p.id !== hero.id)!;
-        const villain_types = playerType(config, stats(villain.name));
+        const villain_types = playerType(config, stats(villain));
         if (hero.position === "SB") {
             if (raises.length === 0) {
                 const scenario = "heads-up, small blind (button) first in";
@@ -174,7 +175,7 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     // --- facing one raise
     if (raises.length === 1 && !hero_raised) {
         const raiser = seatById.get(last_raise.player_id)!;
-        const raiser_types = playerType(config, stats(raiser.name));
+        const raiser_types = playerType(config, stats(raiser));
         const raise_to_bb = last_raise.street_total / bb;
         const multiway = callers_after_raise.length > 0;
         // raises from late position (CO, BU, SB) come from much wider ranges
@@ -211,7 +212,7 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     if (limpers.length > 0 && raises.length === 0) {
         const scenario = `${limpers.length} limper(s)`;
         const category = CATEGORY[hero.position] ?? "late";
-        const loose_limpers = limpers.filter((a) => playerType(config, stats(seatById.get(a.player_id)!.name)).has("loose")).length;
+        const loose_limpers = limpers.filter((a) => playerType(config, stats(seatById.get(a.player_id)!)).has("loose")).length;
         if (inRange(config, config.isolate_limpers[category], cls)) {
             const to = size.isolate_base_bb + limpers.length * size.isolate_per_limper_bb
                 + (in_blinds ? size.out_of_position_extra_bb : 0) + (loose_limpers > 0 ? 1 : 0);
@@ -240,7 +241,7 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     const scenario = `unopened (${open_key} range)`;
     if (inRange(config, open_range, cls)) {
         const behind = order.slice(hero_index + 1);
-        const avg_vpip = behind.length ? behind.reduce((sum, p) => sum + vpipOf(stats(p.name)), 0) / behind.length : 0;
+        const avg_vpip = behind.length ? behind.reduce((sum, p) => sum + vpipOf(stats(p)), 0) / behind.length : 0;
         const loose_field = avg_vpip >= config.player_types.loose_vpip;
         const to = size.open_bb + (loose_field ? size.open_extra_bb_vs_loose_field : 0);
         return finish({ action: "raise", size_bb: to, scenario, reason: `Open ${cls} from ${hero.position}: it's in the ${open_key} opening range.${loose_field ? " Players behind call too much, so open bigger." : ""}` });

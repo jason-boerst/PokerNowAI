@@ -38,7 +38,7 @@ function riverSpot(hero_cards: string, villain_line: string[]) {
     return { s, v: heroView(s)! };
 }
 const passive: OpponentTendency = { model: { range: topRange(40), aggression: 0.15 }, fold_to_bet: 0.3, fold_to_raise: 0.15 };
-const noProfiles = () => undefined;
+const noProfiles = () => ({ deviations: [] });
 
 describe("parseDecision", () => {
     it("reads JSON, including inside code fences", () => {

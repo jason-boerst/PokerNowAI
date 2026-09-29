@@ -1,0 +1,548 @@
+entry,at,order
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T21:03:49.000Z,173650000054600
+"-- ending hand #14 --",2025-01-10T21:03:42.000Z,173650000054500
+"""Player01 @ PlayerId01"" shows a 9♦, 9♥.",2025-01-10T21:03:35.000Z,173650000054400
+"""Player04 @ PlayerId04"" collected 407 from pot with Straight, 9 High (combination: 5♣, 6♠, 7♣, 8♠, 9♣)",2025-01-10T21:03:28.000Z,173650000054300
+"""Player04 @ PlayerId04"" shows a 9♣, 7♣.",2025-01-10T21:03:21.000Z,173650000054200
+"""Player01 @ PlayerId01"" calls 140",2025-01-10T21:03:14.000Z,173650000054100
+"""Player04 @ PlayerId04"" bets 140 and go all in",2025-01-10T21:03:07.000Z,173650000054000
+"""Player01 @ PlayerId01"" checks",2025-01-10T21:03:00.000Z,173650000053900
+"River: 6♠, 3♣, 8♠, 5♥ [5♣]",2025-01-10T21:02:53.000Z,173650000053800
+"""Player01 @ PlayerId01"" calls 38",2025-01-10T21:02:46.000Z,173650000053700
+"""Player04 @ PlayerId04"" bets 38",2025-01-10T21:02:39.000Z,173650000053600
+"""Player01 @ PlayerId01"" checks",2025-01-10T21:02:32.000Z,173650000053500
+"Turn: 6♠, 3♣, 8♠ [5♥]",2025-01-10T21:02:25.000Z,173650000053400
+"""Player34 @ PlayerId34"" folds",2025-01-10T21:02:18.000Z,173650000053300
+"""Player01 @ PlayerId01"" calls 15",2025-01-10T21:02:11.000Z,173650000053200
+"""Player04 @ PlayerId04"" bets 15",2025-01-10T21:02:04.000Z,173650000053100
+"""Player34 @ PlayerId34"" checks",2025-01-10T21:01:57.000Z,173650000053000
+"""Player01 @ PlayerId01"" checks",2025-01-10T21:01:50.000Z,173650000052900
+"Flop:  [6♠, 3♣, 8♠]",2025-01-10T21:01:43.000Z,173650000052800
+"""Player34 @ PlayerId34"" calls 7",2025-01-10T21:01:36.000Z,173650000052700
+"""Player01 @ PlayerId01"" calls 7",2025-01-10T21:01:29.000Z,173650000052600
+"""Player33 @ PlayerId33"" folds",2025-01-10T21:01:22.000Z,173650000052500
+"""Player36 @ PlayerId36"" folds",2025-01-10T21:01:15.000Z,173650000052400
+"""Player06 @ PlayerId06"" folds",2025-01-10T21:01:08.000Z,173650000052300
+"""Player35 @ PlayerId35"" folds",2025-01-10T21:01:01.000Z,173650000052200
+"""Player04 @ PlayerId04"" raises to 7",2025-01-10T21:00:54.000Z,173650000052100
+"""Player07 @ PlayerId07"" folds",2025-01-10T21:00:47.000Z,173650000052000
+"""Player02 @ PlayerId02"" folds",2025-01-10T21:00:40.000Z,173650000051900
+"""Player34 @ PlayerId34"" posts a big blind of 2",2025-01-10T21:00:33.000Z,173650000051800
+"""Player01 @ PlayerId01"" posts a small blind of 1",2025-01-10T21:00:26.000Z,173650000051700
+"Player stacks: #1 ""Player33 @ PlayerId33"" (159) | #2 ""Player01 @ PlayerId01"" (436) | #3 ""Player34 @ PlayerId34"" (592) | #4 ""Player02 @ PlayerId02"" (531) | #6 ""Player07 @ PlayerId07"" (382) | #7 ""Player04 @ PlayerId04"" (200) | #8 ""Player35 @ PlayerId35"" (328) | #9 ""Player06 @ PlayerId06"" (178) | #10 ""Player36 @ PlayerId36"" (213)",2025-01-10T21:00:19.000Z,173650000051600
+"-- starting hand #14 (id: fixture14)  No Limit Texas Hold'em (dealer: ""Player33 @ PlayerId33"") --",2025-01-10T21:00:12.000Z,173650000051500
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T21:00:05.000Z,173650000051400
+"-- ending hand #13 --",2025-01-10T20:59:58.000Z,173650000051300
+"""Player01 @ PlayerId01"" collected 5 from pot",2025-01-10T20:59:51.000Z,173650000051200
+"Uncalled bet of 2 returned to ""Player01 @ PlayerId01""",2025-01-10T20:59:44.000Z,173650000051100
+"""Player06 @ PlayerId06"" folds",2025-01-10T20:59:37.000Z,173650000051000
+"""Player05 @ PlayerId05"" folds",2025-01-10T20:59:30.000Z,173650000050900
+"""Player04 @ PlayerId04"" folds",2025-01-10T20:59:23.000Z,173650000050800
+"""Player03 @ PlayerId03"" folds",2025-01-10T20:59:16.000Z,173650000050700
+"""Player02 @ PlayerId02"" folds",2025-01-10T20:59:09.000Z,173650000050600
+"""Player01 @ PlayerId01"" raises to 4",2025-01-10T20:59:02.000Z,173650000050500
+"""Player06 @ PlayerId06"" posts a big blind of 2",2025-01-10T20:58:55.000Z,173650000050400
+"""Player05 @ PlayerId05"" posts a small blind of 1",2025-01-10T20:58:48.000Z,173650000050300
+"Player stacks: #2 ""Player01 @ PlayerId01"" (300) | #4 ""Player02 @ PlayerId02"" (300) | #6 ""Player03 @ PlayerId03"" (200) | #7 ""Player04 @ PlayerId04"" (200) | #8 ""Player05 @ PlayerId05"" (200) | #9 ""Player06 @ PlayerId06"" (200)",2025-01-10T20:58:41.000Z,173650000050200
+"The player ""Player06 @ PlayerId06"" joined the game with a stack of 200.",2025-01-10T20:58:34.000Z,173650000050100
+"The player ""Player05 @ PlayerId05"" joined the game with a stack of 200.",2025-01-10T20:58:27.000Z,173650000050000
+"The player ""Player04 @ PlayerId04"" joined the game with a stack of 200.",2025-01-10T20:58:20.000Z,173650000049900
+"The player ""Player03 @ PlayerId03"" joined the game with a stack of 200.",2025-01-10T20:58:13.000Z,173650000049800
+"The player ""Player02 @ PlayerId02"" joined the game with a stack of 300.",2025-01-10T20:58:06.000Z,173650000049700
+"The player ""Player01 @ PlayerId01"" joined the game with a stack of 300.",2025-01-10T20:57:59.000Z,173650000049600
+"-- starting hand #13 (id: fixture13)  No Limit Texas Hold'em (dealer: ""Player04 @ PlayerId04"") --",2025-01-10T20:57:52.000Z,173650000049500
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:57:45.000Z,173650000049400
+"""Player25 @ PlayerId25"" shows a 10♠, 7♠.",2025-01-10T20:57:38.000Z,173650000049300
+"""Player24 @ PlayerId24"" shows a 4♣, 9♠.",2025-01-10T20:57:31.000Z,173650000049200
+"-- ending hand #12 --",2025-01-10T20:57:24.000Z,173650000049100
+"""Player25 @ PlayerId25"" collected 102.00 from pot",2025-01-10T20:57:17.000Z,173650000049000
+"Uncalled bet of 76.50 returned to ""Player25 @ PlayerId25""",2025-01-10T20:57:10.000Z,173650000048900
+"""Player21 @ PlayerId21"" folds",2025-01-10T20:57:03.000Z,173650000048800
+"""Player25 @ PlayerId25"" bets 76.50",2025-01-10T20:56:56.000Z,173650000048700
+"""Player21 @ PlayerId21"" checks",2025-01-10T20:56:49.000Z,173650000048600
+"River: 4♠, 2♠, 2♣, 5♥ [4♥]",2025-01-10T20:56:42.000Z,173650000048500
+"""Player25 @ PlayerId25"" calls 25.50",2025-01-10T20:56:35.000Z,173650000048400
+"""Player21 @ PlayerId21"" bets 25.50",2025-01-10T20:56:28.000Z,173650000048300
+"Turn: 4♠, 2♠, 2♣ [5♥]",2025-01-10T20:56:21.000Z,173650000048200
+"""Player30 @ PlayerId30"" folds",2025-01-10T20:56:14.000Z,173650000048100
+"""Player14 @ PlayerId14"" folds",2025-01-10T20:56:07.000Z,173650000048000
+"""Player25 @ PlayerId25"" calls 12.75",2025-01-10T20:56:00.000Z,173650000047900
+"""Player21 @ PlayerId21"" bets 12.75",2025-01-10T20:55:53.000Z,173650000047800
+"""Player30 @ PlayerId30"" checks",2025-01-10T20:55:46.000Z,173650000047700
+"Flop:  [4♠, 2♠, 2♣]",2025-01-10T20:55:39.000Z,173650000047600
+"""Player30 @ PlayerId30"" calls 6.00",2025-01-10T20:55:32.000Z,173650000047500
+"""Player14 @ PlayerId14"" calls 6.00",2025-01-10T20:55:25.000Z,173650000047400
+"""Player25 @ PlayerId25"" calls 6.00",2025-01-10T20:55:18.000Z,173650000047300
+"""Player21 @ PlayerId21"" raises to 6.00",2025-01-10T20:55:11.000Z,173650000047200
+"""Player30 @ PlayerId30"" calls 1.00",2025-01-10T20:55:04.000Z,173650000047100
+"""Player27 @ PlayerId27"" folds",2025-01-10T20:54:57.000Z,173650000047000
+"""Player14 @ PlayerId14"" checks",2025-01-10T20:54:50.000Z,173650000046900
+"""Player19 @ PlayerId19"" folds",2025-01-10T20:54:43.000Z,173650000046800
+"""Player32 @ PlayerId32"" folds",2025-01-10T20:54:36.000Z,173650000046700
+"""Player24 @ PlayerId24"" folds",2025-01-10T20:54:29.000Z,173650000046600
+"""Player31 @ PlayerId31"" folds",2025-01-10T20:54:22.000Z,173650000046500
+"""Player25 @ PlayerId25"" calls 1.00",2025-01-10T20:54:15.000Z,173650000046400
+"""Player22 @ PlayerId22"" folds",2025-01-10T20:54:08.000Z,173650000046300
+"""Player14 @ PlayerId14"" posts a missed big blind of 1.00",2025-01-10T20:54:01.000Z,173650000046200
+"""Player14 @ PlayerId14"" posts a missing small blind of 0.50",2025-01-10T20:53:54.000Z,173650000046100
+"""Player21 @ PlayerId21"" posts a big blind of 1.00",2025-01-10T20:53:47.000Z,173650000046000
+"""Player30 @ PlayerId30"" posts a small blind of 0.50",2025-01-10T20:53:40.000Z,173650000045900
+"""Player24 @ PlayerId24"" posts an ante of 0.10",2025-01-10T20:53:33.000Z,173650000045800
+"""Player31 @ PlayerId31"" posts an ante of 0.10",2025-01-10T20:53:26.000Z,173650000045700
+"""Player25 @ PlayerId25"" posts an ante of 0.10",2025-01-10T20:53:19.000Z,173650000045600
+"""Player22 @ PlayerId22"" posts an ante of 0.10",2025-01-10T20:53:12.000Z,173650000045500
+"""Player21 @ PlayerId21"" posts an ante of 0.10",2025-01-10T20:53:05.000Z,173650000045400
+"""Player30 @ PlayerId30"" posts an ante of 0.10",2025-01-10T20:52:58.000Z,173650000045300
+"""Player27 @ PlayerId27"" posts an ante of 0.10",2025-01-10T20:52:51.000Z,173650000045200
+"""Player14 @ PlayerId14"" posts an ante of 0.10",2025-01-10T20:52:44.000Z,173650000045100
+"""Player19 @ PlayerId19"" posts an ante of 0.10",2025-01-10T20:52:37.000Z,173650000045000
+"""Player32 @ PlayerId32"" posts an ante of 0.10",2025-01-10T20:52:30.000Z,173650000044900
+"Player stacks: #1 ""Player32 @ PlayerId32"" (96.90) | #2 ""Player19 @ PlayerId19"" (139.86) | #3 ""Player14 @ PlayerId14"" (426.67) | #4 ""Player27 @ PlayerId27"" (637.73) | #5 ""Player30 @ PlayerId30"" (436.55) | #6 ""Player21 @ PlayerId21"" (250.87) | #7 ""Player22 @ PlayerId22"" (96.41) | #8 ""Player25 @ PlayerId25"" (442.10) | #9 ""Player31 @ PlayerId31"" (175.45) | #10 ""Player24 @ PlayerId24"" (223.53)",2025-01-10T20:52:23.000Z,173650000044800
+"-- starting hand #12 (id: fixture12)  No Limit Texas Hold'em (dealer: ""Player27 @ PlayerId27"") --",2025-01-10T20:52:16.000Z,173650000044700
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:52:09.000Z,173650000044600
+"""Player18 @ PlayerId18"" shows a 9♥.",2025-01-10T20:52:02.000Z,173650000044500
+"-- ending hand #11 --",2025-01-10T20:51:55.000Z,173650000044400
+"""Player18 @ PlayerId18"" collected 6.80 from pot",2025-01-10T20:51:48.000Z,173650000044300
+"Uncalled bet of 9.00 returned to ""Player18 @ PlayerId18""",2025-01-10T20:51:41.000Z,173650000044200
+"""Player24 @ PlayerId24"" folds",2025-01-10T20:51:34.000Z,173650000044100
+"""Player25 @ PlayerId25"" folds",2025-01-10T20:51:27.000Z,173650000044000
+"""Player18 @ PlayerId18"" bets 9.00",2025-01-10T20:51:20.000Z,173650000043900
+"""Player24 @ PlayerId24"" checks",2025-01-10T20:51:13.000Z,173650000043800
+"River: 7♠, 7♣, 10♠, 2♦ [8♠]",2025-01-10T20:51:06.000Z,173650000043700
+"""Player24 @ PlayerId24"" calls 1.00",2025-01-10T20:50:59.000Z,173650000043600
+"""Player25 @ PlayerId25"" calls 1.00",2025-01-10T20:50:52.000Z,173650000043500
+"""Player18 @ PlayerId18"" bets 1.00",2025-01-10T20:50:45.000Z,173650000043400
+"""Player24 @ PlayerId24"" checks",2025-01-10T20:50:38.000Z,173650000043300
+"Turn: 7♠, 7♣, 10♠ [2♦]",2025-01-10T20:50:31.000Z,173650000043200
+"""Player25 @ PlayerId25"" checks",2025-01-10T20:50:24.000Z,173650000043100
+"""Player18 @ PlayerId18"" checks",2025-01-10T20:50:17.000Z,173650000043000
+"""Player24 @ PlayerId24"" checks",2025-01-10T20:50:10.000Z,173650000042900
+"Flop:  [7♠, 7♣, 10♠]",2025-01-10T20:50:03.000Z,173650000042800
+"""Player18 @ PlayerId18"" checks",2025-01-10T20:49:56.000Z,173650000042700
+"""Player24 @ PlayerId24"" calls 1.00",2025-01-10T20:49:49.000Z,173650000042600
+"The admin approved the player ""Player31 @ PlayerId31"" participation with a stack of 125.00.",2025-01-10T20:49:42.000Z,173650000042500
+"""Player25 @ PlayerId25"" calls 1.00",2025-01-10T20:49:35.000Z,173650000042400
+"The player ""Player31 @ PlayerId31"" requested a seat.",2025-01-10T20:49:28.000Z,173650000042300
+"""Player22 @ PlayerId22"" folds",2025-01-10T20:49:21.000Z,173650000042200
+"""Player21 @ PlayerId21"" folds",2025-01-10T20:49:14.000Z,173650000042100
+"""Player27 @ PlayerId27"" folds",2025-01-10T20:49:07.000Z,173650000042000
+"""Player14 @ PlayerId14"" folds",2025-01-10T20:49:00.000Z,173650000041900
+"The admin approved the player ""Player30 @ PlayerId30"" participation with a stack of 400.00.",2025-01-10T20:48:53.000Z,173650000041800
+"The player ""Player30 @ PlayerId30"" requested a seat.",2025-01-10T20:48:46.000Z,173650000041700
+"""Player19 @ PlayerId19"" folds",2025-01-10T20:48:39.000Z,173650000041600
+"""Player18 @ PlayerId18"" posts a big blind of 1.00",2025-01-10T20:48:32.000Z,173650000041500
+"""Player24 @ PlayerId24"" posts a small blind of 0.50",2025-01-10T20:48:25.000Z,173650000041400
+"""Player24 @ PlayerId24"" posts an ante of 0.10",2025-01-10T20:48:18.000Z,173650000041300
+"""Player25 @ PlayerId25"" posts an ante of 0.10",2025-01-10T20:48:11.000Z,173650000041200
+"""Player22 @ PlayerId22"" posts an ante of 0.10",2025-01-10T20:48:04.000Z,173650000041100
+"""Player21 @ PlayerId21"" posts an ante of 0.10",2025-01-10T20:47:57.000Z,173650000041000
+"""Player27 @ PlayerId27"" posts an ante of 0.10",2025-01-10T20:47:50.000Z,173650000040900
+"""Player14 @ PlayerId14"" posts an ante of 0.10",2025-01-10T20:47:43.000Z,173650000040800
+"""Player19 @ PlayerId19"" posts an ante of 0.10",2025-01-10T20:47:36.000Z,173650000040700
+"""Player18 @ PlayerId18"" posts an ante of 0.10",2025-01-10T20:47:29.000Z,173650000040600
+"Player stacks: #1 ""Player18 @ PlayerId18"" (159.40) | #2 ""Player19 @ PlayerId19"" (179.16) | #3 ""Player14 @ PlayerId14"" (435.07) | #4 ""Player27 @ PlayerId27"" (562.73) | #6 ""Player21 @ PlayerId21"" (126.27) | #7 ""Player22 @ PlayerId22"" (77.21) | #8 ""Player25 @ PlayerId25"" (458.40) | #10 ""Player24 @ PlayerId24"" (227.93)",2025-01-10T20:47:22.000Z,173650000040500
+"-- starting hand #11 (id: fixture11)  No Limit Texas Hold'em (dead button) --",2025-01-10T20:47:15.000Z,173650000040400
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:47:08.000Z,173650000040300
+"-- ending hand #10 --",2025-01-10T20:47:01.000Z,173650000040200
+"""Player25 @ PlayerId25"" collected 31.00 from pot",2025-01-10T20:46:54.000Z,173650000040100
+"Uncalled bet of 15.50 returned to ""Player25 @ PlayerId25""",2025-01-10T20:46:47.000Z,173650000040000
+"""Player22 @ PlayerId22"" folds",2025-01-10T20:46:40.000Z,173650000039900
+"""Player25 @ PlayerId25"" raises to 20.00",2025-01-10T20:46:33.000Z,173650000039800
+"""Player22 @ PlayerId22"" bets 4.50",2025-01-10T20:46:26.000Z,173650000039700
+"River: J♥, 9♥, 9♣, 8♠ [5♥]",2025-01-10T20:46:19.000Z,173650000039600
+"""Player20 @ PlayerId20"" folds",2025-01-10T20:46:12.000Z,173650000039500
+"""Player25 @ PlayerId25"" calls 5.50",2025-01-10T20:46:05.000Z,173650000039400
+"""Player22 @ PlayerId22"" bets 5.50",2025-01-10T20:45:58.000Z,173650000039300
+"Turn: J♥, 9♥, 9♣ [8♠]",2025-01-10T20:45:51.000Z,173650000039200
+"""Player20 @ PlayerId20"" checks",2025-01-10T20:45:44.000Z,173650000039100
+"""Player25 @ PlayerId25"" checks",2025-01-10T20:45:37.000Z,173650000039000
+"""Player22 @ PlayerId22"" checks",2025-01-10T20:45:30.000Z,173650000038900
+"Flop:  [J♥, 9♥, 9♣]",2025-01-10T20:45:23.000Z,173650000038800
+"""Player25 @ PlayerId25"" calls 3.25",2025-01-10T20:45:16.000Z,173650000038700
+"""Player22 @ PlayerId22"" calls 3.25",2025-01-10T20:45:09.000Z,173650000038600
+"""Player21 @ PlayerId21"" folds",2025-01-10T20:45:02.000Z,173650000038500
+"""Player20 @ PlayerId20"" raises to 3.25",2025-01-10T20:44:55.000Z,173650000038400
+"""Player27 @ PlayerId27"" folds",2025-01-10T20:44:48.000Z,173650000038300
+"""Player17 @ PlayerId17"" folds",2025-01-10T20:44:41.000Z,173650000038200
+"""Player19 @ PlayerId19"" folds",2025-01-10T20:44:34.000Z,173650000038100
+"""Player18 @ PlayerId18"" folds",2025-01-10T20:44:27.000Z,173650000038000
+"""Player24 @ PlayerId24"" folds",2025-01-10T20:44:20.000Z,173650000037900
+"""Player23 @ PlayerId23"" folds",2025-01-10T20:44:13.000Z,173650000037800
+"""Player25 @ PlayerId25"" calls 0.50",2025-01-10T20:44:06.000Z,173650000037700
+"""Player22 @ PlayerId22"" posts a big blind of 0.50",2025-01-10T20:43:59.000Z,173650000037600
+"""Player21 @ PlayerId21"" posts a small blind of 0.25",2025-01-10T20:43:52.000Z,173650000037500
+"""Player24 @ PlayerId24"" posts an ante of 0.10",2025-01-10T20:43:45.000Z,173650000037400
+"""Player23 @ PlayerId23"" posts an ante of 0.10",2025-01-10T20:43:38.000Z,173650000037300
+"""Player25 @ PlayerId25"" posts an ante of 0.10",2025-01-10T20:43:31.000Z,173650000037200
+"""Player22 @ PlayerId22"" posts an ante of 0.10",2025-01-10T20:43:24.000Z,173650000037100
+"""Player21 @ PlayerId21"" posts an ante of 0.10",2025-01-10T20:43:17.000Z,173650000037000
+"""Player20 @ PlayerId20"" posts an ante of 0.10",2025-01-10T20:43:10.000Z,173650000036900
+"""Player27 @ PlayerId27"" posts an ante of 0.10",2025-01-10T20:43:03.000Z,173650000036800
+"""Player17 @ PlayerId17"" posts an ante of 0.10",2025-01-10T20:42:56.000Z,173650000036700
+"""Player19 @ PlayerId19"" posts an ante of 0.10",2025-01-10T20:42:49.000Z,173650000036600
+"""Player18 @ PlayerId18"" posts an ante of 0.10",2025-01-10T20:42:42.000Z,173650000036500
+"Player stacks: #1 ""Player18 @ PlayerId18"" (60.03) | #2 ""Player19 @ PlayerId19"" (132.18) | #3 ""Player17 @ PlayerId17"" (108.30) | #4 ""Player27 @ PlayerId27"" (250.00) | #5 ""Player20 @ PlayerId20"" (149.90) | #6 ""Player21 @ PlayerId21"" (151.54) | #7 ""Player22 @ PlayerId22"" (103.60) | #8 ""Player25 @ PlayerId25"" (141.09) | #9 ""Player23 @ PlayerId23"" (76.53) | #10 ""Player24 @ PlayerId24"" (76.83)",2025-01-10T20:42:35.000Z,173650000036400
+"-- starting hand #10 (id: fixture10)  No Limit Texas Hold'em (dealer: ""Player20 @ PlayerId20"") --",2025-01-10T20:42:28.000Z,173650000036300
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:42:21.000Z,173650000036200
+"""Player18 @ PlayerId18"" shows a 2♣, 3♦.",2025-01-10T20:42:14.000Z,173650000036100
+"""Player22 @ PlayerId22"" collected 16.00 from the 7-2 bounty",2025-01-10T20:42:07.000Z,173650000036000
+"""Player25 @ PlayerId25"" paid 2.00 for the 7-2 bounty to ""Player22 @ PlayerId22""",2025-01-10T20:42:00.000Z,173650000035900
+"""Player20 @ PlayerId20"" paid 2.00 for the 7-2 bounty to ""Player22 @ PlayerId22""",2025-01-10T20:41:53.000Z,173650000035800
+"""Player17 @ PlayerId17"" paid 2.00 for the 7-2 bounty to ""Player22 @ PlayerId22""",2025-01-10T20:41:46.000Z,173650000035700
+"""Player23 @ PlayerId23"" paid 2.00 for the 7-2 bounty to ""Player22 @ PlayerId22""",2025-01-10T20:41:39.000Z,173650000035600
+"""Player21 @ PlayerId21"" paid 2.00 for the 7-2 bounty to ""Player22 @ PlayerId22""",2025-01-10T20:41:32.000Z,173650000035500
+"""Player24 @ PlayerId24"" paid 2.00 for the 7-2 bounty to ""Player22 @ PlayerId22""",2025-01-10T20:41:25.000Z,173650000035400
+"""Player18 @ PlayerId18"" paid 2.00 for the 7-2 bounty to ""Player22 @ PlayerId22""",2025-01-10T20:41:18.000Z,173650000035300
+"""Player19 @ PlayerId19"" paid 2.00 for the 7-2 bounty to ""Player22 @ PlayerId22""",2025-01-10T20:41:11.000Z,173650000035200
+"-- ending hand #9 --",2025-01-10T20:41:04.000Z,173650000035100
+"""Player22 @ PlayerId22"" collected 95.30 from pot with Flush, 10 High (combination: 2♠, 4♠, 7♠, 9♠, 10♠)",2025-01-10T20:40:57.000Z,173650000035000
+"River: 10♠, 4♠, 7♣, 2♥ [9♠]",2025-01-10T20:40:50.000Z,173650000034900
+"Turn: 10♠, 4♠, 7♣ [2♥]",2025-01-10T20:40:43.000Z,173650000034800
+"""Player22 @ PlayerId22"" shows a 7♠, 2♠.",2025-01-10T20:40:36.000Z,173650000034700
+"""Player20 @ PlayerId20"" shows a 7♥, 6♥.",2025-01-10T20:40:29.000Z,173650000034600
+"Uncalled bet of 134.25 returned to ""Player20 @ PlayerId20""",2025-01-10T20:40:22.000Z,173650000034500
+"Some players choose to not run it twice.",2025-01-10T20:40:15.000Z,173650000034400
+"""Player20 @ PlayerId20"" chooses to not run it twice.",2025-01-10T20:40:08.000Z,173650000034300
+"""Player22 @ PlayerId22"" chooses to  run it twice.",2025-01-10T20:40:01.000Z,173650000034200
+"Remaining players decide whether to run it twice.",2025-01-10T20:39:54.000Z,173650000034100
+"""Player22 @ PlayerId22"" calls 38.95 and go all in",2025-01-10T20:39:47.000Z,173650000034000
+"""Player20 @ PlayerId20"" raises to 173.20 and go all in",2025-01-10T20:39:40.000Z,173650000033900
+"""Player19 @ PlayerId19"" folds",2025-01-10T20:39:33.000Z,173650000033800
+"""Player25 @ PlayerId25"" folds",2025-01-10T20:39:26.000Z,173650000033700
+"""Player22 @ PlayerId22"" bets 6.50",2025-01-10T20:39:19.000Z,173650000033600
+"""Player20 @ PlayerId20"" checks",2025-01-10T20:39:12.000Z,173650000033500
+"""Player19 @ PlayerId19"" checks",2025-01-10T20:39:05.000Z,173650000033400
+"Flop:  [10♠, 4♠, 7♣]",2025-01-10T20:38:58.000Z,173650000033300
+"""Player20 @ PlayerId20"" calls 4.00",2025-01-10T20:38:51.000Z,173650000033200
+"""Player17 @ PlayerId17"" folds",2025-01-10T20:38:44.000Z,173650000033100
+"""Player19 @ PlayerId19"" calls 4.00",2025-01-10T20:38:37.000Z,173650000033000
+"""Player18 @ PlayerId18"" folds",2025-01-10T20:38:30.000Z,173650000032900
+"""Player24 @ PlayerId24"" folds",2025-01-10T20:38:23.000Z,173650000032800
+"""Player23 @ PlayerId23"" folds",2025-01-10T20:38:16.000Z,173650000032700
+"""Player25 @ PlayerId25"" calls 4.00",2025-01-10T20:38:09.000Z,173650000032600
+"""Player22 @ PlayerId22"" raises to 4.00",2025-01-10T20:38:02.000Z,173650000032500
+"""Player21 @ PlayerId21"" folds",2025-01-10T20:37:55.000Z,173650000032400
+"""Player20 @ PlayerId20"" posts a straddle of 1.00",2025-01-10T20:37:48.000Z,173650000032300
+"""Player17 @ PlayerId17"" posts a big blind of 0.50",2025-01-10T20:37:41.000Z,173650000032200
+"""Player19 @ PlayerId19"" posts a small blind of 0.25",2025-01-10T20:37:34.000Z,173650000032100
+"""Player24 @ PlayerId24"" posts an ante of 0.10",2025-01-10T20:37:27.000Z,173650000032000
+"""Player23 @ PlayerId23"" posts an ante of 0.10",2025-01-10T20:37:20.000Z,173650000031900
+"""Player25 @ PlayerId25"" posts an ante of 0.10",2025-01-10T20:37:13.000Z,173650000031800
+"""Player22 @ PlayerId22"" posts an ante of 0.10",2025-01-10T20:37:06.000Z,173650000031700
+"""Player21 @ PlayerId21"" posts an ante of 0.10",2025-01-10T20:36:59.000Z,173650000031600
+"""Player20 @ PlayerId20"" posts an ante of 0.10",2025-01-10T20:36:52.000Z,173650000031500
+"""Player17 @ PlayerId17"" posts an ante of 0.10",2025-01-10T20:36:45.000Z,173650000031400
+"""Player19 @ PlayerId19"" posts an ante of 0.10",2025-01-10T20:36:38.000Z,173650000031300
+"""Player18 @ PlayerId18"" posts an ante of 0.10",2025-01-10T20:36:31.000Z,173650000031200
+"Player stacks: #1 ""Player18 @ PlayerId18"" (67.50) | #2 ""Player19 @ PlayerId19"" (100.75) | #3 ""Player17 @ PlayerId17"" (46.95) | #5 ""Player20 @ PlayerId20"" (177.30) | #6 ""Player21 @ PlayerId21"" (93.55) | #7 ""Player22 @ PlayerId22"" (43.05) | #8 ""Player25 @ PlayerId25"" (45.65) | #9 ""Player23 @ PlayerId23"" (44.30) | #10 ""Player24 @ PlayerId24"" (80.95)",2025-01-10T20:36:24.000Z,173650000031100
+"-- starting hand #9 (id: fixture9)  No Limit Texas Hold'em (dealer: ""Player18 @ PlayerId18"") --",2025-01-10T20:36:17.000Z,173650000031000
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:36:10.000Z,173650000030900
+"""Player22 @ PlayerId22"" shows a 2♣, 7♠.",2025-01-10T20:36:03.000Z,173650000030800
+"-- ending hand #8 --",2025-01-10T20:35:56.000Z,173650000030700
+"""Player20 @ PlayerId20"" collected 110.20 from pot with Flush, K High (combination: 3♥, 6♥, 8♥, J♥, K♥)",2025-01-10T20:35:49.000Z,173650000030600
+"""Player25 @ PlayerId25"" collected 121.00 from pot with Flush, A High (combination: 3♥, 6♥, 8♥, J♥, A♥)",2025-01-10T20:35:42.000Z,173650000030500
+"River: 8♥, 3♥, 6♥, J♥ [A♠]",2025-01-10T20:35:35.000Z,173650000030400
+"Turn: 8♥, 3♥, 6♥ [J♥]",2025-01-10T20:35:28.000Z,173650000030300
+"Flop:  [8♥, 3♥, 6♥]",2025-01-10T20:35:21.000Z,173650000030200
+"""Player25 @ PlayerId25"" shows a J♣, A♥.",2025-01-10T20:35:14.000Z,173650000030100
+"""Player20 @ PlayerId20"" shows a K♥, K♦.",2025-01-10T20:35:07.000Z,173650000030000
+"""Player19 @ PlayerId19"" shows a 8♦, 7♦.",2025-01-10T20:35:00.000Z,173650000029900
+"Uncalled bet of 37.60 returned to ""Player20 @ PlayerId20""",2025-01-10T20:34:53.000Z,173650000029800
+"Some players choose to not run it twice.",2025-01-10T20:34:46.000Z,173650000029700
+"""Player20 @ PlayerId20"" chooses to not run it twice.",2025-01-10T20:34:39.000Z,173650000029600
+"""Player19 @ PlayerId19"" chooses to  run it twice.",2025-01-10T20:34:32.000Z,173650000029500
+"Remaining players decide whether to run it twice.",2025-01-10T20:34:25.000Z,173650000029400
+"""Player19 @ PlayerId19"" calls 94.55 and go all in",2025-01-10T20:34:18.000Z,173650000029300
+"""Player25 @ PlayerId25"" calls 39.45 and go all in",2025-01-10T20:34:11.000Z,173650000029200
+"""Player22 @ PlayerId22"" folds",2025-01-10T20:34:04.000Z,173650000029100
+"""Player20 @ PlayerId20"" raises to 132.15 and go all in",2025-01-10T20:33:57.000Z,173650000029000
+"""Player17 @ PlayerId17"" folds",2025-01-10T20:33:50.000Z,173650000028900
+"""Player19 @ PlayerId19"" calls 6.15",2025-01-10T20:33:43.000Z,173650000028800
+"""Player18 @ PlayerId18"" folds",2025-01-10T20:33:36.000Z,173650000028700
+"""Player24 @ PlayerId24"" folds",2025-01-10T20:33:29.000Z,173650000028600
+"""Player23 @ PlayerId23"" folds",2025-01-10T20:33:22.000Z,173650000028500
+"""Player25 @ PlayerId25"" raises to 6.15",2025-01-10T20:33:15.000Z,173650000028400
+"""Player22 @ PlayerId22"" raises to 1.50",2025-01-10T20:33:08.000Z,173650000028300
+"""Player21 @ PlayerId21"" folds",2025-01-10T20:33:01.000Z,173650000028200
+"""Player20 @ PlayerId20"" posts a big blind of 0.50",2025-01-10T20:32:54.000Z,173650000028100
+"""Player17 @ PlayerId17"" posts a small blind of 0.25",2025-01-10T20:32:47.000Z,173650000028000
+"""Player24 @ PlayerId24"" posts an ante of 0.10",2025-01-10T20:32:40.000Z,173650000027900
+"""Player23 @ PlayerId23"" posts an ante of 0.10",2025-01-10T20:32:33.000Z,173650000027800
+"""Player25 @ PlayerId25"" posts an ante of 0.10",2025-01-10T20:32:26.000Z,173650000027700
+"""Player22 @ PlayerId22"" posts an ante of 0.10",2025-01-10T20:32:19.000Z,173650000027600
+"""Player21 @ PlayerId21"" posts an ante of 0.10",2025-01-10T20:32:12.000Z,173650000027500
+"""Player20 @ PlayerId20"" posts an ante of 0.10",2025-01-10T20:32:05.000Z,173650000027400
+"""Player17 @ PlayerId17"" posts an ante of 0.10",2025-01-10T20:31:58.000Z,173650000027300
+"""Player19 @ PlayerId19"" posts an ante of 0.10",2025-01-10T20:31:51.000Z,173650000027200
+"""Player18 @ PlayerId18"" posts an ante of 0.10",2025-01-10T20:31:44.000Z,173650000027100
+"Player stacks: #1 ""Player18 @ PlayerId18"" (65.40) | #2 ""Player19 @ PlayerId19"" (94.65) | #3 ""Player17 @ PlayerId17"" (44.35) | #5 ""Player20 @ PlayerId20"" (132.25) | #6 ""Player21 @ PlayerId21"" (91.45) | #7 ""Player22 @ PlayerId22"" (111.30) | #8 ""Player25 @ PlayerId25"" (39.55) | #9 ""Player23 @ PlayerId23"" (42.20) | #10 ""Player24 @ PlayerId24"" (78.85)",2025-01-10T20:31:37.000Z,173650000027000
+"-- starting hand #8 (id: fixture8)  No Limit Texas Hold'em (dealer: ""Player19 @ PlayerId19"") --",2025-01-10T20:31:30.000Z,173650000026900
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:31:23.000Z,173650000026800
+"""Player20 @ PlayerId20"" collected 16.00 from the 7-2 bounty",2025-01-10T20:31:16.000Z,173650000026700
+"""Player25 @ PlayerId25"" paid 2.00 for the 7-2 bounty to ""Player20 @ PlayerId20""",2025-01-10T20:31:09.000Z,173650000026600
+"""Player17 @ PlayerId17"" paid 2.00 for the 7-2 bounty to ""Player20 @ PlayerId20""",2025-01-10T20:31:02.000Z,173650000026500
+"""Player23 @ PlayerId23"" paid 2.00 for the 7-2 bounty to ""Player20 @ PlayerId20""",2025-01-10T20:30:55.000Z,173650000026400
+"""Player21 @ PlayerId21"" paid 2.00 for the 7-2 bounty to ""Player20 @ PlayerId20""",2025-01-10T20:30:48.000Z,173650000026300
+"""Player24 @ PlayerId24"" paid 2.00 for the 7-2 bounty to ""Player20 @ PlayerId20""",2025-01-10T20:30:41.000Z,173650000026200
+"""Player18 @ PlayerId18"" paid 2.00 for the 7-2 bounty to ""Player20 @ PlayerId20""",2025-01-10T20:30:34.000Z,173650000026100
+"""Player22 @ PlayerId22"" paid 2.00 for the 7-2 bounty to ""Player20 @ PlayerId20""",2025-01-10T20:30:27.000Z,173650000026000
+"""Player19 @ PlayerId19"" paid 2.00 for the 7-2 bounty to ""Player20 @ PlayerId20""",2025-01-10T20:30:20.000Z,173650000025900
+"""Player20 @ PlayerId20"" shows a 7♥, 2♠.",2025-01-10T20:30:13.000Z,173650000025800
+"-- ending hand #7 --",2025-01-10T20:30:06.000Z,173650000025700
+"""Player20 @ PlayerId20"" collected 25.15 from pot",2025-01-10T20:29:59.000Z,173650000025600
+"Uncalled bet of 18.86 returned to ""Player20 @ PlayerId20""",2025-01-10T20:29:52.000Z,173650000025500
+"""Player24 @ PlayerId24"" folds",2025-01-10T20:29:45.000Z,173650000025400
+"""Player20 @ PlayerId20"" bets 18.86",2025-01-10T20:29:38.000Z,173650000025300
+"""Player24 @ PlayerId24"" checks",2025-01-10T20:29:31.000Z,173650000025200
+"Turn: 7♠, 2♦, 4♠ [9♥]",2025-01-10T20:29:24.000Z,173650000025100
+"""Player24 @ PlayerId24"" calls 5.00",2025-01-10T20:29:17.000Z,173650000025000
+"""Player20 @ PlayerId20"" bets 5.00",2025-01-10T20:29:10.000Z,173650000024900
+"""Player24 @ PlayerId24"" checks",2025-01-10T20:29:03.000Z,173650000024800
+"Flop:  [7♠, 2♦, 4♠]",2025-01-10T20:28:56.000Z,173650000024700
+"""Player17 @ PlayerId17"" folds",2025-01-10T20:28:49.000Z,173650000024600
+"""Player24 @ PlayerId24"" calls 6.00",2025-01-10T20:28:42.000Z,173650000024500
+"""Player23 @ PlayerId23"" folds",2025-01-10T20:28:35.000Z,173650000024400
+"""Player25 @ PlayerId25"" folds",2025-01-10T20:28:28.000Z,173650000024300
+"""Player22 @ PlayerId22"" folds",2025-01-10T20:28:21.000Z,173650000024200
+"""Player21 @ PlayerId21"" folds",2025-01-10T20:28:14.000Z,173650000024100
+"""Player20 @ PlayerId20"" raises to 6.00",2025-01-10T20:28:07.000Z,173650000024000
+"""Player17 @ PlayerId17"" calls 1.50",2025-01-10T20:28:00.000Z,173650000023900
+"""Player19 @ PlayerId19"" folds",2025-01-10T20:27:53.000Z,173650000023800
+"""Player18 @ PlayerId18"" folds",2025-01-10T20:27:46.000Z,173650000023700
+"""Player24 @ PlayerId24"" raises to 1.50",2025-01-10T20:27:39.000Z,173650000023600
+"""Player23 @ PlayerId23"" posts a big blind of 0.50",2025-01-10T20:27:32.000Z,173650000023500
+"""Player25 @ PlayerId25"" posts a small blind of 0.25",2025-01-10T20:27:25.000Z,173650000023400
+"""Player24 @ PlayerId24"" posts an ante of 0.10",2025-01-10T20:27:18.000Z,173650000023300
+"""Player23 @ PlayerId23"" posts an ante of 0.10",2025-01-10T20:27:11.000Z,173650000023200
+"""Player25 @ PlayerId25"" posts an ante of 0.10",2025-01-10T20:27:04.000Z,173650000023100
+"""Player22 @ PlayerId22"" posts an ante of 0.10",2025-01-10T20:26:57.000Z,173650000023000
+"""Player21 @ PlayerId21"" posts an ante of 0.10",2025-01-10T20:26:50.000Z,173650000022900
+"""Player20 @ PlayerId20"" posts an ante of 0.10",2025-01-10T20:26:43.000Z,173650000022800
+"""Player17 @ PlayerId17"" posts an ante of 0.10",2025-01-10T20:26:36.000Z,173650000022700
+"""Player19 @ PlayerId19"" posts an ante of 0.10",2025-01-10T20:26:29.000Z,173650000022600
+"""Player18 @ PlayerId18"" posts an ante of 0.10",2025-01-10T20:26:22.000Z,173650000022500
+"Player stacks: #1 ""Player18 @ PlayerId18"" (66.25) | #2 ""Player19 @ PlayerId19"" (49.85) | #3 ""Player17 @ PlayerId17"" (50.85) | #5 ""Player20 @ PlayerId20"" (147.45) | #6 ""Player21 @ PlayerId21"" (95.95) | #7 ""Player22 @ PlayerId22"" (46.95) | #8 ""Player25 @ PlayerId25"" (48.80) | #9 ""Player23 @ PlayerId23"" (47.70) | #10 ""Player24 @ PlayerId24"" (46.20)",2025-01-10T20:26:15.000Z,173650000022400
+"-- starting hand #7 (id: fixture7)  No Limit Texas Hold'em (dealer: ""Player22 @ PlayerId22"") --",2025-01-10T20:26:08.000Z,173650000022300
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:26:01.000Z,173650000022200
+"""Player20 @ PlayerId20"" shows a 3♠, 9♣.",2025-01-10T20:25:54.000Z,173650000022100
+"-- ending hand #6 --",2025-01-10T20:25:47.000Z,173650000022000
+"""Player19 @ PlayerId19"" collected 66.52 from pot with Three of a Kind, 6's on the second run  (combination: 7♥, 8♣, 6♦, 6♠, 6♣)",2025-01-10T20:25:40.000Z,173650000021900
+"""Player18 @ PlayerId18"" collected 66.53 from pot with Flush, A High (combination: 6♣, 8♣, 10♣, Q♣, A♣)",2025-01-10T20:25:33.000Z,173650000021800
+"River (second run): 8♣, 6♠, 6♣, 7♥ [3♥]",2025-01-10T20:25:26.000Z,173650000021700
+"Turn (second run): 8♣, 6♠, 6♣ [7♥]",2025-01-10T20:25:19.000Z,173650000021600
+"River: 8♣, 6♠, 6♣, A♦ [Q♣]",2025-01-10T20:25:12.000Z,173650000021500
+"Turn: 8♣, 6♠, 6♣ [A♦]",2025-01-10T20:25:05.000Z,173650000021400
+"""Player19 @ PlayerId19"" shows a 6♦, 5♦.",2025-01-10T20:24:58.000Z,173650000021300
+"""Player18 @ PlayerId18"" shows a A♣, 10♣.",2025-01-10T20:24:51.000Z,173650000021200
+"All players in hand choose to run it twice.",2025-01-10T20:24:44.000Z,173650000021100
+"""Player18 @ PlayerId18"" chooses to  run it twice.",2025-01-10T20:24:37.000Z,173650000021000
+"""Player19 @ PlayerId19"" chooses to  run it twice.",2025-01-10T20:24:30.000Z,173650000020900
+"Remaining players decide whether to run it twice.",2025-01-10T20:24:23.000Z,173650000020800
+"""Player19 @ PlayerId19"" calls 55.20",2025-01-10T20:24:16.000Z,173650000020700
+"""Player18 @ PlayerId18"" raises to 55.20 and go all in",2025-01-10T20:24:09.000Z,173650000020600
+"""Player19 @ PlayerId19"" raises to 36.61",2025-01-10T20:24:02.000Z,173650000020500
+"""Player18 @ PlayerId18"" bets 7.85",2025-01-10T20:23:55.000Z,173650000020400
+"Flop:  [8♣, 6♠, 6♣]",2025-01-10T20:23:48.000Z,173650000020300
+"""Player21 @ PlayerId21"" folds",2025-01-10T20:23:41.000Z,173650000020200
+"""Player19 @ PlayerId19"" calls 9.50",2025-01-10T20:23:34.000Z,173650000020100
+"""Player18 @ PlayerId18"" raises to 9.50",2025-01-10T20:23:27.000Z,173650000020000
+"""Player24 @ PlayerId24"" folds",2025-01-10T20:23:20.000Z,173650000019900
+"""Player23 @ PlayerId23"" folds",2025-01-10T20:23:13.000Z,173650000019800
+"""Player25 @ PlayerId25"" folds",2025-01-10T20:23:06.000Z,173650000019700
+"""Player22 @ PlayerId22"" folds",2025-01-10T20:22:59.000Z,173650000019600
+"""Player21 @ PlayerId21"" raises to 2.50",2025-01-10T20:22:52.000Z,173650000019500
+"""Player20 @ PlayerId20"" folds",2025-01-10T20:22:45.000Z,173650000019400
+"""Player17 @ PlayerId17"" folds",2025-01-10T20:22:38.000Z,173650000019300
+"""Player19 @ PlayerId19"" calls 0.50",2025-01-10T20:22:31.000Z,173650000019200
+"""Player18 @ PlayerId18"" posts a big blind of 0.50",2025-01-10T20:22:24.000Z,173650000019100
+"""Player24 @ PlayerId24"" posts a small blind of 0.25",2025-01-10T20:22:17.000Z,173650000019000
+"""Player24 @ PlayerId24"" posts an ante of 0.10",2025-01-10T20:22:10.000Z,173650000018900
+"""Player23 @ PlayerId23"" posts an ante of 0.10",2025-01-10T20:22:03.000Z,173650000018800
+"""Player25 @ PlayerId25"" posts an ante of 0.10",2025-01-10T20:21:56.000Z,173650000018700
+"""Player22 @ PlayerId22"" posts an ante of 0.10",2025-01-10T20:21:49.000Z,173650000018600
+"""Player21 @ PlayerId21"" posts an ante of 0.10",2025-01-10T20:21:42.000Z,173650000018500
+"""Player20 @ PlayerId20"" posts an ante of 0.10",2025-01-10T20:21:35.000Z,173650000018400
+"""Player17 @ PlayerId17"" posts an ante of 0.10",2025-01-10T20:21:28.000Z,173650000018300
+"""Player19 @ PlayerId19"" posts an ante of 0.10",2025-01-10T20:21:21.000Z,173650000018200
+"""Player18 @ PlayerId18"" posts an ante of 0.10",2025-01-10T20:21:14.000Z,173650000018100
+"Player stacks: #1 ""Player18 @ PlayerId18"" (64.80) | #2 ""Player19 @ PlayerId19"" (132.36) | #3 ""Player17 @ PlayerId17"" (91.50) | #5 ""Player20 @ PlayerId20"" (152.15) | #6 ""Player21 @ PlayerId21"" (88.10) | #7 ""Player22 @ PlayerId22"" (105.60) | #8 ""Player25 @ PlayerId25"" (109.38) | #9 ""Player23 @ PlayerId23"" (27.03) | #10 ""Player24 @ PlayerId24"" (79.08)",2025-01-10T20:21:07.000Z,173650000018000
+"-- starting hand #6 (id: fixture6)  No Limit Texas Hold'em (dealer: ""Player23 @ PlayerId23"") --",2025-01-10T20:21:00.000Z,173650000017900
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:20:53.000Z,173650000017800
+"-- ending hand #5 --",2025-01-10T20:20:46.000Z,173650000017700
+"""Player01 @ PlayerId01"" collected 237 from pot with Straight, 5 High on the second board  (combination: A♦, 2♣, 3♦, 4♣, 5♥)",2025-01-10T20:20:39.000Z,173650000017600
+"""Player27 @ PlayerId27"" collected 237 from pot with Full House, K's over 8's (combination: 8♣, 8♥, K♥, K♦, K♠)",2025-01-10T20:20:32.000Z,173650000017500
+"""Player26 @ PlayerId26"" collected 78 from pot with Full House, 3's over 7's on the second board  (combination: 7♦, 7♥, 3♥, 3♣, 3♦)",2025-01-10T20:20:25.000Z,173650000017400
+"""Player27 @ PlayerId27"" collected 78 from pot with Full House, K's over 8's (combination: 8♣, 8♥, K♥, K♦, K♠)",2025-01-10T20:20:18.000Z,173650000017300
+"""Player26 @ PlayerId26"" collected 305 from pot with Full House, 3's over 7's on the second board  (combination: 7♦, 7♥, 3♥, 3♣, 3♦)",2025-01-10T20:20:11.000Z,173650000017200
+"""Player27 @ PlayerId27"" collected 305 from pot with Full House, K's over 8's (combination: 8♣, 8♥, K♥, K♦, K♠)",2025-01-10T20:20:04.000Z,173650000017100
+"River (second board): A♦, 3♣, 2♣, 7♥ [3♦]",2025-01-10T20:19:57.000Z,173650000017000
+"River: 9♥, K♠, 8♣, 2♥ [8♥]",2025-01-10T20:19:50.000Z,173650000016900
+"Turn (second board): A♦, 3♣, 2♣ [7♥]",2025-01-10T20:19:43.000Z,173650000016800
+"Turn: 9♥, K♠, 8♣ [2♥]",2025-01-10T20:19:36.000Z,173650000016700
+"""Player07 @ PlayerId07"" shows a 10♥, 6♥, 5♠, 4♦.",2025-01-10T20:19:29.000Z,173650000016600
+"""Player27 @ PlayerId27"" shows a 7♠, Q♠, K♥, K♦.",2025-01-10T20:19:22.000Z,173650000016500
+"""Player26 @ PlayerId26"" shows a 4♥, 3♥, 7♦, 5♦.",2025-01-10T20:19:15.000Z,173650000016400
+"""Player01 @ PlayerId01"" shows a J♣, 4♣, K♣, 5♥.",2025-01-10T20:19:08.000Z,173650000016300
+"Uncalled bet of 277 returned to ""Player27 @ PlayerId27""",2025-01-10T20:19:01.000Z,173650000016200
+"""Player01 @ PlayerId01"" calls 431 and go all in",2025-01-10T20:18:54.000Z,173650000016100
+"""Player07 @ PlayerId07"" calls 142 and go all in",2025-01-10T20:18:47.000Z,173650000016000
+"""Player29 @ PlayerId29"" folds",2025-01-10T20:18:40.000Z,173650000015900
+"""Player28 @ PlayerId28"" folds",2025-01-10T20:18:33.000Z,173650000015800
+"""Player27 @ PlayerId27"" raises to 708",2025-01-10T20:18:26.000Z,173650000015700
+"""Player26 @ PlayerId26"" raises to 194 and go all in",2025-01-10T20:18:19.000Z,173650000015600
+"""Player01 @ PlayerId01"" calls 42",2025-01-10T20:18:12.000Z,173650000015500
+"""Player04 @ PlayerId04"" folds",2025-01-10T20:18:05.000Z,173650000015400
+"""Player07 @ PlayerId07"" bets 42",2025-01-10T20:17:58.000Z,173650000015300
+"""Player29 @ PlayerId29"" checks",2025-01-10T20:17:51.000Z,173650000015200
+"""Player28 @ PlayerId28"" checks",2025-01-10T20:17:44.000Z,173650000015100
+"""Player27 @ PlayerId27"" checks",2025-01-10T20:17:37.000Z,173650000015000
+"Flop (second board):  [A♦, 3♣, 2♣]",2025-01-10T20:17:30.000Z,173650000014900
+"Flop:  [9♥, K♠, 8♣]",2025-01-10T20:17:23.000Z,173650000014800
+"""Player28 @ PlayerId28"" calls 6 (bomb pot bet)",2025-01-10T20:17:16.000Z,173650000014700
+"""Player27 @ PlayerId27"" calls 6 (bomb pot bet)",2025-01-10T20:17:09.000Z,173650000014600
+"""Player26 @ PlayerId26"" calls 6 (bomb pot bet)",2025-01-10T20:17:02.000Z,173650000014500
+"""Player01 @ PlayerId01"" calls 6 (bomb pot bet)",2025-01-10T20:16:55.000Z,173650000014400
+"""Player04 @ PlayerId04"" calls 6 (bomb pot bet)",2025-01-10T20:16:48.000Z,173650000014300
+"""Player07 @ PlayerId07"" calls 6 (bomb pot bet)",2025-01-10T20:16:41.000Z,173650000014200
+"""Player29 @ PlayerId29"" posts a bet of 6 (bomb pot bet)",2025-01-10T20:16:34.000Z,173650000014100
+"Player stacks: #1 ""Player04 @ PlayerId04"" (581) | #2 ""Player01 @ PlayerId01"" (437) | #4 ""Player26 @ PlayerId26"" (200) | #6 ""Player27 @ PlayerId27"" (749) | #7 ""Player28 @ PlayerId28"" (241) | #8 ""Player29 @ PlayerId29"" (283) | #10 ""Player07 @ PlayerId07"" (148)",2025-01-10T20:16:27.000Z,173650000014000
+"-- starting hand #5 (id: fixture5)  Pot Limit Omaha Hi (dead button) --",2025-01-10T20:16:20.000Z,173650000013900
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:16:13.000Z,173650000013800
+"""Player18 @ PlayerId18"" collected 14.00 from the 7-2 bounty",2025-01-10T20:16:06.000Z,173650000013700
+"""Player20 @ PlayerId20"" paid 2.00 for the 7-2 bounty to ""Player18 @ PlayerId18""",2025-01-10T20:15:59.000Z,173650000013600
+"""Player17 @ PlayerId17"" paid 2.00 for the 7-2 bounty to ""Player18 @ PlayerId18""",2025-01-10T20:15:52.000Z,173650000013500
+"""Player23 @ PlayerId23"" paid 2.00 for the 7-2 bounty to ""Player18 @ PlayerId18""",2025-01-10T20:15:45.000Z,173650000013400
+"""Player21 @ PlayerId21"" paid 2.00 for the 7-2 bounty to ""Player18 @ PlayerId18""",2025-01-10T20:15:38.000Z,173650000013300
+"""Player24 @ PlayerId24"" paid 2.00 for the 7-2 bounty to ""Player18 @ PlayerId18""",2025-01-10T20:15:31.000Z,173650000013200
+"""Player22 @ PlayerId22"" paid 2.00 for the 7-2 bounty to ""Player18 @ PlayerId18""",2025-01-10T20:15:24.000Z,173650000013100
+"""Player19 @ PlayerId19"" paid 2.00 for the 7-2 bounty to ""Player18 @ PlayerId18""",2025-01-10T20:15:17.000Z,173650000013000
+"""Player18 @ PlayerId18"" shows a 2♦, 7♦.",2025-01-10T20:15:10.000Z,173650000012900
+"-- ending hand #4 --",2025-01-10T20:15:03.000Z,173650000012800
+"""Player18 @ PlayerId18"" collected 4.05 from pot",2025-01-10T20:14:56.000Z,173650000012700
+"Uncalled bet of 2.85 returned to ""Player18 @ PlayerId18""",2025-01-10T20:14:49.000Z,173650000012600
+"""Player21 @ PlayerId21"" folds",2025-01-10T20:14:42.000Z,173650000012500
+"""Player18 @ PlayerId18"" bets 2.85",2025-01-10T20:14:35.000Z,173650000012400
+"""Player21 @ PlayerId21"" checks",2025-01-10T20:14:28.000Z,173650000012300
+"Turn: 6♦, 6♥, 5♣ [7♥]",2025-01-10T20:14:21.000Z,173650000012200
+"""Player18 @ PlayerId18"" checks",2025-01-10T20:14:14.000Z,173650000012100
+"""Player21 @ PlayerId21"" checks",2025-01-10T20:14:07.000Z,173650000012000
+"Flop:  [6♦, 6♥, 5♣]",2025-01-10T20:14:00.000Z,173650000011900
+"""Player21 @ PlayerId21"" calls 1.50",2025-01-10T20:13:53.000Z,173650000011800
+"""Player20 @ PlayerId20"" folds",2025-01-10T20:13:46.000Z,173650000011700
+"""Player17 @ PlayerId17"" folds",2025-01-10T20:13:39.000Z,173650000011600
+"""Player19 @ PlayerId19"" folds",2025-01-10T20:13:32.000Z,173650000011500
+"The admin approved the player ""Player25 @ PlayerId25"" participation with a stack of 50.00.",2025-01-10T20:13:25.000Z,173650000011400
+"""Player18 @ PlayerId18"" raises to 1.50",2025-01-10T20:13:18.000Z,173650000011300
+"The player ""Player25 @ PlayerId25"" requested a seat.",2025-01-10T20:13:11.000Z,173650000011200
+"""Player24 @ PlayerId24"" folds",2025-01-10T20:13:04.000Z,173650000011100
+"""Player23 @ PlayerId23"" folds",2025-01-10T20:12:57.000Z,173650000011000
+"""Player22 @ PlayerId22"" folds",2025-01-10T20:12:50.000Z,173650000010900
+"""Player21 @ PlayerId21"" posts a big blind of 0.50",2025-01-10T20:12:43.000Z,173650000010800
+"""Player20 @ PlayerId20"" posts a small blind of 0.25",2025-01-10T20:12:36.000Z,173650000010700
+"""Player24 @ PlayerId24"" posts an ante of 0.10",2025-01-10T20:12:29.000Z,173650000010600
+"""Player23 @ PlayerId23"" posts an ante of 0.10",2025-01-10T20:12:22.000Z,173650000010500
+"""Player22 @ PlayerId22"" posts an ante of 0.10",2025-01-10T20:12:15.000Z,173650000010400
+"""Player21 @ PlayerId21"" posts an ante of 0.10",2025-01-10T20:12:08.000Z,173650000010300
+"""Player20 @ PlayerId20"" posts an ante of 0.10",2025-01-10T20:12:01.000Z,173650000010200
+"""Player17 @ PlayerId17"" posts an ante of 0.10",2025-01-10T20:11:54.000Z,173650000010100
+"""Player19 @ PlayerId19"" posts an ante of 0.10",2025-01-10T20:11:47.000Z,173650000010000
+"""Player18 @ PlayerId18"" posts an ante of 0.10",2025-01-10T20:11:40.000Z,173650000009900
+"Player stacks: #1 ""Player18 @ PlayerId18"" (50.00) | #2 ""Player19 @ PlayerId19"" (50.00) | #3 ""Player17 @ PlayerId17"" (50.00) | #5 ""Player20 @ PlayerId20"" (150.00) | #6 ""Player21 @ PlayerId21"" (50.00) | #7 ""Player22 @ PlayerId22"" (50.00) | #9 ""Player23 @ PlayerId23"" (50.00) | #10 ""Player24 @ PlayerId24"" (50.00)",2025-01-10T20:11:33.000Z,173650000009800
+"The player ""Player24 @ PlayerId24"" joined the game with a stack of 50.00.",2025-01-10T20:11:26.000Z,173650000009700
+"The player ""Player23 @ PlayerId23"" joined the game with a stack of 50.00.",2025-01-10T20:11:19.000Z,173650000009600
+"The player ""Player22 @ PlayerId22"" joined the game with a stack of 50.00.",2025-01-10T20:11:12.000Z,173650000009500
+"The player ""Player21 @ PlayerId21"" joined the game with a stack of 50.00.",2025-01-10T20:11:05.000Z,173650000009400
+"The player ""Player20 @ PlayerId20"" joined the game with a stack of 150.00.",2025-01-10T20:10:58.000Z,173650000009300
+"The player ""Player17 @ PlayerId17"" joined the game with a stack of 50.00.",2025-01-10T20:10:51.000Z,173650000009200
+"The player ""Player19 @ PlayerId19"" joined the game with a stack of 50.00.",2025-01-10T20:10:44.000Z,173650000009100
+"The player ""Player18 @ PlayerId18"" joined the game with a stack of 50.00.",2025-01-10T20:10:37.000Z,173650000009000
+"-- starting hand #4 (id: fixture4)  No Limit Texas Hold'em (dealer: ""Player17 @ PlayerId17"") --",2025-01-10T20:10:30.000Z,173650000008900
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:10:23.000Z,173650000008800
+"-- ending hand #3 --",2025-01-10T20:10:16.000Z,173650000008700
+"""Hero @ HeroId0001"" collected 26.00 from pot with Two Pair, K's & Q's (combination: A♠, Q♠, Q♣, K♣, K♥)",2025-01-10T20:10:09.000Z,173650000008600
+"""Hero @ HeroId0001"" shows a K♣, A♠.",2025-01-10T20:10:02.000Z,173650000008500
+"""Player09 @ PlayerId09"" shows a 6♥, J♥.",2025-01-10T20:09:55.000Z,173650000008400
+"""Player13 @ PlayerId13"" folds",2025-01-10T20:09:48.000Z,173650000008300
+"""Hero @ HeroId0001"" calls 6.50",2025-01-10T20:09:41.000Z,173650000008200
+"""Player11 @ PlayerId11"" folds",2025-01-10T20:09:34.000Z,173650000008100
+"""Player09 @ PlayerId09"" bets 6.50",2025-01-10T20:09:27.000Z,173650000008000
+"River: J♠, Q♠, Q♣, K♥ [8♠]",2025-01-10T20:09:20.000Z,173650000007900
+"""Player13 @ PlayerId13"" checks",2025-01-10T20:09:13.000Z,173650000007800
+"""Hero @ HeroId0001"" checks",2025-01-10T20:09:06.000Z,173650000007700
+"""Player11 @ PlayerId11"" checks",2025-01-10T20:08:59.000Z,173650000007600
+"""Player09 @ PlayerId09"" checks",2025-01-10T20:08:52.000Z,173650000007500
+"Turn: J♠, Q♠, Q♣ [K♥]",2025-01-10T20:08:45.000Z,173650000007400
+"""Player13 @ PlayerId13"" checks",2025-01-10T20:08:38.000Z,173650000007300
+"""Hero @ HeroId0001"" checks",2025-01-10T20:08:31.000Z,173650000007200
+"""Player11 @ PlayerId11"" checks",2025-01-10T20:08:24.000Z,173650000007100
+"""Player09 @ PlayerId09"" checks",2025-01-10T20:08:17.000Z,173650000007000
+"Flop:  [J♠, Q♠, Q♣]",2025-01-10T20:08:10.000Z,173650000006900
+"The admin approved the player ""Player02 @ PlayerId02"" participation with a stack of 300.00.",2025-01-10T20:08:03.000Z,173650000006800
+"""Player08 @ PlayerId08"" folds",2025-01-10T20:07:56.000Z,173650000006700
+"""Player09 @ PlayerId09"" calls 3.00",2025-01-10T20:07:49.000Z,173650000006600
+"""Player15 @ PlayerId15"" folds",2025-01-10T20:07:42.000Z,173650000006500
+"""Player16 @ PlayerId16"" folds",2025-01-10T20:07:35.000Z,173650000006400
+"""Player13 @ PlayerId13"" calls 3.00",2025-01-10T20:07:28.000Z,173650000006300
+"""Hero @ HeroId0001"" calls 3.00",2025-01-10T20:07:21.000Z,173650000006200
+"""Player11 @ PlayerId11"" raises to 3.00",2025-01-10T20:07:14.000Z,173650000006100
+"""Player10 @ PlayerId10"" folds",2025-01-10T20:07:07.000Z,173650000006000
+"""Player08 @ PlayerId08"" posts a big blind of 1.00",2025-01-10T20:07:00.000Z,173650000005900
+"""Player09 @ PlayerId09"" posts a small blind of 0.50",2025-01-10T20:06:53.000Z,173650000005800
+"Your hand is K♣, A♠",2025-01-10T20:06:46.000Z,173650000005700
+"Player stacks: #1 ""Player09 @ PlayerId09"" (344.25) | #3 ""Player08 @ PlayerId08"" (366.67) | #4 ""Player10 @ PlayerId10"" (85.75) | #5 ""Player11 @ PlayerId11"" (305.65) | #6 ""Hero @ HeroId0001"" (128.33) | #8 ""Player13 @ PlayerId13"" (50.75) | #9 ""Player16 @ PlayerId16"" (98.50) | #10 ""Player15 @ PlayerId15"" (356.96)",2025-01-10T20:06:39.000Z,173650000005600
+"-- starting hand #3 (id: fixture3)  No Limit Texas Hold'em (dealer: ""Player15 @ PlayerId15"") --",2025-01-10T20:06:32.000Z,173650000005500
+"The player ""Player99 @ PlayerId99"" joined the game with a stack of 100.",2025-01-10T20:06:25.000Z,173650000005400
+"-- ending hand #2 --",2025-01-10T20:06:18.000Z,173650000005300
+"""Hero @ HeroId0001"" shows a Q♦, Q♥.",2025-01-10T20:06:11.000Z,173650000005200
+"""Player10 @ PlayerId10"" collected 291.34 from pot with Full House, 4's over 8's (combination: 8♦, 8♥, 4♦, 4♣, 4♥)",2025-01-10T20:06:04.000Z,173650000005100
+"""Player10 @ PlayerId10"" shows a 4♦, 8♦.",2025-01-10T20:05:57.000Z,173650000005000
+"""Hero @ HeroId0001"" calls 81.92",2025-01-10T20:05:50.000Z,173650000004900
+"""Player10 @ PlayerId10"" bets 81.92 and go all in",2025-01-10T20:05:43.000Z,173650000004800
+"""Hero @ HeroId0001"" checks",2025-01-10T20:05:36.000Z,173650000004700
+"River: 8♥, K♥, 4♣, 4♥ [3♠]",2025-01-10T20:05:29.000Z,173650000004600
+"""Hero @ HeroId0001"" calls 25.00",2025-01-10T20:05:22.000Z,173650000004500
+"""Player10 @ PlayerId10"" bets 25.00",2025-01-10T20:05:15.000Z,173650000004400
+"""Hero @ HeroId0001"" checks",2025-01-10T20:05:08.000Z,173650000004300
+"Turn: 8♥, K♥, 4♣ [4♥]",2025-01-10T20:05:01.000Z,173650000004200
+"""Hero @ HeroId0001"" calls 15.00",2025-01-10T20:04:54.000Z,173650000004100
+"""Player11 @ PlayerId11"" folds",2025-01-10T20:04:47.000Z,173650000004000
+"""Player10 @ PlayerId10"" bets 15.00",2025-01-10T20:04:40.000Z,173650000003900
+"""Hero @ HeroId0001"" checks",2025-01-10T20:04:33.000Z,173650000003800
+"""Player11 @ PlayerId11"" checks",2025-01-10T20:04:26.000Z,173650000003700
+"Flop:  [8♥, K♥, 4♣]",2025-01-10T20:04:19.000Z,173650000003600
+"""Player10 @ PlayerId10"" calls 15.50",2025-01-10T20:04:12.000Z,173650000003500
+"""Player13 @ PlayerId13"" folds",2025-01-10T20:04:05.000Z,173650000003400
+"""Hero @ HeroId0001"" calls 15.50",2025-01-10T20:03:58.000Z,173650000003300
+"""Player11 @ PlayerId11"" raises to 15.50",2025-01-10T20:03:51.000Z,173650000003200
+"""Player08 @ PlayerId08"" folds",2025-01-10T20:03:44.000Z,173650000003100
+"""Player10 @ PlayerId10"" raises to 4.50",2025-01-10T20:03:37.000Z,173650000003000
+"""Player09 @ PlayerId09"" folds",2025-01-10T20:03:30.000Z,173650000002900
+"""Player15 @ PlayerId15"" folds",2025-01-10T20:03:23.000Z,173650000002800
+"""Player14 @ PlayerId14"" folds",2025-01-10T20:03:16.000Z,173650000002700
+"""Player13 @ PlayerId13"" calls 1.00",2025-01-10T20:03:09.000Z,173650000002600
+"""Player12 @ PlayerId12"" folds",2025-01-10T20:03:02.000Z,173650000002500
+"""Hero @ HeroId0001"" posts a big blind of 1.00",2025-01-10T20:02:55.000Z,173650000002400
+"""Player11 @ PlayerId11"" posts a small blind of 0.50",2025-01-10T20:02:48.000Z,173650000002300
+"Your hand is Q♦, Q♥",2025-01-10T20:02:41.000Z,173650000002200
+"Player stacks: #1 ""Player09 @ PlayerId09"" (301.25) | #2 ""Player10 @ PlayerId10"" (137.42) | #3 ""Player08 @ PlayerId08"" (190.58) | #5 ""Player11 @ PlayerId11"" (228.65) | #6 ""Hero @ HeroId0001"" (165.75) | #7 ""Player12 @ PlayerId12"" (143.37) | #8 ""Player13 @ PlayerId13"" (84.50) | #9 ""Player14 @ PlayerId14"" (430.96) | #10 ""Player15 @ PlayerId15"" (327.21)",2025-01-10T20:02:34.000Z,173650000002100
+"-- starting hand #2 (id: fixture2)  No Limit Texas Hold'em (dealer: ""Player08 @ PlayerId08"") --",2025-01-10T20:02:27.000Z,173650000002000
+"The player ""Player07 @ PlayerId07"" changed the ID from PlayerId03 to PlayerId07 because authenticated login.",2025-01-10T20:02:20.000Z,173650000001900
+"-- ending hand #1 --",2025-01-10T20:02:13.000Z,173650000001800
+"""Player04 @ PlayerId04"" collected 21 from pot",2025-01-10T20:02:06.000Z,173650000001700
+"Uncalled bet of 10 returned to ""Player04 @ PlayerId04""",2025-01-10T20:01:59.000Z,173650000001600
+"""Player05 @ PlayerId05"" folds",2025-01-10T20:01:52.000Z,173650000001500
+"""Player04 @ PlayerId04"" bets 10",2025-01-10T20:01:45.000Z,173650000001400
+"Turn: 2♠, Q♦, J♠ [9♦]",2025-01-10T20:01:38.000Z,173650000001300
+"""Player05 @ PlayerId05"" checks",2025-01-10T20:01:31.000Z,173650000001200
+"""Player04 @ PlayerId04"" checks",2025-01-10T20:01:24.000Z,173650000001100
+"Flop:  [2♠, Q♦, J♠]",2025-01-10T20:01:17.000Z,173650000001000
+"""Player04 @ PlayerId04"" calls 9",2025-01-10T20:01:10.000Z,173650000000900
+"""Player01 @ PlayerId01"" folds",2025-01-10T20:01:03.000Z,173650000000800
+"""Player06 @ PlayerId06"" folds",2025-01-10T20:00:56.000Z,173650000000700
+"""Player05 @ PlayerId05"" raises to 9",2025-01-10T20:00:49.000Z,173650000000600
+"""Player04 @ PlayerId04"" calls 2",2025-01-10T20:00:42.000Z,173650000000500
+"""Player03 @ PlayerId03"" folds",2025-01-10T20:00:35.000Z,173650000000400
+"""Player02 @ PlayerId02"" folds",2025-01-10T20:00:28.000Z,173650000000300
+"""Player01 @ PlayerId01"" posts a big blind of 2",2025-01-10T20:00:21.000Z,173650000000200
+"""Player06 @ PlayerId06"" posts a small blind of 1",2025-01-10T20:00:14.000Z,173650000000100
+"Player stacks: #1 ""Player01 @ PlayerId01"" (303) | #4 ""Player02 @ PlayerId02"" (300) | #6 ""Player03 @ PlayerId03"" (200) | #7 ""Player04 @ PlayerId04"" (200) | #8 ""Player05 @ PlayerId05"" (199) | #9 ""Player06 @ PlayerId06"" (198)",2025-01-10T20:00:07.000Z,173650000000000

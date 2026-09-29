@@ -1,7 +1,8 @@
 import { AIService } from "../interfaces/ai-client-interfaces.ts";
 import { HandState, HeroView } from "../engine/hand-parser.ts";
 import { checkLegality, SuggestedAction } from "../engine/legality.ts";
-import { PlayerProfile, PRIORS } from "../engine/player-profile.ts";
+import { PlayerRef, PRIORS } from "../engine/player-profile.ts";
+import type { PlayerLookup } from "../services/profile-service.ts";
 import { analyzePostflop, Candidate, isClearSpot, OpponentTendency, PostflopAnalysis } from "../engine/postflop.ts";
 import { opponentModels, ObservedStats } from "../engine/opponent-range.ts";
 import { buildDecisionPrompt, parseDecision } from "./decision-prompt.ts";
@@ -26,9 +27,9 @@ export interface DecisionOptions {
 }
 
 /** Fold tendencies for each opponent still in the hand, from their profile (population priors if unknown). */
-export function opponentTendencies(s: HandState, stats: (name: string) => ObservedStats | undefined, profiles: (name: string) => PlayerProfile | undefined): OpponentTendency[] {
+export function opponentTendencies(s: HandState, stats: (player: PlayerRef) => ObservedStats | undefined, players: PlayerLookup): OpponentTendency[] {
     return opponentModels(s, stats).map(({ seat, model }) => {
-        const p = profiles(seat.name);
+        const p = players(seat).current;
         const aggression = p?.aggression.value ?? PRIORS.aggression.mean;
         return {
             model,
@@ -60,7 +61,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 
 export async function decidePostflop(
     s: HandState, v: HeroView, ai: AIService, opponents: OpponentTendency[],
-    profiles: (name: string) => PlayerProfile | undefined, options: DecisionOptions
+    players: PlayerLookup, options: DecisionOptions
 ): Promise<Decision> {
     const analysis = analyzePostflop(s, v, opponents);
     const best = fromCandidate(analysis.candidates[0], s.big_blind);
@@ -75,7 +76,7 @@ export async function decidePostflop(
         return engine("engine");
     }
 
-    const prompt = buildDecisionPrompt(s, v, analysis, profiles);
+    const prompt = buildDecisionPrompt(s, v, analysis, players);
     await options.on_asking_llm?.(analysis);
     let response = "";
     try {

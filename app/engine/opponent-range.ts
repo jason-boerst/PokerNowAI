@@ -1,5 +1,6 @@
 import { HandState, SeatState } from "./hand-parser.ts";
 import { OpponentModel, PostflopAction } from "./equity.ts";
+import type { PlayerRef } from "./player-profile.ts";
 import { PreflopLine, PreflopTendencies, positionWidth, preflopRange } from "./ranges.ts";
 
 /** Population defaults for players with too few hands to judge (assumed loose home-game field). */
@@ -44,11 +45,11 @@ export function postflopActions(s: HandState, player_id: string): { board: strin
 }
 
 /** Range models for every opponent still in the hand. `stats` returns observed stats by player name. */
-export function opponentModels(s: HandState, stats: (name: string) => ObservedStats | undefined): { seat: SeatState, model: OpponentModel, tendencies: PreflopTendencies }[] {
+export function opponentModels(s: HandState, stats: (player: PlayerRef) => ObservedStats | undefined): { seat: SeatState, model: OpponentModel, tendencies: PreflopTendencies }[] {
     return s.seats
         .filter((p) => p.id !== s.hero_id && !p.folded)
         .map((seat) => {
-            const observed = stats(seat.name);
+            const observed = stats(seat);
             const usable = observed && (observed.shrunk || observed.hands >= MIN_HANDS_FOR_STATS);
             const tendencies = usable ? { vpip: observed.vpip, pfr: observed.pfr } : POPULATION_TENDENCIES;
             return {

@@ -19,14 +19,14 @@ const flopSpot = () => {
     ], { hero_name: "H" });
     return { s, v: heroView(s)! };
 };
-const noProfile = () => undefined;
+const noProfile = () => ({ deviations: [] });
 const noStats = () => undefined;
 
 describe("overlay content", () => {
     it("shows the spot, hand with draws and outs, odds, all options and opponents after the flop", () => {
         const { s, v } = flopSpot();
         const a = analyzePostflop(s, v, [{ model: { range: topRange(40) }, fold_to_bet: 0.4, fold_to_raise: 0.25 }]);
-        const o = postflopOverlay({ state: s, view: v, profiles: noProfile, stats: noStats }, a,
+        const o = postflopOverlay({ state: s, view: v, players: noProfile, stats: noStats }, a,
             { action: "call", size_bb: 0, reason: "Nut flush draw with good odds.", source: "llm", confidence: 0.6 }, "test/model", 20000);
         const titles = o.sections.map((x) => x.title);
         expect(titles).to.deep.equal(["Spot", "Your hand", "Odds", "Options (rough EV, this street only)", "Opponents in the hand (1)"]);
@@ -42,7 +42,7 @@ describe("overlay content", () => {
     it("shows the engine's pick with a thinking status while the AI works", () => {
         const { s, v } = flopSpot();
         const a = analyzePostflop(s, v, [{ model: { range: topRange(40) }, fold_to_bet: 0.4, fold_to_raise: 0.25 }]);
-        const o = postflopOverlay({ state: s, view: v, profiles: noProfile, stats: noStats }, a, null, "test/model", 20000);
+        const o = postflopOverlay({ state: s, view: v, players: noProfile, stats: noStats }, a, null, "test/model", 20000);
         expect(o.status).to.equal("thinking");
         expect(o.header).to.include("asking test/model (up to 20s)");
         expect(o.action).to.equal(a.candidates[0].action);
@@ -57,7 +57,7 @@ describe("overlay content", () => {
             `${p("V", "v")} posts a small blind of 1`, `${p("H", "h")} posts a big blind of 2`, `${p("V", "v")} calls 2`, `${p("H", "h")} checks`
         ]));
         const a = analyzePostflop(s, v, [{ model: { range: topRange(40) }, fold_to_bet: 0.4, fold_to_raise: 0.25 }]);
-        const o = postflopOverlay({ state: s, view: v, profiles: (n) => b.profile(n), stats: noStats }, a,
+        const o = postflopOverlay({ state: s, view: v, players: (ref) => ({ current: b.profile(ref.id), deviations: [] }), stats: noStats }, a,
             { action: "call", size_bb: 0, reason: "", source: "engine", confidence: 0.8 }, "m", 20000);
         const opp = o.sections[4].lines.join(" ");
         expect(opp).to.include("(25 hands)");
@@ -74,7 +74,7 @@ describe("overlay content", () => {
         ], { hero_name: "H" });
         const v = heroView(s)!;
         const advice = preflopAdvice(s, v, noStats)!;
-        const o = preflopOverlay({ state: s, view: v, profiles: noProfile, stats: noStats }, advice, { equity: 0.52, need: 0 });
+        const o = preflopOverlay({ state: s, view: v, players: noProfile, stats: noStats }, advice, { equity: 0.52, need: 0 });
         expect(o.header).to.equal("Preflop chart");
         expect(o.action).to.equal("raise");
         const text = o.sections.flatMap((x) => x.lines).join(" | ");

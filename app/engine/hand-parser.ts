@@ -17,7 +17,15 @@
 // format shows up in diagnostics rather than as a crash.
 
 export type Street = "preflop" | "flop" | "turn" | "river";
-export type ActionType = "post_sb" | "post_bb" | "post_straddle" | "post_dead" | "fold" | "check" | "call" | "bet" | "raise";
+export type ActionType = "post_sb" | "post_bb" | "post_straddle" | "post_dead" | "post_ante" | "post_bomb" | "fold" | "check" | "call" | "bet" | "raise";
+
+/** Forced posts (not voluntary actions). */
+/**
+ * Lines PokerNow writes after "-- ending hand" that still belong to that hand: cards shown after
+ * it ended and 7-2 bounty payments.
+ */
+export const AFTER_HAND_LINE = /^"[^"]+ @ [^"]+" (shows a |paid [\d,.]+ for the .*bounty|collected [\d,.]+ from the .*bounty)/;
+export const POST_TYPES: ReadonlySet<ActionType> = new Set(["post_sb", "post_bb", "post_straddle", "post_dead", "post_ante", "post_bomb"]);
 
 export interface ActionRecord {
     street: Street,
@@ -47,12 +55,19 @@ export interface SeatState {
     folded: boolean,
     all_in: boolean,
     shown_cards?: string[],
-    collected: number
+    /** Chips won from the pot(s). */
+    collected: number,
+    /** Side payments such as the 7-2 bounty: received minus paid (not part of the pot). */
+    bounty_net: number
 }
 
 export interface HandState {
     hand_number: number | null,
     hand_id: string | null,
+    /** e.g. "No Limit Texas Hold'em" or "Pot Limit Omaha Hi". */
+    game_type: string,
+    /** Bomb pot: everyone posts a forced bet and the flop is dealt with no preflop action. */
+    bomb_pot: boolean,
     dealer_id: string | null,
     big_blind: number,
     small_blind: number,
@@ -97,19 +112,18 @@ export function positionLabels(n: number): string[] {
     if (n <= 1) return ["BU"].slice(0, n);
     if (n === 2) return ["SB", "BB"];
     if (n === 3) return ["SB", "BB", "BU"];
+    // seats after the big blind: the last ones count back from the button (BU, CO, HJ, LJ, MP),
+    // the rest count forward from the first seat (UTG, UTG+1, UTG+2, ...)
     const non_blind = n - 2;
-    const from_button = ["BU", "CO", "HJ", "LJ", "MP", "UTG+1", "UTG+2"];
-    const labels: string[] = [];
-    for (let i = 0; i < non_blind; i++) {
-        // i = 0 is the first seat after the BB
-        labels.push(i === 0 ? "UTG" : from_button[non_blind - 1 - i]);
-    }
-    return ["SB", "BB", ...labels];
+    const back = ["BU", "CO", "HJ", "LJ", "MP"];
+    const n_back = Math.min(non_blind - 1, back.length);
+    const front = Array.from({ length: non_blind - n_back }, (_, i) => (i === 0 ? "UTG" : `UTG+${i}`));
+    return ["SB", "BB", ...front, ...back.slice(0, n_back).reverse()];
 }
 
 function emptyState(): HandState {
     return {
-        hand_number: null, hand_id: null, dealer_id: null, big_blind: 0, small_blind: 0,
+        hand_number: null, hand_id: null, game_type: "", bomb_pot: false, dealer_id: null, big_blind: 0, small_blind: 0,
         street: "preflop", board: [], seats: [], actions: [], pot: 0, current_bet: 0, last_raise_size: 0,
         hero_id: null, hero_cards: [], ended: false, unparsed: []
     };
@@ -140,7 +154,7 @@ export function parseHand(messages: string[], options: ParseOptions = {}): HandS
         if (!seat) {
             // player not listed in "Player stacks" (shouldn't happen); track them anyway
             seat = { id, name, seat: 99, position: "?", stack_start: 0, stack: Infinity, street_contribution: 0,
-                total_contribution: 0, folded: false, all_in: false, collected: 0 };
+                total_contribution: 0, folded: false, all_in: false, collected: 0, bounty_net: 0 };
             byId.set(id, seat);
             s.seats.push(seat);
         }
@@ -191,6 +205,7 @@ export function parseHand(messages: string[], options: ParseOptions = {}): HandS
         if ((m = msg.match(/^-- starting hand #(\d+)/))) {
             s.hand_number = Number(m[1]);
             s.hand_id = msg.match(/\(id: ([^)]+)\)/)?.[1] ?? null;
+            s.game_type = msg.match(/\(id: [^)]+\)\s+(.*?)\s+\((?:dealer|dead button)/)?.[1] ?? "";
             const dealer = msg.match(/\(dealer: "(.+) @ ([^"]+)"\)/);
             if (dealer) {
                 dealer_name = dealer[1];
@@ -206,7 +221,7 @@ export function parseHand(messages: string[], options: ParseOptions = {}): HandS
             for (const p of msg.matchAll(new RegExp(`#(\\d+) ${PLAYER} \\(${AMOUNT}\\)`, "g"))) {
                 const stack = parseAmount(p[4]);
                 const seat: SeatState = { id: p[3], name: p[2], seat: Number(p[1]), position: "?", stack_start: stack, stack,
-                    street_contribution: 0, total_contribution: 0, folded: false, all_in: false, collected: 0 };
+                    street_contribution: 0, total_contribution: 0, folded: false, all_in: false, collected: 0, bounty_net: 0 };
                 byId.set(seat.id, seat);
                 s.seats.push(seat);
             }
@@ -217,8 +232,8 @@ export function parseHand(messages: string[], options: ParseOptions = {}): HandS
             s.hero_cards = parseCards(m[1]);
             continue;
         }
-        if ((m = msg.match(/^(Flop|Turn|River)( \(second run\))?:\s*(.*)$/i))) {
-            if (m[2]) continue; // ignore the second board of a run-it-twice
+        if ((m = msg.match(/^(Flop|Turn|River)( \([^)]*\))?:\s*(.*)$/i))) {
+            if (m[2]) continue; // ignore the second run of a run-it-twice, or a bomb pot's second board
             newStreet(m[1].toLowerCase() as Street, parseCards(m[3]));
             continue;
         }
@@ -241,10 +256,22 @@ export function parseHand(messages: string[], options: ParseOptions = {}): HandS
         const all_in = /and go all in/.test(rest);
         let a: RegExpMatchArray | null;
 
-        if ((a = rest.match(new RegExp(`^posts (?:a |an )?(.*?) of ${AMOUNT}`)))) {
+        if (/\(bomb pot bet\)/.test(rest) && (a = rest.match(new RegExp(`^(?:posts a bet of|calls) ${AMOUNT}`)))) {
+            // bomb pot: a forced bet from everyone, then the flop; not a voluntary action
+            s.bomb_pot = true;
+            commit(seat, parseAmount(a[1]), "post_bomb", all_in);
+            s.current_bet = Math.max(s.current_bet, seat.street_contribution);
+        } else if ((a = rest.match(new RegExp(`^posts (?:a |an )?(.*?) of ${AMOUNT}`)))) {
             const kind = a[1].toLowerCase();
             const amount = parseAmount(a[2]);
-            if (/missing|missed|dead/.test(kind) && kind.includes("small")) {
+            if (kind.includes("ante")) {
+                // antes are dead money: in the pot, but they don't count toward calling
+                const paid = Math.min(amount, seat.stack);
+                s.actions.push({ street: s.street, player_id: seat.id, type: "post_ante", amount: paid, street_total: seat.street_contribution,
+                    all_in: false, pot_before: potNow(), bet_to_call_before: s.current_bet });
+                seat.stack -= paid;
+                seat.total_contribution += paid;
+            } else if (/missing|missed|dead/.test(kind) && kind.includes("small")) {
                 // dead small blind: goes in the pot, doesn't count toward calling
                 const paid = Math.min(amount, seat.stack);
                 s.actions.push({ street: s.street, player_id: seat.id, type: "post_dead", amount: paid, street_total: seat.street_contribution,
@@ -286,8 +313,12 @@ export function parseHand(messages: string[], options: ParseOptions = {}): HandS
             raiseTo(seat, parseAmount(a[1]), "raise", all_in);
         } else if ((a = rest.match(/^shows a (.+?)\.?$/))) {
             seat.shown_cards = parseCards(a[1]);
-        } else if ((a = rest.match(new RegExp(`^collected ${AMOUNT}`)))) {
+        } else if ((a = rest.match(new RegExp(`^collected ${AMOUNT} from pot`)))) {
             seat.collected += parseAmount(a[1]);
+        } else if ((a = rest.match(new RegExp(`^collected ${AMOUNT} from the .*bounty`)))) {
+            seat.bounty_net += parseAmount(a[1]);
+        } else if ((a = rest.match(new RegExp(`^paid ${AMOUNT} for the .*bounty`)))) {
+            seat.bounty_net -= parseAmount(a[1]);
         } else {
             s.unparsed.push(msg);
         }
@@ -393,5 +424,5 @@ export function countLimpers(s: HandState): number {
 /** Net chips won or lost by a player in a completed hand. */
 export function netResult(s: HandState, player_id: string): number {
     const p = s.seats.find((x) => x.id === player_id);
-    return p ? p.collected - p.total_contribution : 0;
+    return p ? p.collected + p.bounty_net - p.total_contribution : 0;
 }

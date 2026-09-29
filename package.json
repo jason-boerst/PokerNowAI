@@ -20,7 +20,9 @@
     "stats": "tsx scripts/stats.ts",
     "label": "tsx scripts/label.ts",
     "eval": "tsx scripts/eval.ts",
-    "players": "tsx scripts/players.ts"
+    "players": "tsx scripts/players.ts",
+    "import": "tsx scripts/import.ts",
+    "dashboard": "tsx scripts/dashboard.ts"
   },
   "keywords": [],
   "author": "",

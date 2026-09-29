@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player Database</title>
+<style>
+:root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5f6b7a; --line: #dde2e8;
+    --accent: #1f6feb; --good: #1a7f37; --bad: #cf222e; --flag: #9a6700; --chip: #eef1f5;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #0f1216; --panel: #171b21; --text: #e6e9ee; --muted: #9aa5b3; --line: #2a313b;
+        --accent: #4c9aff; --good: #3fb950; --bad: #f85149; --flag: #d29922; --chip: #222933;
+    }
+}
+:root[data-theme="dark"] {
+    --bg: #0f1216; --panel: #171b21; --text: #e6e9ee; --muted: #9aa5b3; --line: #2a313b;
+    --accent: #4c9aff; --good: #3fb950; --bad: #f85149; --flag: #d29922; --chip: #222933;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 18px; margin: 0; }
+#summary { color: var(--muted); }
+header .spacer { flex: 1; }
+nav a { margin-right: 14px; color: var(--muted); text-decoration: none; font-weight: 600; }
+nav a.active { color: var(--accent); }
+main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+button, .button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 7px 12px; font: inherit; cursor: pointer; }
+button.secondary { background: var(--chip); color: var(--text); }
+input, select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+.panel h2 { font-size: 15px; margin: 0 0 10px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child, td.left, th.left { text-align: left; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; cursor: default; user-select: none; }
+th.sortable { cursor: pointer; }
+th.sorted { color: var(--accent); }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover { background: var(--chip); }
+.n { color: var(--muted); font-size: 11px; margin-left: 3px; }
+.chip { display: inline-block; background: var(--chip); border-radius: 10px; padding: 1px 8px; font-size: 12px; margin-left: 6px; }
+.you { background: var(--accent); color: #fff; }
+.pos { color: var(--good); } .neg { color: var(--bad); }
+.flag { color: var(--flag); }
+tr.sub td { white-space: normal; text-align: left; padding-top: 0; font-size: 13px; }
+tr:has(+ tr.sub) td { border-bottom: 0; }
+.muted { color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.stat { background: var(--chip); border-radius: 6px; padding: 8px 10px; }
+.stat .label { font-size: 12px; color: var(--muted); }
+.stat .value { font-size: 18px; font-weight: 600; }
+ul.plain { margin: 0; padding-left: 18px; }
+#drop { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(31, 111, 235, 0.18); border: 3px dashed var(--accent); font-size: 22px; font-weight: 600; z-index: 10; }
+#drop.show { display: flex; }
+#import-results:empty { display: none; }
+.cards { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+a { color: var(--accent); }
+@media (max-width: 640px) { header h1 { font-size: 16px; } main { padding: 12px 16px; } }
+</style>
+</head>
+<body>
+<header>
+    <h1>PokerNow player database</h1>
+    <span id="summary"></span>
+    <span class="spacer"></span>
+    <nav><a href="#/players" id="nav-players">Players</a><a href="#/games" id="nav-games">Games</a></nav>
+    <label class="button" for="file-input">Import logs</label>
+    <input id="file-input" type="file" accept=".csv,text/csv" multiple hidden>
+</header>
+<div id="drop">Drop PokerNow log files (.csv) to import</div>
+<main>
+    <div id="import-results" class="panel"></div>
+    <div id="view"></div>
+</main>
+<script>
+"use strict";
+// All content is built with textContent / DOM nodes (never innerHTML), since player names come from logs.
+const STATS = [
+    ["vpip", "VPIP", "Put money in voluntarily preflop"],
+    ["pfr", "PFR", "Raised preflop"],
+    ["three_bet", "3-bet", "Re-raised when facing exactly one preflop raise"],
+    ["limp", "Limp", "Just called when first to put money in"],
+    ["steal", "Steal", "Raised first in from CO, BU or SB"],
+    ["fold_to_steal", "Fold to steal", "In the blinds, folded to a late-position open"],
+    ["fold_to_three_bet", "Fold to 3-bet", "Opened, then folded to a re-raise"],
+    ["cbet", "C-bet", "Bet the flop as the preflop raiser"],
+    ["fold_to_cbet", "Fold to c-bet", "Folded to the preflop raiser's flop bet"],
+    ["aggression", "Aggression", "Post-flop bets and raises as a share of bets, raises, calls and folds"],
+    ["went_to_showdown", "WTSD", "Went to showdown after seeing the flop"],
+    ["won_at_showdown", "W$SD", "Won when going to showdown"]
+];
+const GAME_STATS = ["vpip", "pfr", "three_bet", "aggression", "fold_to_cbet", "went_to_showdown"];
+const LABEL = Object.fromEntries(STATS.map(([k, l]) => [k, l]));
+
+function el(tag, props, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+        if (v === undefined || v === null || v === false) continue;
+        if (k === "class") e.className = v;
+        else if (k === "text") e.textContent = v;
+        else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+        else e.setAttribute(k, v === true ? "" : String(v));
+    }
+    for (const kid of kids.flat(Infinity)) {
+        if (kid === null || kid === undefined || kid === false) continue;
+        e.append(kid instanceof Node ? kid : String(kid));
+    }
+    return e;
+}
+const pct = (x) => `${Math.round(x * 100)}%`;
+const raw = (r) => r && r.n ? pct(r.k / r.n) : "-";
+const num = (x, d = 1) => (x >= 0 ? "+" : "") + x.toFixed(d);
+const when = (iso) => iso ? new Date(iso).toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
+const signed = (x, d = 1) => el("span", { class: x >= 0 ? "pos" : "neg" }, num(x, d));
+async function api(path, body) {
+    const res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    return data;
+}
+function remember(key, value) {
+    try { if (value === undefined) return JSON.parse(localStorage.getItem(key)); localStorage.setItem(key, JSON.stringify(value)); } catch { return null; }
+}
+function rateCell(r, title) {
+    // estimate (what the bot uses) with the raw sample next to it
+    return el("td", { title: `${title}: ${r.k}/${r.n} raw, estimate ${pct(r.value)}` }, pct(r.value), el("span", { class: "n" }, r.n));
+}
+function nameCell(p, show_id) {
+    return el("td", { class: "left" }, p.name, p.is_me ? el("span", { class: "chip you" }, "YOU") : null,
+        show_id && !p.is_me ? el("span", { class: "n cards" }, p.key) : null,
+        p.names && p.names.length > 1 ? el("span", { class: "n", title: p.names.join(", ") }, `+${p.names.length - 1} name${p.names.length > 2 ? "s" : ""}`) : null);
+}
+
+// the same name on different PokerNow ids: show the id so they can be told apart
+function repeatedNames(list) {
+    const seen = new Map();
+    for (const p of list) seen.set(p.name, (seen.get(p.name) || 0) + 1);
+    return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([name]) => name));
+}
+
+// ---------- players ----------
+const state = Object.assign({ search: "", min_hands: 20, sort: "hands", dir: -1 }, remember("players-view") || {});
+let players_cache = [];
+
+async function showPlayers(view) {
+    players_cache = await api("/api/players");
+    const search = el("input", { type: "search", placeholder: "Search name or id", value: state.search });
+    const min = el("input", { type: "number", min: 0, value: state.min_hands, style: "width:80px" });
+    const body = el("tbody");
+    const head = el("tr");
+    const columns = [
+        ["name", "Player", "left"], ["type", "Type", "left"], ["hands", "Hands"], ["games", "Games"],
+        ...STATS.map(([k, l, t]) => [k, l, "", t]),
+        ["bb_per_100", "BB/100"], ["net_bb", "Net BB"], ["last_seen", "Last seen"]
+    ];
+    const value = (p, key) => p.rates && p.rates[key] ? p.rates[key].value : p[key];
+    const render = () => {
+        remember("players-view", state);
+        head.replaceChildren(...columns.map(([key, label, cls, title]) => el("th", {
+            class: `sortable ${cls || ""} ${state.sort === key ? "sorted" : ""}`, title,
+            onclick: () => { state.dir = state.sort === key ? -state.dir : (key === "name" || key === "type" ? 1 : -1); state.sort = key; render(); }
+        }, label + (state.sort === key ? (state.dir > 0 ? " ▲" : " ▼") : ""))));
+        const q = state.search.trim().toLowerCase();
+        const rows = players_cache
+            .filter((p) => p.hands >= state.min_hands || p.is_me)
+            .filter((p) => !q || p.key.toLowerCase().includes(q) || p.names.some((n) => n.toLowerCase().includes(q)))
+            .sort((a, b) => {
+                const x = value(a, state.sort), y = value(b, state.sort);
+                return (typeof x === "string" ? x.localeCompare(y) : x - y) * state.dir;
+            });
+        const repeated = repeatedNames(rows);
+        body.replaceChildren(...rows.map((p) => el("tr", { class: "clickable", onclick: () => { location.hash = `#/player/${encodeURIComponent(p.key)}`; } },
+            nameCell(p, repeated.has(p.name)), el("td", { class: "left", title: p.exploit }, p.type), el("td", {}, p.hands), el("td", {}, p.games),
+            ...STATS.map(([k, l]) => rateCell(p.rates[k], l)),
+            el("td", {}, signed(p.bb_per_100)), el("td", {}, signed(p.net_bb, 0)), el("td", {}, when(p.last_seen))
+        )));
+        count.textContent = `${rows.length} of ${players_cache.length} players`;
+    };
+    const count = el("span", { class: "muted" });
+    search.addEventListener("input", () => { state.search = search.value; render(); });
+    min.addEventListener("input", () => { state.min_hands = Number(min.value) || 0; render(); });
+    view.replaceChildren(el("div", { class: "panel" },
+        el("div", { class: "toolbar" }, search, el("label", {}, "Min hands ", min), count),
+        el("div", { class: "scroll" }, el("table", {}, el("thead", {}, head), body)),
+        el("p", { class: "muted" }, "Percentages are estimates: small samples are pulled toward typical home-game averages, so a player needs a few dozen chances before a stat means much. The small number is how many chances the stat had. Results (BB/100, Net BB) include every hand; the tendency stats count Hold'em hands only, without bomb pots.")
+    ));
+    render();
+}
+
+async function showPlayer(view, key) {
+    const p = await api(`/api/players/${encodeURIComponent(key)}`);
+    if (!players_cache.length) players_cache = await api("/api/players");
+    const stats = el("div", { class: "grid" }, ...STATS.map(([k, label, title]) => el("div", { class: "stat", title },
+        el("div", { class: "label" }, label), el("div", { class: "value" }, pct(p.rates[k].value)),
+        el("div", { class: "n" }, `${p.rates[k].k}/${p.rates[k].n} raw (${raw(p.rates[k])})`))));
+    const positions = el("div", { class: "grid" }, ...["early", "middle", "late", "blinds"].map((g) => el("div", { class: "stat" },
+        el("div", { class: "label" }, `VPIP ${g}`), el("div", { class: "value" }, pct(p.vpip_by_position[g].value)),
+        el("div", { class: "n" }, `${p.vpip_by_position[g].k}/${p.vpip_by_position[g].n} raw`))),
+        el("div", { class: "stat" }, el("div", { class: "label" }, "Average bet size"),
+            el("div", { class: "value" }, p.bets_seen ? `${pct(p.avg_bet_to_pot)} pot` : "-"), el("div", { class: "n" }, `${p.bets_seen} bets`)));
+
+    const games = el("table", {},
+        el("thead", {}, el("tr", {}, el("th", {}, "Game"), el("th", {}, "Hands"), ...GAME_STATS.map((k) => el("th", {}, LABEL[k])), el("th", {}, "BB/100"), el("th", {}, "Net BB"))),
+        el("tbody", {}, ...p.games.map((g) => el("tr", { class: "clickable", onclick: () => { location.hash = `#/game/${encodeURIComponent(g.game_id)}`; } },
+            el("td", { class: "left" }, when(g.first_at), el("span", { class: "n" }, g.game_id)), el("td", {}, g.hands),
+            ...GAME_STATS.map((k) => el("td", { title: `${g.rates[k].k}/${g.rates[k].n}` }, raw(g.rates[k]), el("span", { class: "n" }, g.rates[k].n))),
+            el("td", {}, signed(g.bb_per_100)), el("td", {}, signed(g.net_bb, 0))))));
+
+    const showdowns = p.showdowns.length ? el("table", {},
+        el("thead", {}, el("tr", {}, el("th", {}, "When"), el("th", { class: "left" }, "Cards"), el("th", { class: "left" }, "Board"), el("th", { class: "left" }, "Their line"), el("th", {}, "Result"))),
+        el("tbody", {}, ...p.showdowns.map((s) => el("tr", {},
+            el("td", { class: "left" }, when(s.at)), el("td", { class: "left cards" }, s.cards.join(" ")),
+            el("td", { class: "left cards" }, s.board.join(" ") || "-"), el("td", { class: "left" }, s.line),
+            el("td", {}, el("span", { class: s.won ? "pos" : "neg" }, s.won ? "won" : "lost"))))))
+        : el("p", { class: "muted" }, "No shown cards recorded.");
+
+    const others = players_cache.filter((o) => o.key !== p.key).sort((a, b) => a.name.localeCompare(b.name));
+    const pick = el("select", {}, el("option", { value: "" }, "Pick a player..."),
+        ...others.map((o) => el("option", { value: o.key }, `${o.name} (${o.hands} hands, ${o.key})`)));
+    const merge = el("button", { class: "secondary", onclick: async () => {
+        if (!pick.value) return;
+        const other = others.find((o) => o.key === pick.value);
+        if (!confirm(`Treat ${other.name} (${other.key}) as the same person as ${p.name}? Their hands will be combined.`)) return;
+        await api("/api/link", { a: p.key, b: pick.value });
+        route();
+    } }, "Same person");
+    const ids = p.ids.length ? p.ids : [p.key];
+    const id_list = el("ul", { class: "plain" }, ...ids.map((id) => el("li", {}, el("span", { class: "cards" }, id), " ",
+        p.ids.includes(id) && id !== p.key ? el("button", { class: "secondary", onclick: async () => {
+            if (!confirm(`Split ${id} back out into its own player?`)) return;
+            await api("/api/unlink", { id });
+            route();
+        } }, "Split out") : null)));
+
+    view.replaceChildren(
+        el("p", {}, el("a", { href: "#/players" }, "← All players")),
+        el("div", { class: "panel" },
+            el("h2", {}, p.name, p.is_me ? el("span", { class: "chip you" }, "YOU") : null, el("span", { class: "chip" }, p.type)),
+            el("p", {}, `${p.hands} Hold'em hands over ${p.games.length} game(s) · `, signed(p.bb_per_100), " BB/100 · ", signed(p.net_bb, 0), ` BB total · last seen ${when(p.last_seen)}`),
+            p.exploit ? el("p", {}, el("strong", {}, "How to exploit: "), p.exploit) : null,
+            p.names.length > 1 ? el("p", { class: "muted" }, `Also played as: ${p.names.slice(1).join(", ")}`) : null),
+        el("div", { class: "panel" }, el("h2", {}, "Most recent game vs their usual play"),
+            p.latest_vs_usual.length ? el("ul", { class: "plain" }, ...p.latest_vs_usual.map((t) => el("li", { class: "flag" }, t)))
+                : el("p", { class: "muted" }, p.games.length > 1 ? "No clear differences. A stat is flagged only with 15+ chances in that game and a gap bigger than 10 points and random noise." : "Only one game so far, so there is nothing to compare against.")),
+        el("div", { class: "panel" }, el("h2", {}, "Tendencies (all games)"), stats),
+        el("div", { class: "panel" }, el("h2", {}, "By position"), positions),
+        el("div", { class: "panel" }, el("h2", {}, "Game by game (raw numbers, newest first)"), el("div", { class: "scroll" }, games)),
+        el("div", { class: "panel" }, el("h2", {}, `Shown cards (last ${p.showdowns.length})`), el("div", { class: "scroll" }, showdowns)),
+        el("div", { class: "panel" }, el("h2", {}, "Identity"),
+            el("p", { class: "muted" }, "PokerNow ids are tracked, not names, because names change between games. If this person also played under another id, mark it here."),
+            id_list, el("div", { class: "toolbar", style: "margin-top:10px" }, pick, merge))
+    );
+}
+
+// ---------- games ----------
+async function showGames(view) {
+    const games = await api("/api/games");
+    view.replaceChildren(el("div", { class: "panel" }, el("h2", {}, "Games"),
+        el("div", { class: "scroll" }, el("table", {},
+            el("thead", {}, el("tr", {}, el("th", {}, "Started"), el("th", {}, "Last hand"), el("th", { class: "left" }, "Source"), el("th", { class: "left" }, "Game id"), el("th", {}, "Hands"))),
+            el("tbody", {}, ...games.map((g) => el("tr", { class: "clickable", onclick: () => { location.hash = `#/game/${encodeURIComponent(g.game_id)}`; } },
+                el("td", { class: "left" }, when(g.first_at)), el("td", {}, when(g.last_at)),
+                el("td", { class: "left" }, g.source === "live" ? "played live" : `imported ${g.file_name || ""}`),
+                el("td", { class: "left cards" }, g.game_id), el("td", {}, g.hands))))))));
+}
+
+let refresh_timer = null;
+async function showGame(view, id) {
+    const { game, players } = await api(`/api/games/${encodeURIComponent(id)}`);
+    const repeated = repeatedNames(players.map((p) => p.session));
+    const auto = el("input", { type: "checkbox" });
+    auto.checked = remember("auto-refresh") === true;
+    auto.addEventListener("change", () => { remember("auto-refresh", auto.checked); schedule(); });
+    const schedule = () => {
+        clearTimeout(refresh_timer);
+        if (auto.checked) refresh_timer = setTimeout(() => { if (location.hash === `#/game/${encodeURIComponent(id)}`) route(); }, 15000);
+    };
+    const cell = (p, k) => {
+        const g = p.session.rates[k];
+        const u = p.usual ? p.usual.rates[k] : null;
+        return el("td", { title: `this game ${g.k}/${g.n}${u ? `, usually ${pct(u.value)} over ${u.n} chances` : ""}` },
+            raw(g), el("span", { class: "n" }, g.n), u ? el("span", { class: "muted" }, ` · ${pct(u.value)}`) : null);
+    };
+    view.replaceChildren(
+        el("p", {}, el("a", { href: "#/games" }, "← All games")),
+        el("div", { class: "panel" },
+            el("h2", {}, `Game ${game.game_id}`),
+            el("p", {}, `${game.hands} hands · ${when(game.first_at)} to ${when(game.last_at)} · ${game.source === "live" ? "played live" : "imported"}`),
+            el("label", {}, auto, " Refresh every 15 seconds (for the game you are playing now)")),
+        el("div", { class: "panel" },
+            el("h2", {}, "How each player is playing in this game"),
+            el("p", { class: "muted" }, "Each cell: this game's raw number, the number of chances, then their usual estimate from every other game. ⚑ marks a clear difference."),
+            el("div", { class: "scroll" }, el("table", {},
+                el("thead", {}, el("tr", {}, el("th", {}, "Player"), el("th", {}, "Hands"), ...GAME_STATS.map((k) => el("th", {}, LABEL[k])),
+                    el("th", {}, "Net BB"), el("th", { class: "left" }, "Usually → now"))),
+                el("tbody", {}, ...players.map((p) => [el("tr", { class: "clickable", onclick: () => { location.hash = `#/player/${encodeURIComponent(p.key)}`; } },
+                    nameCell({ ...p.session, key: p.key, is_me: p.is_me, names: [] }, repeated.has(p.session.name)), el("td", {}, p.session.hands, p.usual ? el("span", { class: "n" }, `of ${p.usual.hands + p.session.hands}`) : null),
+                    ...GAME_STATS.map((k) => cell(p, k)),
+                    el("td", {}, signed(p.session.net_bb, 0)),
+                    el("td", { class: "left" }, p.usual ? `${p.usual.type} → ${p.current.type}` : `new: ${p.session.type}`)),
+                    p.deviations.length ? el("tr", { class: "sub" }, el("td", { colspan: GAME_STATS.length + 4, class: "flag" }, p.deviations.map((d) => `⚑ ${d}`).join("   "))) : null
+                ])))))
+    );
+    schedule();
+}
+
+// ---------- import ----------
+async function importFiles(files) {
+    const list = [...files].filter((f) => /\.csv$/i.test(f.name));
+    const box = document.getElementById("import-results");
+    if (!list.length) { box.replaceChildren(el("p", { class: "neg" }, "No .csv files found. Export the log from PokerNow (Log → Download full log).")); return; }
+    box.replaceChildren(el("p", {}, `Importing ${list.length} file(s)...`));
+    try {
+        const payload = await Promise.all(list.map(async (f) => ({ name: f.name, text: await f.text() })));
+        const results = await api("/api/import", { files: payload });
+        box.replaceChildren(el("h2", {}, "Import results"), el("ul", { class: "plain" }, ...results.map((r) => el("li", { class: r.ok ? "" : "neg" },
+            r.ok ? `${r.file_name}: ${r.added} new hands${r.already_had ? `, ${r.already_had} already imported` : ""}, ${r.players} players` +
+                `${r.incomplete ? `, ${r.incomplete} incomplete skipped` : ""}` +
+                (r.first_hand > 1 ? `, starts at hand #${r.first_hand}: PokerNow left the earlier hands out of this download` : "") +
+                (r.you ? "" : r.dealt_to_you ? " (couldn't tell which player is you)" : " (you weren't dealt in: the log has none of your hole cards)")
+                : `${r.file_name}: failed (${r.error})`))),
+            el("button", { class: "secondary", onclick: () => box.replaceChildren() }, "Dismiss"));
+    } catch (err) {
+        box.replaceChildren(el("p", { class: "neg" }, `Import failed: ${err.message}`));
+    }
+    await loadSummary();
+    route();
+}
+document.getElementById("file-input").addEventListener("change", (e) => { importFiles(e.target.files); e.target.value = ""; });
+const drop = document.getElementById("drop");
+let drag_depth = 0;
+window.addEventListener("dragenter", (e) => { e.preventDefault(); drag_depth++; drop.classList.add("show"); });
+window.addEventListener("dragleave", () => { if (--drag_depth <= 0) { drag_depth = 0; drop.classList.remove("show"); } });
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => { e.preventDefault(); drag_depth = 0; drop.classList.remove("show"); importFiles(e.dataTransfer.files); });
+
+// ---------- routing ----------
+async function loadSummary() {
+    const s = await api("/api/summary");
+    document.getElementById("summary").textContent = `${s.games.length} games · ${s.hands} hands · ${s.players} players`;
+}
+async function route() {
+    clearTimeout(refresh_timer);
+    const view = document.getElementById("view");
+    const [, page, arg] = (location.hash || "#/players").split("/");
+    document.getElementById("nav-players").classList.toggle("active", page !== "games" && page !== "game");
+    document.getElementById("nav-games").classList.toggle("active", page === "games" || page === "game");
+    try {
+        if (page === "player" && arg) await showPlayer(view, decodeURIComponent(arg));
+        else if (page === "game" && arg) await showGame(view, decodeURIComponent(arg));
+        else if (page === "games") await showGames(view);
+        else await showPlayers(view);
+    } catch (err) {
+        view.replaceChildren(el("div", { class: "panel neg" }, `Could not load: ${err.message}`));
+    }
+}
+window.addEventListener("hashchange", route);
+loadSummary().catch(() => {});
+route();
+</script>
+</body>
+</html>

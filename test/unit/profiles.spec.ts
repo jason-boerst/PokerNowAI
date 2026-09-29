@@ -17,18 +17,18 @@ describe("ProfileBuilder", () => {
     it("counts 3-bets and folds to 3-bets", () => {
         const b = new ProfileBuilder();
         b.addHand(parseHand([...header(1), `${p("C", "c")} raises to 6`, `${p("A", "a")} raises to 20`, `${p("B", "b")} folds`, `${p("C", "c")} folds`]));
-        const c = b.profile("C")!, a = b.profile("A")!;
+        const c = b.profile("c")!, a = b.profile("a")!;
         expect([c.pfr.k, c.pfr.n, c.fold_to_three_bet.k, c.fold_to_three_bet.n]).to.deep.equal([1, 1, 1, 1]);
         expect([a.three_bet.k, a.three_bet.n]).to.deep.equal([1, 1]);
         // B acted after two raises: a 4-bet spot, not a 3-bet chance
-        expect([b.profile("B")!.three_bet.k, b.profile("B")!.three_bet.n]).to.deep.equal([0, 0]);
+        expect([b.profile("b")!.three_bet.k, b.profile("b")!.three_bet.n]).to.deep.equal([0, 0]);
     });
 
     it("counts c-bets, folds to c-bets, aggression and bet size", () => {
         const b = new ProfileBuilder();
         b.addHand(parseHand([...header(2), `${p("C", "c")} raises to 6`, `${p("A", "a")} folds`, `${p("B", "b")} calls 6`,
             `Flop:  [K♠, 7♦, 2♣]`, `${p("B", "b")} checks`, `${p("C", "c")} bets 9`, `${p("B", "b")} folds`]));
-        const c = b.profile("C")!, bb = b.profile("B")!;
+        const c = b.profile("c")!, bb = b.profile("b")!;
         expect([c.cbet.k, c.cbet.n]).to.deep.equal([1, 1]);
         expect([bb.fold_to_cbet.k, bb.fold_to_cbet.n]).to.deep.equal([1, 1]);
         expect(c.avg_bet_to_pot).to.be.closeTo(9 / 13, 1e-9);
@@ -42,7 +42,7 @@ describe("ProfileBuilder", () => {
             `Turn: K♠, 7♦, 2♣ [9♥]`, `${p("B", "b")} checks`, `${p("C", "c")} checks`,
             `River: K♠, 7♦, 2♣, 9♥ [3♣]`, `${p("B", "b")} checks`, `${p("C", "c")} checks`,
             `${p("C", "c")} shows a 7♠, 6♠.`, `${p("B", "b")} shows a K♦, Q♣.`, `${p("B", "b")} collected 9 from pot`, `-- ending hand #3 --`]));
-        const c = b.profile("C")!;
+        const c = b.profile("c")!;
         expect(c.showdowns[0]).to.deep.include({ hand_class: "76s", won: false, line: "preflop: call | flop: call | turn: check | river: check" });
         expect([c.went_to_showdown.k, c.went_to_showdown.n]).to.deep.equal([1, 1]);
         expect([c.limp.k, c.limp.n]).to.deep.equal([1, 1]);
@@ -51,7 +51,7 @@ describe("ProfileBuilder", () => {
     it("blends small samples toward the population and classifies with enough hands", () => {
         const b = new ProfileBuilder();
         b.addHand(parseHand([...header(4), `${p("C", "c")} calls 2`, `${p("A", "a")} folds`, `${p("B", "b")} checks`]));
-        const one = b.profile("C")!;
+        const one = b.profile("c")!;
         expect(one.vpip.value).to.be.lessThan(0.5);           // 1 of 1 is not treated as 100%
         expect(one.type).to.equal("unknown");
 
@@ -63,8 +63,8 @@ describe("ProfileBuilder", () => {
                 `Turn: K♠, 7♦, 2♣ [9♥]`, `${p("B", "b")} checks`, `${p("C", "c")} checks`,
                 `River: K♠, 7♦, 2♣, 9♥ [3♣]`, `${p("B", "b")} checks`, `${p("C", "c")} checks`, `-- ending hand #${10 + i} --`]));
         }
-        expect(s.profile("C")!.type).to.equal("calling station");
-        expect(s.profile("A")!.type).to.equal("nit");
+        expect(s.profile("c")!.type).to.equal("calling station");
+        expect(s.profile("a")!.type).to.equal("nit");
     });
 });
 

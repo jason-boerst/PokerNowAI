@@ -28,6 +28,8 @@ function describeAction(a: ActionRecord, s: HandState): string {
         case "post_bb": return `posts BB ${amount}`;
         case "post_straddle": return `straddles ${amount}`;
         case "post_dead": return `posts dead ${bb(a.amount, s.big_blind)}`;
+        case "post_ante": return `posts ante ${bb(a.amount, s.big_blind)}`;
+        case "post_bomb": return `posts bomb pot ${amount}`;
         case "fold": return "folds";
         case "check": return "checks";
         case "call": return `calls ${amount}${a.all_in ? " (all-in)" : ""}`;

@@ -12,6 +12,10 @@ import { PlayerService } from './services/player-service.ts';
 import { PuppeteerService } from './services/puppeteer-service.ts';
 import { HandRecorder } from './services/hand-recorder.ts';
 import { ProfileService } from './services/profile-service.ts';
+import { importFiles } from './import/importer.ts';
+import { existsSync } from 'node:fs';
+
+const LOGS_FOLDER = 'logs';
 
 import { BotConfig, WebDriverConfig } from './interfaces/config-interfaces.ts';
 import { AIServiceFactory, resolveAIConfig } from './helpers/ai-service-factory.ts';
@@ -86,8 +90,14 @@ const bot_manager = async function() {
 
     const recorder = new HandRecorder(db_service);
     const profiles = new ProfileService(recorder);
-    const loaded = await profiles.load();
-    if (loaded > 0) console.log(`Loaded opponent history from ${loaded} recorded hand(s).`);
+    // new PokerNow log exports dropped in the logs/ folder are imported automatically
+    if (existsSync(LOGS_FOLDER)) {
+        const summaries = await importFiles(recorder, [LOGS_FOLDER], () => undefined);
+        const added = summaries.reduce((n, s) => n + s.added, 0);
+        if (added > 0) console.log(`Imported ${added} new hand(s) from ${summaries.length} log file(s) in ${LOGS_FOLDER}/.`);
+    }
+    const loaded = await profiles.load(game_id);
+    if (loaded > 0) console.log(`Loaded opponent history from ${loaded} stored hand(s); hands from this game count as today's session.`);
     const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder, {
         preflop_engine: bot_config.preflop_engine ?? true,
         llm_timeout_ms: bot_config.llm_timeout_ms ?? 20000,

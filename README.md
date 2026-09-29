@@ -155,12 +155,52 @@ Every decision and every finished hand is recorded in `app/pokernow-gpt.db` whil
 | `npm run stats` | Your results in bb/100 with a 95% confidence interval, overall and per model. Poker is noisy: expect "can't tell yet" for a long time (tens of thousands of hands). |
 | `npm run label` | Shows recorded spots (cards, full action history, pot, odds) and lets you enter the correct play. |
 | `npm run eval -- --models a/x,b/y` | Replays recorded spots through each model: % legal actions, agreement with your labels, latency. Costs API credits; asks first. |
-| `npm run players` | Opponent profiles from all recorded hands: type (calling station, nit, maniac, loose-passive, TAG, LAG), key stats with sample sizes, and the main exploit. `npm run players -- <name>` adds their recent showdowns. |
+| `npm run players` | Opponent profiles from all recorded and imported hands: type (calling station, nit, maniac, loose-passive, TAG, LAG), key stats with sample sizes, and the main exploit. `npm run players -- <name or id>` adds game-by-game history and recent showdowns. See [Player database](#player-database-import-past-games). |
 | `npm run export-hands` | Writes hands and decisions to `hand-export.json` with player names anonymized. |
 
 While playing, each turn prints a `[State]` line (position, street, pot, amount to call, pot odds, min raise, effective stack, SPR). If it doesn't match the table, please report it.
 
 Each turn also prints an `[Engine]` line: your equity (share of the pot you'd win on average) against each remaining opponent's estimated range, and the equity you need to call. Ranges come from each player's VPIP/PFR (population defaults until a player has 20 hands) and their actions this hand. They are estimates built on stated assumptions, not solver output.
+
+## Player database: import past games
+
+Every hand is stored in `app/pokernow-gpt.db` on your computer, keyed by PokerNow's player id (names change between games, ids don't). Past games come from PokerNow's log download, and live games are added as you play. Opponent stats from both feed every decision.
+
+### Import logs
+
+In a PokerNow game, open the **Log** and download it. The file is named `poker_now_log_<game id>.csv`. Then either:
+
+- **Dashboard:** `npm run dashboard`, open http://localhost:4545, and drag the files onto the page (or click **Import logs**).
+- **Terminal:** `npm run import -- ~/Downloads/poker_now_log_pglAbC.csv` (several files or a whole folder also work).
+- **Folder:** put the files in a `logs/` folder in this project. `npm start` imports anything new in it each time it starts, and `npm run import` with no arguments does the same.
+
+Importing the same file twice is safe: hands already stored are skipped. What's imported and how:
+
+- **Complete hands only.** A hand in progress when you downloaded, or cut off at the start of the file, is skipped and counted.
+- **PokerNow's download seems to keep only the newest 20,000 log lines** (roughly 600 to 850 hands in the logs tested). One of the test logs had exactly 20,000 lines and started at hand #120. The import results say when a file starts after hand #1. For long games, download the log partway through and again at the end: the imports merge without duplicates. Games you play with the bot running are recorded hand by hand, so the limit doesn't apply to them.
+- **Which player is you:** found from the hole cards in the log ("Your hand is ..."), matched to your showdowns or to the seat that was dealt in exactly when you were. A log downloaded while you weren't playing has no hole cards, so it can't tell. Your ids are grouped under "YOU", so your own play gets its own profile.
+- **Same person, different id:** PokerNow's "changed the ID" messages link ids automatically. Otherwise link them yourself on a player's page in the dashboard ("Same person") or with `npm run players -- link <id or name> <id or name>`. Undo with "Split out" or `npm run players -- unlink <id>`. Ids are never merged by name, because different people use the same name.
+- **Game types:** Omaha hands and bomb pots count toward results (BB/100, net) but not toward the tendency stats, which are Hold'em only. 7-2 bounty payments count toward results.
+
+### Dashboard
+
+`npm run dashboard` serves a page on http://localhost:4545 (only reachable from your own computer; set `DASHBOARD_PORT` to change the port). It shows:
+
+- **Players:** every opponent with hands, games, VPIP, PFR, 3-bet, limp, steal, fold to steal, fold to 3-bet, c-bet, fold to c-bet, aggression, WTSD (went to showdown), W$SD (won at showdown), BB/100 and net result. Search, set a minimum number of hands, and click a column to sort. Each percentage shows its sample size.
+- **A player's page:** all their stats with raw counts, VPIP by position, average bet size, how their most recent game differed from their usual play, a game-by-game table, the cards they've shown with the line they played, and their ids.
+- **Games:** every game, and for one game, how each player played in it next to their usual numbers from every other game, with clear changes flagged. Tick "Refresh every 15 seconds" on the game you're playing to watch it live while the bot records hands.
+
+The bot and the dashboard can run at the same time.
+
+### How the history is used at the table
+
+- **Long-term:** a player's hands from every other game. **This session:** their hands from the game you're playing now (including any you imported from it earlier).
+- The stats the engine uses are this session's numbers blended toward the player's own long-term numbers (their history counts as 30 chances of evidence), so a player who is clearly playing differently today moves the estimate, and a few odd hands don't. With no history, small samples are blended toward typical home-game averages instead.
+- A change is flagged when a stat has at least 15 chances this session and differs from their usual number by more than 10 points and about two standard errors. Checked stats: VPIP, PFR, aggression, 3-bet, fold to c-bet and going to showdown.
+- These estimates set the opponent ranges and fold and aggression rates in the equity and EV numbers, the preflop adjustments, and the opponent section of the AI prompt (which lists long-term and session numbers and any flagged changes). The overlay shows each opponent's history as "N before + M today hands", their usual VPIP/PFR next to today's, and a ⚑ line for each flagged change.
+- Hundreds of hands are needed before most stats settle: a 20% stat measured over 100 chances has a standard error of about 4 points. The sample size is shown next to every number so you can judge.
+
+The database and logs stay on your computer: `*.db` and `logs/` are in `.gitignore`.
 
 ## Troubleshooting
 

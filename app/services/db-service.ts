@@ -35,6 +35,21 @@ export class DBService {
                 recorded_at TEXT NOT NULL,
                 PRIMARY KEY (game_id, hand_number)
             );
+            CREATE TABLE IF NOT EXISTS Games (
+                game_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                file_name TEXT,
+                hero_id TEXT,
+                hands INT,
+                first_at TEXT,
+                last_at TEXT,
+                imported_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS PlayerLinks (
+                player_id TEXT PRIMARY KEY,
+                person_id TEXT NOT NULL,
+                reason TEXT
+            );
             CREATE TABLE IF NOT EXISTS Decisions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 game_id TEXT NOT NULL,
@@ -54,6 +69,34 @@ export class DBService {
                 recorded_at TEXT NOT NULL
             );
         `);
+        await this.addMissingColumns("Hands", { started_at: "TEXT", game_type: "TEXT", source: "TEXT", hero_id: "TEXT" });
+        // hands recorded live by versions before the Games table existed
+        await this.db.exec(`
+            INSERT OR IGNORE INTO Games (game_id, source, hands, first_at, last_at, imported_at)
+            SELECT game_id, 'live', COUNT(*), MIN(COALESCE(started_at, recorded_at)), MAX(COALESCE(started_at, recorded_at)), MIN(recorded_at)
+            FROM Hands GROUP BY game_id
+        `);
+    }
+
+    /** Runs several statements atomically (much faster for bulk imports). */
+    async transaction<T>(fn: () => Promise<T>): Promise<T> {
+        await this.db.exec("BEGIN");
+        try {
+            const result = await fn();
+            await this.db.exec("COMMIT");
+            return result;
+        } catch (err) {
+            await this.db.exec("ROLLBACK");
+            throw err;
+        }
+    }
+
+    /** Adds columns introduced after a table was first created (older databases). */
+    private async addMissingColumns(table: string, columns: Record<string, string>): Promise<void> {
+        const existing = new Set((await this.db.all<{ name: string }[]>(`PRAGMA table_info(${table})`)).map((c) => c.name));
+        for (const [name, type] of Object.entries(columns)) {
+            if (!existing.has(name)) await this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+        }
     }
 
     async run(sql: string, params: Array<any> = []): Promise<void> {

@@ -2,7 +2,8 @@
 import { HandState, HeroView } from "../engine/hand-parser.ts";
 import { describeHand } from "../engine/hand-strength.ts";
 import { ObservedStats, opponentModels } from "../engine/opponent-range.ts";
-import { PlayerProfile, MIN_HANDS_FOR_TYPE } from "../engine/player-profile.ts";
+import { MIN_HANDS_FOR_TYPE, PlayerRef } from "../engine/player-profile.ts";
+import type { PlayerLookup } from "../services/profile-service.ts";
 import { PostflopAnalysis } from "../engine/postflop.ts";
 import { PreflopAdvice } from "../engine/preflop.ts";
 import { rangePercent } from "../engine/ranges.ts";
@@ -31,8 +32,8 @@ export interface OverlayContent {
 export interface OverlayInputs {
     state: HandState,
     view: HeroView,
-    profiles: (name: string) => PlayerProfile | undefined,
-    stats: (name: string) => ObservedStats | undefined
+    players: PlayerLookup,
+    stats: (player: PlayerRef) => ObservedStats | undefined
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -77,7 +78,8 @@ function opponentsSection(inputs: OverlayInputs, warnings: string[]): OverlaySec
     let unknown = 0;
     const shown = v.active_opponents.slice(0, 4);
     for (const seat of shown) {
-        const p = inputs.profiles(seat.name);
+        const info = inputs.players(seat);
+        const p = info.current;
         const range = models.get(seat.id);
         const range_text = range ? ` · range ~${Math.round(rangePercent(range.model.range))}%` : "";
         if (!p || p.hands < MIN_HANDS_FOR_TYPE) unknown++;
@@ -85,13 +87,21 @@ function opponentsSection(inputs: OverlayInputs, warnings: string[]): OverlaySec
             lines.push(`${seat.position} ${seat.name} · ${b(seat.stack)} BB · no history${range_text}`);
             continue;
         }
-        lines.push(`${seat.position} ${seat.name} · ${b(seat.stack)} BB · ${p.type} (${p.hands} hands)${range_text}`);
+        const history = info.long && info.session ? `${info.long.hands} before + ${info.session.hands} today`
+            : info.session ? `${info.session.hands} today` : `${p.hands}`;
+        lines.push(`${seat.position} ${seat.name} · ${b(seat.stack)} BB · ${p.type} (${history} hands)${range_text}`);
         // the stats that matter for this decision: facing a bet -> how often they bluff/barrel;
         // able to bet -> how often they fold
         const key = facing_bet
             ? `aggression ${pct(p.aggression.value)} [${p.aggression.n}], goes to showdown ${pct(p.went_to_showdown.value)} [${p.went_to_showdown.n}]`
             : `folds to c-bet ${pct(p.fold_to_cbet.value)} [${p.fold_to_cbet.n}], goes to showdown ${pct(p.went_to_showdown.value)} [${p.went_to_showdown.n}]`;
         lines.push(`   VPIP ${pct(p.vpip.value)} PFR ${pct(p.pfr.value)} · ${key}`);
+        if (info.long && info.session && info.session.hands > 0) {
+            const today = info.session;
+            const raw = (r: { k: number, n: number }) => r.n ? `${Math.round(r.k / r.n * 100)}%` : "-";
+            lines.push(`   usually VPIP ${pct(info.long.vpip.value)} PFR ${pct(info.long.pfr.value)} · today ${raw(today.vpip)} / ${raw(today.pfr)} over ${today.hands} hands`);
+        }
+        for (const d of info.deviations) lines.push(`   ⚑ ${d.text}`);
         const sd = p.showdowns[0];
         if (sd) lines.push(`   last showdown: ${sd.cards.join(" ")} after ${sd.line.replace(/\w+: /g, "").replace(/ \| /g, ", ")}`);
     }

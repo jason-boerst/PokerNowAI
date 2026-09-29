@@ -1,5 +1,6 @@
 import type { Response } from '../utils/error-handling-utils.ts';
 import { Data, Log } from '../interfaces/log-processing-interfaces.ts';
+import { AFTER_HAND_LINE } from '../engine/hand-parser.ts';
 
 /** Fetches a same-origin path and returns the HTTP status and body text. */
 export type PageFetcher = (path: string) => Promise<{ status: number, text: string }>;
@@ -119,7 +120,11 @@ export class LogService {
         if (end === -1 || start === -1) {
             return null;
         }
-        return entries.slice(end, start + 1).map((e) => e.msg).reverse();
+        // shows and bounty payments logged after the ending line (before the next hand starts)
+        const next_start = entries.findIndex((e, i) => i < end && e.msg.startsWith("-- starting hand #"));
+        const after = entries.slice(next_start === -1 ? 0 : next_start + 1, end).filter((e) => AFTER_HAND_LINE.test(e.msg));
+        // newest first, so reversing puts the hand first and the after-hand lines last
+        return [...after, ...entries.slice(end, start + 1)].map((e) => e.msg).reverse();
     }
 
     /** Fetches pages (newest first) until `found` returns an index >= 0, up to `max_pages`. */

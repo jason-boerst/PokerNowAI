@@ -19,7 +19,7 @@ function spot(n: number, hero: string, cards: string, lines: string[], stack = 1
         ...lines.map((l) => l.replace(/^(S\d+) /, (_m, name) => `${p(name, "i" + name.slice(1))} `))
     ];
     const s = parseHand(messages, { hero_name: hero });
-    return preflopAdvice(s, heroView(s)!, (name) => stats[name]);
+    return preflopAdvice(s, heroView(s)!, (player) => stats[player.name]);
 }
 
 // 9-handed seats: S1 SB, S2 BB, S3 UTG, S4 UTG+1, S5 MP, S6 LJ, S7 HJ, S8 CO, S9 BU

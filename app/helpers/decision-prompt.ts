@@ -1,6 +1,7 @@
 import { HandState, HeroView } from "../engine/hand-parser.ts";
 import { ActionKind, SuggestedAction } from "../engine/legality.ts";
-import { PlayerProfile, describeProfile } from "../engine/player-profile.ts";
+import { describeProfile } from "../engine/player-profile.ts";
+import type { PlayerLookup } from "../services/profile-service.ts";
 import { PostflopAnalysis } from "../engine/postflop.ts";
 import { bb, formatActions, formatSpot } from "../engine/spot-format.ts";
 
@@ -10,7 +11,7 @@ export interface LLMDecision extends SuggestedAction {
 }
 
 /** Builds the structured post-flop prompt: full hand, engine numbers, opponent profiles, legal actions. */
-export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalysis, profiles: (name: string) => PlayerProfile | undefined): string {
+export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalysis, players: PlayerLookup): string {
     const b = (chips: number) => bb(chips, s.big_blind);
     const lines: string[] = [];
     lines.push("You are advising in a live No-Limit Hold'em cash game (full ring) against loose, mostly passive recreational players.");
@@ -23,13 +24,18 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
     lines.push("");
     lines.push("Opponents still in the hand:");
     for (const seat of v.active_opponents) {
-        const p = profiles(seat.name);
+        const info = players(seat);
+        const p = info.current;
         const stack = `${b(seat.stack)} BB behind`;
         if (!p) {
             lines.push(`  ${seat.position} (${seat.name}), ${stack}: no history.`);
             continue;
         }
         lines.push(`  ${seat.position}, ${stack}: ${describeProfile(p)}. ${p.exploit}`);
+        if (info.long && info.session) {
+            lines.push(`    long-term: ${info.long.hands} hands, VPIP ${pct(info.long.vpip.value)}, PFR ${pct(info.long.pfr.value)}, aggression ${pct(info.long.aggression.value)}; this session: ${info.session.hands} hands`);
+        }
+        for (const d of info.deviations) lines.push(`    today: ${d.text}`);
         for (const sd of p.showdowns.slice(0, 2)) {
             lines.push(`    showed ${sd.cards.join(" ")} on ${sd.board.join(" ")} after ${sd.line}`);
         }

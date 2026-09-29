@@ -10,9 +10,9 @@ import { equity } from './engine/equity.ts';
 import { requiredEquity } from './engine/odds.ts';
 import { ObservedStats, opponentModels } from './engine/opponent-range.ts';
 import { preflopAdvice } from './engine/preflop.ts';
-import { describeProfile } from './engine/player-profile.ts';
+import { describeProfile, isHoldem, PlayerRef } from './engine/player-profile.ts';
 import { decidePostflop, Decision, opponentTendencies } from './helpers/decision-maker.ts';
-import { ProfileService } from './services/profile-service.ts';
+import { PlayerLookup, ProfileService } from './services/profile-service.ts';
 import { rangePercent } from './engine/ranges.ts';
 import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
 
@@ -383,11 +383,16 @@ export class Bot {
                             await this.recordDecision(hand_state, hand, query, bot_action, Date.now() - started, source, response);
                             this.table.resetPlayerActions();
                             if (this.assistant_mode) {
+                                // the engine only models Hold'em; other games (e.g. Omaha in a mixed game) get the AI alone
+                                const other_game = hand_state && !isHoldem(hand_state) ? hand_state.game_type : null;
                                 const overlay: OverlayContent = this.overlay_content ?? {
-                                    status: "final", header: `AI (${this.ai_service.getModelName()}) · basic prompt (full hand state unavailable)`,
+                                    status: "final",
+                                    header: `AI (${this.ai_service.getModelName()}) · basic prompt (${other_game ? `${other_game}: no engine` : "full hand state unavailable"})`,
                                     context: "", action: bot_action.action_str, size_bb: bot_action.bet_size_in_BBs,
                                     big_blind: this.game.getBigBlind(), sections: [],
-                                    warnings: ["The full hand history couldn't be read, so this used the basic prompt without the engine."],
+                                    warnings: [other_game
+                                        ? `This hand is ${other_game}. The equity engine, preflop charts and opponent stats are Hold'em only, so this is the AI's opinion without any math. Treat it with caution.`
+                                        : "The full hand history couldn't be read, so this used the basic prompt without the engine."],
                                     reason: bot_action.reason ?? ""
                                 };
                                 this.overlay_content = null;
@@ -513,8 +518,10 @@ export class Bot {
         this.described_hand = state.hand_number;
         for (const seat of state.seats) {
             if (seat.id === state.hero_id) continue;
-            const p = this.options.profiles.profile(seat.name);
+            const info = this.options.profiles.info(seat);
+            const p = info.current;
             console.log(`[Opponent] ${seat.position} ${p ? `${describeProfile(p)}. ${p.exploit}` : `${seat.name}: no history yet`}`);
+            for (const d of info.deviations) console.log(`[Opponent]    ${seat.name} today: ${d.text}`);
         }
     }
 
@@ -523,7 +530,7 @@ export class Bot {
         this.last_equity = null;
         if (state.hero_cards.length !== 2 || view.active_opponents.length === 0) return;
         try {
-            const models = opponentModels(state, (name) => this.statsLookup(name));
+            const models = opponentModels(state, (player) => this.statsLookup(player));
             const result = equity({ hero: state.hero_cards, board: state.board, opponents: models.map((m) => m.model), time_budget_ms: 150 });
             // Preflop, pot odds only matter when facing a raise; completing a blind or opening is a
             // range decision (position, playability, later streets), so "need X%" would mislead there.
@@ -540,10 +547,10 @@ export class Bot {
 
     /** Post-flop decision: engine analysis, the AI for close spots, validated with an engine fallback. */
     private async postflopDecision(state: HandState, view: HeroView): Promise<Decision> {
-        const profiles = (name: string) => this.options.profiles?.profile(name);
-        const opponents = opponentTendencies(state, (name) => this.statsLookup(name), profiles);
-        const inputs = { state, view, profiles, stats: (name: string) => this.statsLookup(name) };
-        const d = await decidePostflop(state, view, this.ai_service, opponents, profiles, {
+        const players = this.playerLookup();
+        const opponents = opponentTendencies(state, (player) => this.statsLookup(player), players);
+        const inputs = { state, view, players, stats: (player: PlayerRef) => this.statsLookup(player) };
+        const d = await decidePostflop(state, view, this.ai_service, opponents, players, {
             llm_timeout_ms: this.options.llm_timeout_ms,
             always_ask_llm: this.options.always_ask_llm,
             // close spot: show the engine's pick right away while the AI thinks
@@ -567,12 +574,17 @@ export class Bot {
         return d;
     }
 
-    /** Player stats by name for the engine (undefined if the player isn't known yet). */
-    private statsLookup(name: string): ObservedStats | undefined {
-        const profiled = this.options.profiles?.stats(name);
+    /** Long-term, session and current-form profiles for a player (empty when there's no history). */
+    private playerLookup(): PlayerLookup {
+        return (player) => this.options.profiles?.info(player) ?? { deviations: [] };
+    }
+
+    /** Player stats for the engine (undefined if the player isn't known yet). */
+    private statsLookup(player: PlayerRef): ObservedStats | undefined {
+        const profiled = this.options.profiles?.stats(player);
         if (profiled) return profiled;
         try {
-            const st = this.table.getPlayerStatsFromName(name);
+            const st = this.table.getPlayerStatsFromName(player.name);
             return { vpip: st.computeVPIPStat(), pfr: st.computePFRStat(), hands: st.getTotalHands() };
         } catch {
             return undefined;
@@ -584,12 +596,12 @@ export class Bot {
         if (!this.options.preflop_engine || !state || state.street !== "preflop") return null;
         const view = heroView(state);
         if (!view) return null;
-        const advice = preflopAdvice(state, view, (name) => this.statsLookup(name));
+        const advice = preflopAdvice(state, view, (player) => this.statsLookup(player));
         if (!advice) return null;
         const size = advice.action === "raise" || advice.action === "all-in" ? ` to ${advice.size_bb} BB` : "";
         console.log(`[Preflop] ${advice.action.toUpperCase()}${size} (${advice.scenario}): ${advice.reason}`);
         this.overlay_content = preflopOverlay(
-            { state, view, profiles: (name) => this.options.profiles?.profile(name), stats: (name) => this.statsLookup(name) },
+            { state, view, players: this.playerLookup(), stats: (player) => this.statsLookup(player) },
             advice, this.last_equity
         );
         return { action_str: advice.action, bet_size_in_BBs: advice.size_bb, reason: advice.reason };
@@ -621,7 +633,7 @@ export class Bot {
             const messages = await this.log_service.fetchLastCompletedHand();
             if (messages) {
                 await this.recorder.recordHand(this.game_id, messages, this.bot_name, this.game.getBigBlind());
-                this.options.profiles?.addHand(messages, this.game.getBigBlind());
+                this.options.profiles?.addHand(messages, this.game.getBigBlind(), this.game_id);
             }
         } catch (err) {
             console.log("Could not record the finished hand:", err instanceof Error ? err.message : err);
