@@ -48,6 +48,30 @@ describe("overlay content", () => {
         expect(o.action).to.equal(a.candidates[0].action);
     });
 
+    it("shows the table notes on one line first, only when there are notes", () => {
+        const { s, v } = flopSpot();
+        const a = analyzePostflop(s, v, [{ model: { range: topRange(40) }, fold_to_bet: 0.4, fold_to_raise: 0.25 }]);
+        // the effective stack is already in the Spot section
+        const notes = ["7-2 bounty on: 3 BB from each player", "Antes in play", "Effective stack 250 BB"];
+        const o = postflopOverlay({ state: s, view: v, players: noProfile, stats: noStats, notes }, a, null, "test/model", 6000);
+        expect(o.sections[0]).to.deep.equal({ title: "Table", lines: ["7-2 bounty on: 3 BB from each player · Antes in play"] });
+        expect(o.sections[1].title).to.equal("Spot");
+        // the header shows the time the AI actually has
+        expect(o.header).to.include("(up to 6s)");
+        const empty = postflopOverlay({ state: s, view: v, players: noProfile, stats: noStats, notes: [] }, a, null, "test/model", 6000);
+        expect(empty.sections.map((x) => x.title)).to.not.include("Table");
+    });
+
+    it("says why the engine answered a close spot alone", () => {
+        const { s, v } = flopSpot();
+        const a = analyzePostflop(s, v, [{ model: { range: topRange(40) }, fold_to_bet: 0.4, fold_to_raise: 0.25 }]);
+        const inputs = { state: s, view: v, players: noProfile, stats: noStats };
+        const engine = { action: "call", size_bb: 0, reason: "Close spot, no time left to ask the AI. Equity 40%.", source: "engine", confidence: 0.6 };
+        expect(postflopOverlay(inputs, a, { ...engine, ai_skipped: "time" }, "m", 0).header).to.equal("Engine · close spot (no time for AI)");
+        expect(postflopOverlay(inputs, a, { ...engine, ai_skipped: "off" }, "m", 0).header).to.equal("Engine · close spot (AI off)");
+        expect(postflopOverlay(inputs, a, engine, "m", 0).header).to.equal("Engine · clear spot");
+    });
+
     it("shows the stats that matter for the decision: aggression when facing a bet", () => {
         const { s, v } = flopSpot();
         const b = new ProfileBuilder();
@@ -76,6 +100,9 @@ describe("overlay content", () => {
         const advice = preflopAdvice(s, v, noStats)!;
         const o = preflopOverlay({ state: s, view: v, players: noProfile, stats: noStats }, advice, { equity: 0.52, need: 0 });
         expect(o.header).to.equal("Preflop chart");
+        expect(o.sections[0].title).to.equal("Spot");
+        const with_notes = preflopOverlay({ state: s, view: v, players: noProfile, stats: noStats, notes: ["Straddle 2 BB"] }, advice, null);
+        expect(with_notes.sections[0]).to.deep.equal({ title: "Table", lines: ["Straddle 2 BB"] });
         expect(o.action).to.equal("raise");
         const text = o.sections.flatMap((x) => x.lines).join(" | ");
         expect(text).to.include("K6o (offsuit)");

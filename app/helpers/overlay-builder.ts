@@ -33,7 +33,9 @@ export interface OverlayInputs {
     state: HandState,
     view: HeroView,
     players: PlayerLookup,
-    stats: (player: PlayerRef) => ObservedStats | undefined
+    stats: (player: PlayerRef) => ObservedStats | undefined,
+    /** Table notes from the game rules, e.g. "Antes in play" or "7-2 bounty on: 3 BB from each player". */
+    notes?: string[]
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -42,6 +44,15 @@ const signed = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
 export function contextLine(s: HandState, v: HeroView): string {
     const street = s.street[0].toUpperCase() + s.street.slice(1);
     return `Hand #${s.hand_number ?? "?"} · ${street} · you: ${v.position}`;
+}
+
+/**
+ * The table notes on one line (none when there are no notes). An "Effective stack" note is left out:
+ * the Spot section already shows the live effective stack.
+ */
+function tableSection(inputs: OverlayInputs): OverlaySection[] {
+    const notes = (inputs.notes ?? []).map((n) => n.trim()).filter((n) => n && !/^effective stack/i.test(n));
+    return notes.length ? [{ title: "Table", lines: [notes.join(" · ")] }] : [];
 }
 
 function spotSection(s: HandState, v: HeroView): OverlaySection {
@@ -124,16 +135,19 @@ export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equ
         action: advice.action,
         size_bb: advice.size_bb,
         big_blind: s.big_blind,
-        sections: [spotSection(s, v), handSection(s), { title: "Odds", lines: math }, opponentsSection(inputs, warnings)],
+        sections: [...tableSection(inputs), spotSection(s, v), handSection(s), { title: "Odds", lines: math }, opponentsSection(inputs, warnings)],
         warnings,
         reason: advice.reason
     };
 }
 
-/** Overlay for a post-flop decision (or the engine's provisional pick while the AI thinks). */
+/**
+ * Overlay for a post-flop decision (or the engine's provisional pick while the AI thinks).
+ * `llm_timeout_ms` is the time the AI was actually given (its budget), shown while it thinks.
+ */
 export function postflopOverlay(
     inputs: OverlayInputs, a: PostflopAnalysis,
-    decision: { action: string, size_bb: number, reason: string, source: string, confidence: number } | null,
+    decision: { action: string, size_bb: number, reason: string, source: string, confidence: number, ai_skipped?: string } | null,
     model_name: string, llm_timeout_ms: number
 ): OverlayContent {
     const { state: s, view: v } = inputs;
@@ -162,7 +176,9 @@ export function postflopOverlay(
         const agrees = top.action === decision.action || (top.action === "bet" && decision.action === "raise") || (top.action === "raise" && decision.action === "bet");
         if (!agrees) warnings.push(`The AI disagrees with the engine's top option (${top.label}).`);
     } else if (decision.source === "engine") {
-        header = "Engine · clear spot";
+        header = decision.ai_skipped === "off" ? "Engine · close spot (AI off)"
+            : decision.ai_skipped === "time" ? "Engine · close spot (no time for AI)"
+            : "Engine · clear spot";
     } else {
         header = "Engine (AI fallback)";
         warnings.push(decision.reason.split(". ")[0] + ".");
@@ -176,6 +192,7 @@ export function postflopOverlay(
         size_bb: chosen.size_bb,
         big_blind: b,
         sections: [
+            ...tableSection(inputs),
             spotSection(s, v),
             handSection(s),
             { title: "Odds", lines: odds },
