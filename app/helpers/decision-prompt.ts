@@ -1,6 +1,6 @@
 import { HandState, HeroView } from "../engine/hand-parser.ts";
 import { ActionKind, SuggestedAction } from "../engine/legality.ts";
-import { describeProfile } from "../engine/player-profile.ts";
+import { describeProfile, PRIORS } from "../engine/player-profile.ts";
 import type { PlayerLookup } from "../services/profile-service.ts";
 import { PostflopAnalysis } from "../engine/postflop.ts";
 import { bb, formatActions, formatSpot } from "../engine/spot-format.ts";
@@ -10,14 +10,26 @@ export interface LLMDecision extends SuggestedAction {
     reason: string
 }
 
-/** Builds the structured post-flop prompt: full hand, engine numbers, opponent profiles, legal actions. */
-export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalysis, players: PlayerLookup): string {
+/**
+ * Builds the structured post-flop prompt: the table (size, depth, your pool's averages, table notes),
+ * full hand, engine numbers, opponent profiles, legal actions. Kept short so the AI answers fast.
+ */
+export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalysis, players: PlayerLookup, notes: string[] = []): string {
     const b = (chips: number) => bb(chips, s.big_blind);
     const lines: string[] = [];
-    lines.push("You are advising in a live No-Limit Hold'em cash game (full ring) against loose, mostly passive recreational players.");
-    lines.push("Maximize expected value by exploiting their tendencies. Amounts are in big blinds (BB).");
+    lines.push(`No-Limit Hold'em cash game${s.bomb_pot ? " (bomb pot)" : ""}, ${s.seats.length} players dealt. ` +
+        `Effective stack ${b(v.effective_stack)} BB, SPR ${Math.round(v.spr * 10) / 10}. Amounts are in big blinds (BB).`);
+    lines.push(`Players in your games on average: VPIP ${pct(PRIORS.vpip.mean)}, PFR ${pct(PRIORS.pfr.mean)}, 3-bet ${pct(PRIORS.three_bet.mean)}, ` +
+        `fold to c-bet ${pct(PRIORS.fold_to_cbet.mean)}, aggression ${pct(PRIORS.aggression.mean)}, showdown ${pct(PRIORS.went_to_showdown.mean)}.`);
+    // the live effective stack is on the first line, so a table-level "Effective stack" note is left out
+    const table = notes.map((n) => n.trim().replace(/\.+$/, "")).filter((n) => n && !/^effective stack/i.test(n));
+    if (table.length) lines.push(`Table: ${table.join("; ")}.`);
+    lines.push("Maximize expected value by exploiting each opponent's tendencies.");
     lines.push("");
     lines.push(`Your cards: ${s.hero_cards.join(" ")}. Board: ${s.board.length ? s.board.join(" ") : "none"} (${s.street}).`);
+    if (table.some((n) => /7-2 bounty/i.test(n)) && sevenDeuce(s.hero_cards)) {
+        lines.push("You hold 7-2: winning this pot may also collect the 7-2 bounty.");
+    }
     lines.push(`Spot: ${formatSpot(s, v)}.`);
     lines.push("Hand so far:");
     for (const l of formatActions(s)) lines.push(`  ${l}`);
@@ -28,7 +40,7 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
         const p = info.current;
         const stack = `${b(seat.stack)} BB behind`;
         if (!p) {
-            lines.push(`  ${seat.position} (${seat.name}), ${stack}: no history.`);
+            lines.push(`  ${seat.position}, ${stack}: no history (assume the averages above).`);
             continue;
         }
         lines.push(`  ${seat.position}, ${stack}: ${describeProfile(p)}. ${p.exploit}`);
@@ -51,11 +63,16 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
     }
     lines.push("");
     lines.push(`Legal actions: ${legalActions(v, s.big_blind).join("; ")}.`);
-    lines.push("Use the engine numbers as inputs, not orders: adjust for the opponents' tendencies, the board texture, and future streets.");
+    lines.push("Use the engine numbers as inputs, not orders: adjust for the opponents' tendencies, the board texture, future streets and the table rules.");
     lines.push("");
     lines.push("Reply with ONLY a JSON object, no other text:");
-    lines.push('{"action": "fold|check|call|bet|raise|all-in", "size_bb": <total bet or raise-to in BB, 0 otherwise>, "confidence": <0-1>, "reason": "<two short sentences: why, and which opponent tendency matters>"}');
+    lines.push('{"action": "fold|check|call|bet|raise|all-in", "size_bb": <total bet or raise-to in BB, 0 otherwise>, "confidence": <0-1>, "reason": "<one short sentence: why, and which opponent tendency matters>"}');
     return lines.join("\n");
+}
+
+/** True for a 7 and a 2 as hole cards (the 7-2 bounty hand). */
+function sevenDeuce(cards: string[]): boolean {
+    return cards.length === 2 && cards.map((c) => c[0]).sort().join("") === "27";
 }
 
 function legalActions(v: HeroView, big_blind: number): string[] {
