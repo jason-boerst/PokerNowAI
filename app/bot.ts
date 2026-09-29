@@ -8,7 +8,8 @@ import { HandRecorder } from './services/hand-recorder.ts';
 import { formatSpot } from './engine/spot-format.ts';
 import { equity } from './engine/equity.ts';
 import { requiredEquity } from './engine/odds.ts';
-import { ObservedStats, opponentModels } from './engine/opponent-range.ts';
+import { ObservedStats, opponentModels, TABLE_RULES } from './engine/opponent-range.ts';
+import { bountyFromHands, describeRules, GameRules, mergeRules } from './engine/game-rules.ts';
 import { preflopAdvice } from './engine/preflop.ts';
 import { describeProfile, isHoldem, PlayerRef } from './engine/player-profile.ts';
 import { decidePostflop, Decision, opponentTendencies } from './helpers/decision-maker.ts';
@@ -38,8 +39,12 @@ export interface BotOptions {
     preflop_engine: boolean,
     /** Post-flop: give up on the AI after this long and use the engine's pick. */
     llm_timeout_ms: number,
-    /** Post-flop: ask the AI even when the engine's best option is clearly ahead. */
+    /** Post-flop: ask the AI even when the engine's best option is clearly ahead (legacy; see ai_mode). */
     always_ask_llm: boolean,
+    /** "close_spots" (default), "off" or "always". */
+    ai_mode?: string,
+    /** The game's action clock in seconds when the log doesn't say (the AI must answer well inside it). */
+    decision_seconds: number,
     /** Opponent profiles from recorded hand histories. */
     profiles?: ProfileService,
     /** Stop after this long with no hand activity (turns, hands finishing). */
@@ -69,6 +74,12 @@ export class Bot {
     /** True when the blinds were typed in because the page text could not be parsed. */
     private manual_blinds: boolean = false;
     private hand_history: AIMessage[];
+    /** House rules read from the game log and stored hands (clock, 7-2 bounty, antes...). */
+    private rules: GameRules = {};
+    private rules_described = "";
+    /** When the current turn started (the AI's time budget counts from here). */
+    private turn_started_at = 0;
+    private hands_since_rules_check = 0;
 
     private table!: Table;
     private game!: Game;
@@ -87,7 +98,7 @@ export class Bot {
     {
         this.recorder = recorder;
         this.options = {
-            preflop_engine: true, llm_timeout_ms: 20000, always_ask_llm: false,
+            preflop_engine: true, llm_timeout_ms: 6000, always_ask_llm: false, decision_seconds: 15,
             stop_after_idle_ms: 10 * 60_000, stop_after_unseated_ms: 60_000, stop_after_short_table_ms: 2 * 60_000,
             ...options
         };
@@ -107,6 +118,8 @@ export class Bot {
 
     public async run() {
         await this.openGame();
+        // in the background: the log can be long and the clock setting is near its start
+        void this.loadGameRules();
         if (this.assistant_mode) {
             await this.waitForUserToSit();
         } else {
@@ -316,6 +329,7 @@ export class Bot {
             const data = await this.waitForTurnOrWinner();
             {
                 if (data.includes("action-signal")) {
+                    this.turn_started_at = Date.now();
                     console.log("Performing bot's turn.");
                     if (this.assistant_mode) {
                         await this.puppeteer_service.showOverlayStatus("Your turn · analyzing…", "…").catch(() => undefined);
@@ -380,7 +394,7 @@ export class Bot {
                                 query = constructQuery(this.game);
                                 bot_action = await this.queryBotAction(query, this.query_retries);
                             }
-                            await this.recordDecision(hand_state, hand, query, bot_action, Date.now() - started, source, response);
+                            const latency_ms = Date.now() - started;
                             this.table.resetPlayerActions();
                             if (this.assistant_mode) {
                                 // the engine only models Hold'em; other games (e.g. Omaha in a mixed game) get the AI alone
@@ -407,6 +421,7 @@ export class Bot {
                             } else {
                                 await this.performBotAction(bot_action);
                             }
+                            await this.recordDecision(hand_state, hand, query, bot_action, latency_ms, source, response);
                         } catch (err) {
                             console.log("Failed to query and perform bot action:", err instanceof Error ? err.message : err);
                         }
@@ -549,14 +564,19 @@ export class Bot {
     private async postflopDecision(state: HandState, view: HeroView): Promise<Decision> {
         const players = this.playerLookup();
         const opponents = opponentTendencies(state, (player) => this.statsLookup(player), players);
-        const inputs = { state, view, players, stats: (player: PlayerRef) => this.statsLookup(player) };
+        const notes = this.tableNotes();
+        const inputs = { state, view, players, stats: (player: PlayerRef) => this.statsLookup(player), notes };
         const d = await decidePostflop(state, view, this.ai_service, opponents, players, {
             llm_timeout_ms: this.options.llm_timeout_ms,
             always_ask_llm: this.options.always_ask_llm,
+            ai_mode: this.options.ai_mode,
+            decision_seconds: this.rules.decision_seconds ?? this.options.decision_seconds,
+            turn_started_at: this.turn_started_at || undefined,
+            notes,
             // close spot: show the engine's pick right away while the AI thinks
-            on_asking_llm: async (analysis) => {
+            on_asking_llm: async (analysis, budget_ms) => {
                 if (!this.assistant_mode) return;
-                const provisional = postflopOverlay(inputs, analysis, null, this.ai_service.getModelName(), this.options.llm_timeout_ms);
+                const provisional = postflopOverlay(inputs, analysis, null, this.ai_service.getModelName(), budget_ms);
                 if (this.state_warning) provisional.warnings.unshift(this.state_warning);
                 await this.puppeteer_service.injectSuggestion(provisional).catch(() => undefined);
             }
@@ -566,11 +586,15 @@ export class Bot {
         console.log(`[Engine] equity ${Math.round(a.equity * 100)}% (${Math.round(a.equity_when_called * 100)}% when called)` +
             `${a.required_equity > 0 ? `, need ${Math.round(a.required_equity * 100)}%` : ""} | ` +
             a.candidates.map((c) => `${c.label} ${(c.ev / bb >= 0 ? "+" : "")}${(c.ev / bb).toFixed(1)}`).join(", "));
-        const who = d.source === "llm" ? `AI (${this.ai_service.getModelName()}, confidence ${Math.round(d.confidence * 100)}%)` : d.source === "engine" ? "engine (clear spot)" : "engine (AI fallback)";
+        const who = d.source === "llm" ? `AI (${this.ai_service.getModelName()}, confidence ${Math.round(d.confidence * 100)}%)`
+            : d.source === "engine-fallback" ? "engine (AI fallback)"
+            : d.ai_skipped === "off" ? "engine (close spot, AI off)"
+            : d.ai_skipped === "time" ? "engine (close spot, no time for the AI)"
+            : "engine (clear spot)";
         const size = d.size_bb > 0 ? ` ${d.size_bb} BB` : "";
         console.log(`[Decision] ${who}: ${d.action.toUpperCase()}${size}. ${d.reason}`);
 
-        this.overlay_content = postflopOverlay(inputs, a, d, this.ai_service.getModelName(), this.options.llm_timeout_ms);
+        this.overlay_content = postflopOverlay(inputs, a, d, this.ai_service.getModelName(), d.ai_budget_ms);
         return d;
     }
 
@@ -596,12 +620,12 @@ export class Bot {
         if (!this.options.preflop_engine || !state || state.street !== "preflop") return null;
         const view = heroView(state);
         if (!view) return null;
-        const advice = preflopAdvice(state, view, (player) => this.statsLookup(player));
+        const advice = preflopAdvice(state, view, (player) => this.statsLookup(player), undefined, { seven_deuce_bounty: this.rules.seven_deuce_bounty ?? 0 });
         if (!advice) return null;
         const size = advice.action === "raise" || advice.action === "all-in" ? ` to ${advice.size_bb} BB` : "";
         console.log(`[Preflop] ${advice.action.toUpperCase()}${size} (${advice.scenario}): ${advice.reason}`);
         this.overlay_content = preflopOverlay(
-            { state, view, players: this.playerLookup(), stats: (player) => this.statsLookup(player) },
+            { state, view, players: this.playerLookup(), stats: (player) => this.statsLookup(player), notes: this.tableNotes() },
             advice, this.last_equity
         );
         return { action_str: advice.action, bet_size_in_BBs: advice.size_bb, reason: advice.reason };
@@ -627,13 +651,51 @@ export class Bot {
         });
     }
 
+    /** Reads the game's rules from bounties in stored hands of this game and the game log. Never throws. */
+    private async loadGameRules(): Promise<void> {
+        try {
+            const stored = this.recorder ? (await this.recorder.hands()).filter((h) => h.game_id === this.game_id).map((h) => JSON.parse(h.messages_json) as string[]) : [];
+            const from_hands: GameRules = { seven_deuce_bounty: bountyFromHands(stored) };
+            this.applyRules(mergeRules(from_hands, await this.log_service.fetchGameRules(10)));
+            // the clock is only logged when the game is set up, which can be far back
+            if (this.rules.decision_seconds === undefined) {
+                this.applyRules(mergeRules(this.rules, await this.log_service.fetchGameRules(300)));
+            }
+        } catch (err) {
+            console.log("[Rules] Could not read the game's rules:", err instanceof Error ? err.message : err);
+        }
+    }
+
+    private applyRules(rules: GameRules): void {
+        this.rules = rules;
+        // opponents' ranges include 7-2 bluffs when the bounty is on
+        if (rules.seven_deuce_bounty !== undefined) TABLE_RULES.seven_deuce_bounty = rules.seven_deuce_bounty > 0;
+        const text = describeRules(rules, this.game?.getBigBlind() ?? 0).join(", ");
+        if (text && text !== this.rules_described) {
+            this.rules_described = text;
+            console.log(`[Rules] ${text}${rules.decision_seconds === undefined ? ` (clock not found in the log; assuming ${this.options.decision_seconds} s)` : ""}`);
+        }
+    }
+
+    /** Short table notes for the panel and the AI: only rules that change decisions. */
+    private tableNotes(): string[] {
+        return describeRules(this.rules, this.game.getBigBlind()).filter((n) => /^(7-2|Antes)/.test(n));
+    }
+
     private async recordCompletedHand(): Promise<void> {
         if (!this.recorder) return;
         try {
             const messages = await this.log_service.fetchLastCompletedHand();
             if (messages) {
                 await this.recorder.recordHand(this.game_id, messages, this.bot_name, this.game.getBigBlind());
-                this.options.profiles?.addHand(messages, this.game.getBigBlind(), this.game_id);
+                this.options.profiles?.addHand(messages, this.game.getBigBlind(), this.game_id, this.bot_name);
+                const bounty = bountyFromHands([messages]);
+                if (bounty) this.applyRules(mergeRules(this.rules, { seven_deuce_bounty: bounty }));
+                // rules can change mid-game; re-read the newest log pages now and then, in the background
+                if (++this.hands_since_rules_check >= 25) {
+                    this.hands_since_rules_check = 0;
+                    void this.log_service.fetchGameRules(3).then((r) => this.applyRules(mergeRules(this.rules, r))).catch(() => undefined);
+                }
             }
         } catch (err) {
             console.log("Could not record the finished hand:", err instanceof Error ? err.message : err);

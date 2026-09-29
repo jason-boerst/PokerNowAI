@@ -56,7 +56,7 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
     lines.push("Engine estimates (Monte Carlo against ranges estimated from each opponent's stats and actions; approximate):");
     lines.push(`  Your equity: ${pct(a.equity)}. Equity when a bet/raise gets called: ${pct(a.equity_when_called)}.${v.to_call > 0 ? ` Equity needed to call: ${pct(a.required_equity)}.` : ""}`);
     lines.push(`  You are ${a.in_position ? "in position" : "out of position"}.`);
-    lines.push("  Rough EV of each option (one-street model, ignores later streets):");
+    lines.push("  Rough EV of each option (models the next bet or raise on this street, not later streets):");
     for (const c of a.candidates) {
         const fold = a.fold_probability.get(c.to);
         lines.push(`    ${c.label}: ${sign(b(c.ev))} BB${fold !== undefined ? ` (everyone folds ~${pct(fold)})` : ""}`);

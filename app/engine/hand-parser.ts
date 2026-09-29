@@ -412,11 +412,13 @@ export function heroView(s: HandState): HeroView | null {
 }
 
 export function countLimpers(s: HandState): number {
+    // a limp calls the big blind, or the straddle when one was posted
+    const blind_level = Math.max(s.big_blind, ...s.actions.filter((a) => a.street === "preflop" && a.type === "post_straddle").map((a) => a.street_total));
     let limpers = 0;
     for (const a of s.actions) {
         if (a.street !== "preflop") break;
         if (a.type === "raise" || a.type === "bet") break;
-        if (a.type === "call" && a.bet_to_call_before <= s.big_blind) limpers++;
+        if (a.type === "call" && a.bet_to_call_before <= blind_level + 1e-9) limpers++;
     }
     return limpers;
 }

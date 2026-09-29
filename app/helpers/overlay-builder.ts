@@ -196,7 +196,7 @@ export function postflopOverlay(
             spotSection(s, v),
             handSection(s),
             { title: "Odds", lines: odds },
-            { title: "Options (rough EV, this street only)", lines: options },
+            { title: "Options (rough EV)", lines: options },
             opponentsSection(inputs, warnings)
         ],
         warnings,

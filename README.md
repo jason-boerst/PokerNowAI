@@ -139,11 +139,27 @@ Manual steps: `npm run chrome` in one terminal, `npm run start:bot` in another. 
 
 ## How decisions are made
 
-- **Preflop:** a rule-based engine answers instantly, with no AI call. It covers unopened pots, limpers, a raise (with or without callers), 3-bets and 4-bets, and heads-up play (where the small blind is the button and plays most hands). It defends wider against raises from late position (CO, BU, SB) than from early position, and adjusts for opponents' stats: bigger raises when the players left to act or the limpers call too much, wider value 3-bets against loose raisers, tighter play against nits, and folding small pairs when stacks are too short to set-mine. The ranges and sizes are in `app/configs/preflop-ranges.json`. They are hand-built approximations for loose full-ring games, not solver output, and you can edit them. Set `"preflop_engine": false` in `app/configs/bot-config.json` to use the AI preflop instead.
-- **Flop, turn and river:** the engine estimates your equity against each opponent's likely range and the rough EV of each option (fold, check, call, bets of 1/3, 2/3 and full pot, raises including pot-sized), using each opponent's fold and aggression tendencies. The EV model looks at one street at a time and ignores later betting, so treat it as a guide.
-  - **Clear spots** (the best option is ahead by at least 1 BB or 15% of the pot): the engine answers instantly without an AI call.
-  - **Close spots:** the AI gets the full hand history, the engine's numbers, opponent profiles and recent showdowns, and the legal actions, and must reply in JSON. Its answer is checked for legality. If it's illegal, unreadable, or slower than `llm_timeout_ms` (default 20 s, in `bot-config.json`), the engine's best option is used instead.
-  - Set `"always_ask_llm": true` to send every post-flop spot to the AI.
+- **Game rules:** at the start the bot reads the game's rules from the PokerNow log and your stored hands: the action clock, the 7-2 bounty, antes and straddles. It prints them as a `[Rules]` line and shows the ones that change decisions (bounty, antes) in a "Table" line on the panel. If the clock isn't in the log it assumes `decision_seconds` (15 s).
+- **Preflop:** a rule-based engine answers instantly, with no AI call. It covers unopened pots, limpers, raises, 3-bets, 4-bets and more, heads-up play, and 10-handed tables. It adjusts for:
+  - **Straddles:** sizes scale from the straddle, and the straddler acts last.
+  - **Antes:** with enough dead money it opens and defends wider.
+  - **Stack depth:** tiers at 150 and 300 BB. Deeper, it calls more with pairs and suited hands, drops weak offsuit hands, and stops stacking off KK against 4-bets.
+  - **The 3-bettor's measured 3-bet %:** tight, normal or loose ranges for 4-betting and calling.
+  - **The 7-2 bounty:** raises 7-2 when the bounty makes it worth it.
+  - **Opponents' stats:** bigger raises against callers, tighter against nits.
+
+  The ranges and sizes are in `app/configs/preflop-ranges.json` (hand-built approximations, not solver output; every section explains its assumptions and you can edit it). Set `"preflop_engine": false` in `app/configs/bot-config.json` to use the AI preflop instead.
+- **Opponent ranges:** each opponent's likely hands come from their VPIP, PFR and 3-bet %, their seat, and what they did this hand (limp, raise, limp-raise, call, 3-bet...). Calling ranges favor playable hands (pairs, suited connectors) over offsuit junk. In bounty games raising ranges include some 7-2 bluffs.
+- **Flop, turn and river:** the engine estimates the rough EV of each option (fold, check, call, bets of 1/3, 2/3 and full pot, a 1.5x-pot overbet on the turn or river with strong hands, and raises). It looks one reply ahead:
+  - **When you check:** opponents behind may bet, at their measured "bets when checked to" rate.
+  - **When you bet:** each opponent folds at their measured fold rate for this street, calls with the strongest part of their range, or raises at their measured raise rate.
+  - **Reading bets:** what a bet or raise means on each street is learned from the showdowns in your stored hands.
+
+  It still ignores later streets, so treat the numbers as a guide.
+  - **Clear spots** (the best option is ahead by at least 1 BB or 15% of the pot, or the only question is bet size): the engine answers instantly.
+  - **Close spots:** the AI gets the full hand history, the engine's numbers, opponent profiles, your pool's averages and the table notes, and must reply in JSON within its time budget. Its answer is checked for legality; if it's illegal, unreadable or late, the engine's best option is used.
+  - **AI time budget:** `llm_timeout_ms` (default 6 s), and never more than the game's clock minus 7 s for you to read and click. With a 15 s clock the AI gets 6 s; with 10 s it gets 3 s; under that it is skipped. The panel shows the engine's pick while the AI thinks.
+  - **`ai_mode`** in `bot-config.json`: `"close_spots"` (default), `"off"` (engine only, instant), or `"always"`.
   - The terminal prints `[Engine]` (equity and EV per option) and `[Decision]` (who decided and why).
 
 ## Measuring how well it plays
@@ -152,7 +168,7 @@ Every decision and every finished hand is recorded in `app/pokernow-gpt.db` whil
 
 | Command | What it does |
 |---|---|
-| `npm run stats` | Your results in bb/100 with a 95% confidence interval, overall and per model. Poker is noisy: expect "can't tell yet" for a long time (tens of thousands of hands). |
+| `npm run stats` | Your results in bb/100 with a 95% confidence interval, overall and per model, plus a Suggestions table: how often you followed each source's advice and your results when you did vs didn't. Poker is noisy: expect "can't tell yet" for a long time (tens of thousands of hands). |
 | `npm run label` | Shows recorded spots (cards, full action history, pot, odds) and lets you enter the correct play. |
 | `npm run eval -- --models a/x,b/y` | Replays recorded spots through each model: % legal actions, agreement with your labels, latency. Costs API credits; asks first. |
 | `npm run players` | Opponent profiles from all recorded and imported hands: type (calling station, nit, maniac, loose-passive, TAG, LAG), key stats with sample sizes, and the main exploit. `npm run players -- <name or id>` adds game-by-game history and recent showdowns. See [Player database](#player-database-import-past-games). |
@@ -184,13 +200,16 @@ Importing the same file twice is safe: hands already stored are skipped. What's 
 
 ### Dashboard
 
-`npm run dashboard` serves a page on http://localhost:4545 (only reachable from your own computer; set `DASHBOARD_PORT` to change the port). It shows:
+`npm start` opens it for you in the background and prints `Player stats: http://localhost:4545`: open that link in your browser. Without the bot, run `npm run dashboard`. It's only reachable from your own computer; set `DASHBOARD_PORT` in `.env` to change the port, or `DASHBOARD_PORT=0` to turn it off. It shows:
 
-- **Players:** every opponent with hands, games, VPIP, PFR, 3-bet, limp, steal, fold to steal, fold to 3-bet, c-bet, fold to c-bet, aggression, WTSD (went to showdown), W$SD (won at showdown), BB/100 and net result. Search, set a minimum number of hands, and click a column to sort. Each percentage shows its sample size.
+- **Now:** the game you're playing, refreshed every 15 seconds: how each player is playing today next to their usual numbers, with clear changes flagged.
+- **Your games on average:** the typical opponent in your games (these averages are also what the bot assumes for players with little history).
+- **Results:** for each suggestion source (preflop chart, post-flop engine, AI), how often you followed it and your results when you did vs when you didn't, luck-adjusted, with 95% ranges. It needs many hands before it says anything firm.
+
+- **Players:** every opponent with hands, games, VPIP, PFR, 3-bet, limp, fold to 3-bet, c-bet, fold to c-bet, aggression, WTSD (went to showdown), W$SD (won at showdown), BB/100 and net result; "More stats" adds steals, folds to a bet on each street, raises vs a bet and bets when checked to. Search, set a minimum number of hands, and click a column to sort. Each percentage shows its sample size.
 - **A player's page:** all their stats with raw counts, VPIP by position, average bet size, how their most recent game differed from their usual play, a game-by-game table, the cards they've shown with the line they played, and their ids.
 - **Games:** every game, and for one game, how each player played in it next to their usual numbers from every other game, with clear changes flagged. Tick "Refresh every 15 seconds" on the game you're playing to watch it live while the bot records hands.
 
-The bot and the dashboard can run at the same time.
 
 ### How the history is used at the table
 

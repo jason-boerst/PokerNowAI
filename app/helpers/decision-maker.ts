@@ -87,7 +87,16 @@ export function opponentTendencies(s: HandState, stats: (player: PlayerRef) => O
         const aggression = p?.aggression.value ?? PRIORS.aggression.mean;
         return {
             model,
+            seat_id: seat.id,
             fold_to_bet: p?.fold_to_cbet.value ?? PRIORS.fold_to_cbet.mean,
+            // measured per street (heads-up responses), falling back to your pool's averages
+            fold_by_street: {
+                flop: p?.fold_to_bet_flop.value ?? PRIORS.fold_to_bet_flop.mean,
+                turn: p?.fold_to_bet_turn.value ?? PRIORS.fold_to_bet_turn.mean,
+                river: p?.fold_to_bet_river.value ?? PRIORS.fold_to_bet_river.mean
+            },
+            raise_vs_bet: p?.raise_vs_bet.value ?? PRIORS.raise_vs_bet.mean,
+            bet_when_checked_to: p?.bet_when_checked_to.value ?? PRIORS.bet_when_checked_to.mean,
             // aggressive players bluff more, so they also give up more often when raised (assumption)
             fold_to_raise: Math.max(0.1, Math.min(0.6, 0.25 + (aggression - PRIORS.aggression.mean)))
         };

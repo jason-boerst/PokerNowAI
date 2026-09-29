@@ -29,7 +29,7 @@ describe("overlay content", () => {
         const o = postflopOverlay({ state: s, view: v, players: noProfile, stats: noStats }, a,
             { action: "call", size_bb: 0, reason: "Nut flush draw with good odds.", source: "llm", confidence: 0.6 }, "test/model", 20000);
         const titles = o.sections.map((x) => x.title);
-        expect(titles).to.deep.equal(["Spot", "Your hand", "Odds", "Options (rough EV, this street only)", "Opponents in the hand (1)"]);
+        expect(titles).to.deep.equal(["Spot", "Your hand", "Odds", "Options (rough EV)", "Opponents in the hand (1)"]);
         expect(o.context).to.equal("Hand #12 · Flop · you: BB");
         expect(o.sections[0].lines[0]).to.include("To call 1.5 BB");
         expect(o.sections[1].lines.join(" ")).to.include("Nut flush draw: 9 outs");

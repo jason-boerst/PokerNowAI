@@ -111,6 +111,7 @@ export class ProfileService {
         else calibratePriors(pool);
         POPULATION_TENDENCIES.vpip = PRIORS.vpip.mean * 100;
         POPULATION_TENDENCIES.pfr = PRIORS.pfr.mean * 100;
+        POPULATION_TENDENCIES.three_bet = PRIORS.three_bet.mean * 100;
         this.pool_hands = pool.vpip.n;
     }
 

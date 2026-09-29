@@ -15,6 +15,7 @@ import { ProfileService } from './services/profile-service.ts';
 import { importFiles } from './import/importer.ts';
 import { existsSync } from 'node:fs';
 import { PRIORS } from './engine/player-profile.ts';
+import { setActionWeights } from './engine/equity.ts';
 
 const LOGS_FOLDER = 'logs';
 
@@ -122,16 +123,22 @@ const bot_manager = async function() {
         if (added > 0) console.log(`Imported ${added} new hand(s) from ${summaries.length} log file(s) in ${LOGS_FOLDER}/.`);
     }
     const loaded = await profiles.load(game_id);
-    if (loaded > 0) console.log(`Loaded opponent history from ${loaded} stored hand(s); hands from this game count as today's session.`);
-    if (profiles.pool_hands > 0) {
+    if (loaded > 0) {
+        // read bets and raises the way players in your games actually showed them down
+        setActionWeights(profiles.actionWeights().weights);
         const pct = (x: number) => `${Math.round(x * 100)}%`;
-        console.log(`Players with little history are assumed to play like your games' average (from ${profiles.pool_hands} opponent hands): ` +
-            `VPIP ${pct(PRIORS.vpip.mean)}, PFR ${pct(PRIORS.pfr.mean)}, 3-bet ${pct(PRIORS.three_bet.mean)}, fold to c-bet ${pct(PRIORS.fold_to_cbet.mean)}, aggression ${pct(PRIORS.aggression.mean)}.`);
+        console.log(`Loaded ${loaded} stored hand(s); hands from this game count as today's session.`);
+        if (profiles.pool_hands > 0) {
+            console.log(`Typical opponent in your games (used for players with little history): VPIP ${pct(PRIORS.vpip.mean)}, PFR ${pct(PRIORS.pfr.mean)}, ` +
+                `3-bet ${pct(PRIORS.three_bet.mean)}, folds to a bet on the flop/turn/river ${pct(PRIORS.fold_to_bet_flop.mean)}/${pct(PRIORS.fold_to_bet_turn.mean)}/${pct(PRIORS.fold_to_bet_river.mean)}.`);
+        }
     }
     const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder, {
         preflop_engine: bot_config.preflop_engine ?? true,
-        llm_timeout_ms: bot_config.llm_timeout_ms ?? 20000,
-        always_ask_llm: bot_config.always_ask_llm ?? false,
+        llm_timeout_ms: bot_config.llm_timeout_ms ?? 6000,
+        always_ask_llm: (bot_config as { always_ask_llm?: boolean }).always_ask_llm ?? false,
+        ai_mode: bot_config.ai_mode,
+        decision_seconds: bot_config.decision_seconds ?? 15,
         stop_after_idle_ms: (bot_config.stop_after_idle_minutes ?? 10) * 60_000,
         stop_after_unseated_ms: (bot_config.stop_after_unseated_seconds ?? 60) * 1000,
         stop_after_short_table_ms: (bot_config.stop_after_short_table_minutes ?? 2) * 60_000,
