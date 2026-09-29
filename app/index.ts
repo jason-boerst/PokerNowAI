@@ -3,6 +3,7 @@ import express from 'express';
 import bot_manager from './bot-manager.ts'
 import player_router from './routes/player-routes.ts';
 import db_service from './services/db-service.ts';
+import { BotStopped } from './helpers/stop.ts';
 
 const app = express();
 /* const port = 8080;
@@ -28,7 +29,13 @@ async function startServer() {
 
 startServer().then(
     async() => await bot_manager()
-).catch((err) => {
+).then(() => {
+    process.exit(0);
+}).catch((err) => {
+    if (err instanceof BotStopped) {
+        console.log(`\nStopped: ${err.message}`);
+        process.exit(0);
+    }
     console.error("\nThe bot stopped:", err instanceof Error ? err.message : err);
     process.exit(1);
 })

@@ -27,7 +27,13 @@ export interface BotConfig {
     /** Post-flop: give up on the AI after this many milliseconds and use the engine's pick. Default 20000. */
     llm_timeout_ms?: number,
     /** Post-flop: ask the AI even in clear spots. Default false. */
-    always_ask_llm?: boolean
+    always_ask_llm?: boolean,
+    /** Stop when nothing has happened at the table for this long. Default 10. */
+    stop_after_idle_minutes?: number,
+    /** Stop after you've been unseated this long. Default 60. */
+    stop_after_unseated_seconds?: number,
+    /** Stop after fewer than 2 players have been seated this long. Default 2. */
+    stop_after_short_table_minutes?: number
 }
 
 export interface WebDriverConfig {

@@ -92,10 +92,19 @@ const bot_manager = async function() {
         preflop_engine: bot_config.preflop_engine ?? true,
         llm_timeout_ms: bot_config.llm_timeout_ms ?? 20000,
         always_ask_llm: bot_config.always_ask_llm ?? false,
+        stop_after_idle_ms: (bot_config.stop_after_idle_minutes ?? 10) * 60_000,
+        stop_after_unseated_ms: (bot_config.stop_after_unseated_seconds ?? 60) * 1000,
+        stop_after_short_table_ms: (bot_config.stop_after_short_table_minutes ?? 2) * 60_000,
         profiles
     });
     startLiveCommands(ai_service, ai_config);
-    await bot.run();
+    try {
+        await bot.run();
+    } finally {
+        // leave the user's Chrome open (only disconnect) and close the database
+        await puppeteer_service.closeBrowser().catch(() => undefined);
+        await db_service.close().catch(() => undefined);
+    }
 }
 
 export default bot_manager;

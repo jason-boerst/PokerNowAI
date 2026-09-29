@@ -111,14 +111,19 @@ This opens a dedicated Chrome window (with its own profile in `~/.pokernow-gpt/c
 1. Pick a model from the menu (or press Enter to reuse your last one).
 2. The terminal asks for the game. Paste the ID (`pgl-3YEOMYb8pdkfOtoGwyHPQ`) or the full URL. You can also pass it directly: `npm start -- https://www.pokernow.club/games/pgl-...`
 3. In the Chrome window, open the game, click an empty seat, enter a name and stack, and wait for the host to approve.
-4. Once seated, the bot monitors the table. On your turn a suggestion appears in the top-right corner, showing:
-   - the action and size ("RAISE TO 6 BB", with the chip amount)
-   - who decided ("Preflop chart", "Engine · clear spot", "AI (model) · 70% confident", or "Engine (AI fallback)")
-   - your equity against the equity needed to call
-   - the next-best option, or the engine's pick if the AI disagreed
-   - the key opponent's type and sample size
+4. Once seated, the bot monitors the table. On your turn a panel appears in the top-right corner:
+   - **Header:** who decided ("Preflop chart", "Engine · clear spot", "AI (model) · 70% confident", or "Engine (AI fallback)"), plus the hand number, street and your seat, so an old suggestion is obvious. While the AI is thinking, the border is amber and you already see the engine's pick; it turns green when final.
+   - **Action:** what to do and how much, in big blinds and chips.
+   - **Warnings:** for example, opponents with too few hands for reliable stats, the AI disagreeing with the engine, or the game log lagging behind the table.
+   - **Spot:** pot, amount to call and pot odds, your stack, effective stack, SPR, and legal raise sizes.
+   - **Your hand:** what you have ("Top pair, Ace kicker"), your draws, outs to a straight or flush, and the chance of hitting them.
+   - **Odds:** your equity against each opponent's likely hands (and if a bet gets called) versus the equity you need, and whether you're in position.
+   - **Options:** every option with its rough EV, with ▶ marking the suggestion.
+   - **Opponents:** everyone still in the hand, with stack, type, sample size, estimated range, the stats that matter for this decision (how often they fold when you could bet; how aggressive they are when you're facing a bet), and their last showdown.
 
-   Hover over it for the reasoning.
+   Click "Details" to collapse or expand the sections; your choice is remembered. Hover over the panel for the reasoning.
+
+**Stopping:** the bot stops by itself, printing why, when you close the game tab or Chrome, when the tab leaves the game, when you've been unseated for 60 seconds, when fewer than 2 players have been at the table for 2 minutes, or when nothing has happened for 10 minutes. The limits are in `app/configs/bot-config.json` (`stop_after_unseated_seconds`, `stop_after_short_table_minutes`, `stop_after_idle_minutes`). Ctrl+C also stops it.
 
 **Switching models mid-game:** while the bot runs, type `m` in its terminal and press Enter. The model menu opens (bot messages are held back until you finish), and the model you pick is used from the next suggestion; you stay seated. `m provider/model-name` switches directly, and `q` in the menu cancels. The choice is also saved as your default for next time.
 

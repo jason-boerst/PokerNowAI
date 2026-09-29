@@ -5,19 +5,8 @@ import { computeTimeout, sleep } from '../helpers/bot-helper.ts';
 import type { Response } from '../utils/error-handling-utils.ts';
 
 import { GameInfo, parseGameInfo } from '../utils/game-info-utils.ts';
+import type { OverlayContent } from '../helpers/overlay-builder.ts';
 
-export interface SuggestionView {
-    action: string,
-    /** Total bet or raise-to size in big blinds (0 for other actions). */
-    size_bb: number,
-    big_blind: number,
-    /** Who decided, e.g. "Engine · clear spot" or "AI (model) · 70% confident". */
-    header: string,
-    /** Short lines of key numbers shown under the action. */
-    details?: string[],
-    /** Shown on hover. */
-    reason: string
-}
 
 export class PuppeteerService {
     private default_timeout: number;
@@ -27,6 +16,8 @@ export class PuppeteerService {
 
     private browser!: Browser;
     private page!: Page;
+    /** Why the game can no longer be followed (tab closed, browser gone, navigated away), or null. */
+    private stop_reason: string | null = null;
 
     constructor(default_timeout: number, headless_flag: boolean, use_existing_browser: boolean = false, debugging_port: number = 9222) {
         this.default_timeout = default_timeout;
@@ -41,6 +32,9 @@ export class PuppeteerService {
                 browserURL: `http://localhost:${this.debugging_port}`,
                 defaultViewport: null,
             });
+            this.browser.on("disconnected", () => {
+                this.stop_reason ??= "Chrome was closed or the connection to it was lost.";
+            });
             // Use the first available page as a placeholder; navigateToGame will find the right tab.
             const pages = await this.browser.pages();
             this.page = pages[0] ?? await this.browser.newPage();
@@ -49,7 +43,77 @@ export class PuppeteerService {
                 defaultViewport: null,
                 headless: this.headless_flag
             });
+            this.browser.on("disconnected", () => {
+                this.stop_reason ??= "The browser was closed.";
+            });
             this.page = await this.browser.newPage();
+        }
+    }
+
+    /** Non-null once the game tab or browser is gone, with a reason to show the user. */
+    stopReason(): string | null {
+        if (!this.stop_reason && this.page?.isClosed()) {
+            this.stop_reason = "The game tab was closed.";
+        }
+        return this.stop_reason;
+    }
+
+    /** Watches the game tab: closing it, or navigating away from the game, stops the bot. */
+    private watchGamePage(game_id: string): void {
+        this.page.once("close", () => {
+            this.stop_reason ??= "The game tab was closed.";
+        });
+        this.page.on("framenavigated", (frame) => {
+            if (frame === this.page.mainFrame() && !frame.url().includes(game_id)) {
+                this.stop_reason ??= `The game tab left the game (now at ${frame.url()}).`;
+            }
+        });
+    }
+
+    /** True while the page shows the user waiting for the next hand to start. */
+    async isWaitingForNextHand(): Promise<boolean> {
+        try {
+            return (await this.page.$(".you-player > .waiting, .you-player > .waiting-next-hand")) !== null;
+        } catch {
+            return false;
+        }
+    }
+
+    /** Players seated and not sitting out, without waiting; null if the page can't be read. */
+    async countPlayers(): Promise<number | null> {
+        try {
+            const seated = await this.page.$$eval(".table-player", (divs) => divs.length);
+            const away = await this.page.$$eval(".table-player-status-icon", (divs) => divs.length);
+            return seated - away;
+        } catch {
+            return null;
+        }
+    }
+
+    /** True if the page shows the user seated at the table. */
+    async isSeated(): Promise<boolean> {
+        try {
+            return (await this.page.$(".you-player")) !== null;
+        } catch {
+            return false;
+        }
+    }
+
+    /** Which action buttons are currently shown and enabled (used to cross-check the hand log). */
+    async actionButtons(): Promise<{ check: boolean, call: boolean, fold: boolean, raise: boolean }> {
+        try {
+            // no helper functions inside page code: the page runs without the build tool's helpers
+            const state = await this.page.evaluate(() => {
+                const out: Record<string, boolean> = {};
+                for (const cls of ["check", "call", "fold", "raise"]) {
+                    const b = document.querySelector(`.game-decisions-ctn .action-buttons .${cls}`) as HTMLButtonElement | null;
+                    out[cls] = !!b && !b.disabled;
+                }
+                return out;
+            });
+            return { check: state.check, call: state.call, fold: state.fold, raise: state.raise };
+        } catch {
+            return { check: false, call: false, fold: false, raise: false };
         }
     }
 
@@ -97,6 +161,7 @@ export class PuppeteerService {
                 await this.page.goto(targetUrl);
             }
             await this.page.bringToFront();
+            this.watchGamePage(game_id);
         } else {
             await this.page.goto(targetUrl);
             await this.page.setViewport({width: 1024, height: 768});
@@ -237,17 +302,26 @@ export class PuppeteerService {
      * Call dimSuggestion() after the turn ends.
      */
     /**
-     * Shows the suggestion overlay in the top-right corner of the game page: the action and size,
-     * a line about who decided, key numbers, and the reason on hover. All text is inserted with
-     * textContent (never as HTML), since it includes AI output and player names.
+     * Shows the suggestion overlay in the top-right corner of the game page. All text is inserted
+     * with textContent (never as HTML), since it includes AI output and player names.
      */
-    async injectSuggestion(view: SuggestionView): Promise<void> {
+    async injectSuggestion(content: OverlayContent): Promise<void> {
         const verb: Record<string, string> = { raise: "RAISE TO", bet: "BET", call: "CALL", check: "CHECK", fold: "FOLD", "all-in": "ALL-IN" };
-        const label = verb[view.action.toLowerCase()] ?? view.action.toUpperCase();
-        const size = view.size_bb > 0 ? ` ${view.size_bb} BB` : "";
-        const chips = view.size_bb > 0 && view.big_blind > 0 ? `= ${Math.round(view.size_bb * view.big_blind * 100) / 100} chips` : "";
-        const main = `${label}${size}`;
-        await this.page.evaluate((main: string, chips: string, header: string, details: string[], reason: string) => {
+        const label = verb[content.action.toLowerCase()] ?? content.action.toUpperCase();
+        const main = `${label}${content.size_bb > 0 ? ` ${content.size_bb} BB` : ""}`;
+        const chips = content.size_bb > 0 && content.big_blind > 0 ? `= ${Math.round(content.size_bb * content.big_blind * 100) / 100} chips` : "";
+        await this.renderOverlay(content.status, content.header, content.context, main, chips, content.warnings, content.sections, content.reason);
+    }
+
+    /** Minimal overlay, e.g. "Your turn: analyzing..." before the analysis is ready. */
+    async showOverlayStatus(header: string, main: string): Promise<void> {
+        await this.renderOverlay("thinking", header, "", main, "", [], [], "");
+    }
+
+    private async renderOverlay(status: string, header: string, context: string, main: string, chips: string,
+                                warnings: string[], sections: { title: string, lines: string[] }[], reason: string): Promise<void> {
+        await this.page.evaluate((status: string, header: string, context: string, main: string, chips: string,
+                                  warnings: string[], sections: { title: string, lines: string[] }[], reason: string) => {
             const id = "pokernow-gpt-suggestion";
             if (!document.getElementById("pokernow-gpt-style")) {
                 const style = document.createElement("style");
@@ -258,15 +332,11 @@ export class PuppeteerService {
                         70%  { box-shadow: 0 0 0 10px rgba(74,222,128,0); }
                         100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
                     }
-                    @keyframes pgpt-fadein {
-                        from { opacity: 0; transform: translateY(-6px); }
-                        to   { opacity: 1; transform: translateY(0); }
-                    }
                     #pokernow-gpt-suggestion .pgpt-reason {
                         max-height: 0; overflow: hidden; opacity: 0; margin-top: 0;
                         transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
                     }
-                    #pokernow-gpt-suggestion:hover .pgpt-reason { max-height: 160px; opacity: 1; margin-top: 8px; }
+                    #pokernow-gpt-suggestion:hover .pgpt-reason { max-height: 200px; opacity: 1; margin-top: 8px; }
                 `;
                 document.head.appendChild(style);
             }
@@ -275,26 +345,33 @@ export class PuppeteerService {
                 el = document.createElement("div");
                 el.id = id;
                 el.style.cssText = [
-                    "position: fixed", "top: 16px", "right: 16px", "z-index: 999999", "padding: 12px 16px",
-                    "border-radius: 10px", "font-family: system-ui, sans-serif", "max-width: 300px", "cursor: default",
+                    "position: fixed", "top: 16px", "right: 16px", "z-index: 999999", "padding: 10px 14px",
+                    "border-radius: 10px", "font-family: system-ui, sans-serif", "width: 330px", "cursor: default",
+                    "max-height: calc(100vh - 32px)", "overflow-y: auto", "box-sizing: border-box",
                     "transition: opacity 0.6s ease, background 0.6s ease, border-color 0.6s ease"
                 ].join(";");
                 document.body.appendChild(el);
             }
-            el.style.background = "rgba(10,30,15,0.95)";
-            el.style.border = "2px solid #4ade80";
+            // remember whether the user collapsed the details (kept on the element across redraws,
+            // including the brief "analyzing" state that has no details section)
+            const previous = el.querySelector("details") as HTMLDetailsElement | null;
+            if (previous) el.dataset.detailsOpen = previous.open ? "1" : "0";
+            const details_open = el.dataset.detailsOpen !== "0";
+            const thinking = status === "thinking";
+            const accent = thinking ? "#fbbf24" : "#4ade80";
+            el.style.background = "rgba(10,20,15,0.95)";
+            el.style.border = `2px solid ${accent}`;
             el.style.opacity = "1";
-            el.style.animation = "pgpt-fadein 0.3s ease, pgpt-pulse 1s ease 0.3s 2";
+            el.style.animation = thinking ? "none" : "pgpt-pulse 1s ease 0s 2";
             el.replaceChildren();
 
             // no helper functions in here: the page runs this code without the build tool's helpers
-            const rows: [string, string, string][] = [
-                [`● ${header}${reason ? " · hover for reason" : ""}`, "font-size:11px;font-weight:500;color:#4ade80;letter-spacing:0.05em;margin-bottom:4px;", ""],
-                [main, "font-size:20px;font-weight:700;color:#ffffff;letter-spacing:0.02em;", ""]
-            ];
-            if (chips) rows.push([chips, "font-size:12px;color:#86efac;margin-top:2px;", ""]);
-            for (const line of details) rows.push([line, "font-size:12px;color:#d1fae5;margin-top:3px;", ""]);
-            if (reason) rows.push([reason, "font-size:12px;color:#a3e4b0;line-height:1.5;border-top:1px solid rgba(74,222,128,0.3);padding-top:8px;", "pgpt-reason"]);
+            const rows: [string, string, string][] = [];
+            rows.push([`${thinking ? "◌" : "●"} ${header}${reason ? " · hover for reason" : ""}`, `font-size:11px;font-weight:600;color:${accent};letter-spacing:0.03em;`, "header"]);
+            if (context) rows.push([context, "font-size:11px;color:#9ca3af;margin-bottom:2px;", ""]);
+            rows.push([main, `font-size:20px;font-weight:700;color:${thinking ? "#fde68a" : "#ffffff"};letter-spacing:0.02em;`, ""]);
+            if (chips) rows.push([chips, "font-size:12px;color:#86efac;", ""]);
+            for (const w of warnings) rows.push([`⚠ ${w}`, "font-size:11px;color:#fbbf24;margin-top:3px;", ""]);
             for (const [text, css, cls] of rows) {
                 const d = document.createElement("div");
                 d.textContent = text;
@@ -302,7 +379,36 @@ export class PuppeteerService {
                 if (cls) d.className = cls;
                 el.appendChild(d);
             }
-        }, main, chips, view.header, view.details ?? [], view.reason);
+            // the detail sections sit in a native collapsible element (click "Details" to hide/show)
+            if (sections.length > 0) {
+                const box = document.createElement("details");
+                box.open = details_open;
+                const summary = document.createElement("summary");
+                summary.textContent = "Details";
+                summary.style.cssText = "font-size:10px;color:#9ca3af;cursor:pointer;margin-top:6px;";
+                box.appendChild(summary);
+                for (const section of sections) {
+                    const title = document.createElement("div");
+                    title.textContent = section.title.toUpperCase();
+                    title.style.cssText = "font-size:9.5px;font-weight:600;color:#6ee7b7;letter-spacing:0.08em;margin-top:7px;";
+                    box.appendChild(title);
+                    for (const line of section.lines) {
+                        const d = document.createElement("div");
+                        d.textContent = line;
+                        d.style.cssText = "font-size:11.5px;color:#e5e7eb;line-height:1.35;white-space:pre-wrap;";
+                        box.appendChild(d);
+                    }
+                }
+                el.appendChild(box);
+            }
+            if (reason) {
+                const d = document.createElement("div");
+                d.textContent = reason;
+                d.className = "pgpt-reason";
+                d.style.cssText = "font-size:12px;color:#a3e4b0;line-height:1.5;border-top:1px solid rgba(74,222,128,0.3);padding-top:8px;";
+                el.appendChild(d);
+            }
+        }, status, header, context, main, chips, warnings, sections, reason);
     }
 
     /**
@@ -317,10 +423,10 @@ export class PuppeteerService {
             el.style.opacity = "0.35";
             el.style.border = "2px solid rgba(255,255,255,0.15)";
             el.style.background = "rgba(0,0,0,0.7)";
-            const label = el.querySelector("div:first-child") as HTMLElement | null;
+            const label = el.querySelector(".header") as HTMLElement | null;
             if (label) {
                 label.style.color = "#888";
-                label.textContent = "○ Suggestion (last turn)";
+                label.textContent = "○ Previous turn (not current)";
             }
         });
     }
@@ -378,9 +484,9 @@ export class PuppeteerService {
     }
     
     // wait for bot's turn or winner of hand has been determined
-    async waitForBotTurnOrWinner<D, E=Error>(num_players: number, max_turn_length: number): Response<D, E> {
+    async waitForBotTurnOrWinner<D, E=Error>(num_players: number, max_turn_length: number, timeout?: number): Response<D, E> {
         try {
-            const el = await this.page.waitForSelector([".action-signal", ".table-player.winner"].join(','), {timeout: computeTimeout(num_players, max_turn_length, 4) * 5 + this.default_timeout});
+            const el = await this.page.waitForSelector([".action-signal", ".table-player.winner"].join(','), {timeout: timeout ?? computeTimeout(num_players, max_turn_length, 4) * 5 + this.default_timeout});
             const class_name = await this.page.evaluate(el => el!.className, el);
             return {
                 code: "success",
@@ -395,9 +501,9 @@ export class PuppeteerService {
         }
     }
     
-    async waitForBotTurnEnd<D, E=Error>(): Response<D, E> {
+    async waitForBotTurnEnd<D, E=Error>(timeout?: number): Response<D, E> {
         try {
-            await this.page.waitForSelector(".action-signal", {hidden: true, timeout: this.default_timeout * 15});
+            await this.page.waitForSelector(".action-signal", {hidden: true, timeout: timeout ?? this.default_timeout * 15});
         } catch (err) {
             return {
                 code: "error",
@@ -413,7 +519,7 @@ export class PuppeteerService {
     
     async getPotSize<D, E=Error>(): Response<D, E> {
         try {
-            await this.page.waitForSelector(".table > .table-pot-size > .main-value");
+            await this.page.waitForSelector(".table > .table-pot-size > .main-value", { timeout: 2000 });
             const pot_size_str = await this.page.$eval(".table > .table-pot-size > .main-value", (p: any) => p.textContent);
             return {
                 code: "success",
@@ -456,7 +562,7 @@ export class PuppeteerService {
     
     async getStackSize<D, E=Error>(): Response<D, E> {
         try {
-            await this.page.waitForSelector(".you-player > .table-player-infos-ctn > div > .table-player-stack");
+            await this.page.waitForSelector(".you-player > .table-player-infos-ctn > div > .table-player-stack", { timeout: 2000 });
             const stack_size_str = await this.page.$eval(".you-player > .table-player-infos-ctn > div > .table-player-stack", (p: any) => p.textContent);
             return {
                 code: "success",

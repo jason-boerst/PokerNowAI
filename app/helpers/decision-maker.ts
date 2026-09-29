@@ -20,7 +20,9 @@ export interface DecisionOptions {
     /** Give up on the AI after this long and use the engine's pick. */
     llm_timeout_ms: number,
     /** Ask the AI even in clear spots. */
-    always_ask_llm?: boolean
+    always_ask_llm?: boolean,
+    /** Called with the engine analysis just before waiting on the AI (to show a provisional pick). */
+    on_asking_llm?: (analysis: PostflopAnalysis) => Promise<void> | void
 }
 
 /** Fold tendencies for each opponent still in the hand, from their profile (population priors if unknown). */
@@ -74,6 +76,7 @@ export async function decidePostflop(
     }
 
     const prompt = buildDecisionPrompt(s, v, analysis, profiles);
+    await options.on_asking_llm?.(analysis);
     let response = "";
     try {
         const res = await withTimeout(ai.query(prompt, []), options.llm_timeout_ms);

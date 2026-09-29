@@ -1,6 +1,8 @@
 
 import { sleep } from './helpers/bot-helper.ts';
 import { ask } from './helpers/terminal.ts';
+import { BotStopped } from './helpers/stop.ts';
+import { OverlayContent, postflopOverlay, preflopOverlay } from './helpers/overlay-builder.ts';
 import { HandState, HeroView, heroView, parseCards, parseHand } from './engine/hand-parser.ts';
 import { HandRecorder } from './services/hand-recorder.ts';
 import { formatSpot } from './engine/spot-format.ts';
@@ -39,7 +41,13 @@ export interface BotOptions {
     /** Post-flop: ask the AI even when the engine's best option is clearly ahead. */
     always_ask_llm: boolean,
     /** Opponent profiles from recorded hand histories. */
-    profiles?: ProfileService
+    profiles?: ProfileService,
+    /** Stop after this long with no hand activity (turns, hands finishing). */
+    stop_after_idle_ms: number,
+    /** Stop after being unseated this long. */
+    stop_after_unseated_ms: number,
+    /** Stop after fewer than 2 players have been at the table this long. */
+    stop_after_short_table_ms: number
 }
 
 export class Bot {
@@ -78,7 +86,11 @@ export class Bot {
                 options: Partial<BotOptions> = {}) 
     {
         this.recorder = recorder;
-        this.options = { preflop_engine: true, llm_timeout_ms: 20000, always_ask_llm: false, ...options };
+        this.options = {
+            preflop_engine: true, llm_timeout_ms: 20000, always_ask_llm: false,
+            stop_after_idle_ms: 10 * 60_000, stop_after_unseated_ms: 60_000, stop_after_short_table_ms: 2 * 60_000,
+            ...options
+        };
         this.log_service = log_service;
         this.ai_service = ai_service;
         this.player_service = player_service;
@@ -102,8 +114,10 @@ export class Bot {
         }
         // retrieve initial num players
         await this.updateNumPlayers();
-        //TODO: implement loop until STOP SIGNAL (perhaps from UI?)
+        this.markActivity();
+        // runs until a stop condition throws BotStopped (tab closed, unseated, table broken, idle)
         while (true) {
+            await this.checkStop();
             await this.waitForNextHand();
             await this.updateNumPlayers();
             await this.updateGameInfo();
@@ -188,6 +202,8 @@ export class Bot {
             console.log("\n[Assistant Mode] Table loaded. In the Chrome window: click an empty seat, enter your name and stack size, and submit.");
             console.log("[Assistant Mode] Waiting for the host to approve you. The AI starts once you are seated...\n");
             while ((res = await this.puppeteer_service.waitForTableEntry(30000)).code !== "success") {
+                const closed = this.puppeteer_service.stopReason();
+                if (closed) throw new BotStopped(closed);
                 console.log("[Assistant Mode] Still waiting for you to be seated at the table (take a seat and wait for the host to approve).");
             }
             console.log("[Assistant Mode] You are seated.");
@@ -213,7 +229,74 @@ export class Bot {
 
     private async waitForNextHand() {
         console.log("Waiting for the next hand to start. Suggestions appear in the top-right of the table on your turn.")
-        await this.puppeteer_service.waitForNextHand(this.table.getNumPlayers(), this.game.getMaxTurnLength());
+        while (await this.puppeteer_service.isWaitingForNextHand()) {
+            await this.checkStop();
+            await sleep(2000);
+        }
+        this.markActivity();
+    }
+
+    // ---- stop conditions -------------------------------------------------------------------
+
+    private last_activity = Date.now();
+    private unseated_since: number | null = null;
+    private short_table_since: number | null = null;
+
+    private markActivity(): void {
+        this.last_activity = Date.now();
+    }
+
+    /** Throws BotStopped when the game can't or shouldn't be followed any more. */
+    private async checkStop(): Promise<void> {
+        const closed = this.puppeteer_service.stopReason();
+        if (closed) throw new BotStopped(closed);
+        const now = Date.now();
+
+        if (await this.puppeteer_service.isSeated()) {
+            this.unseated_since = null;
+        } else {
+            this.unseated_since ??= now;
+            if (now - this.unseated_since >= this.options.stop_after_unseated_ms) {
+                throw new BotStopped(`You haven't been seated at the table for ${Math.round((now - this.unseated_since) / 1000)} seconds.`);
+            }
+        }
+        const players = await this.puppeteer_service.countPlayers();
+        if (players !== null && players < 2) {
+            this.short_table_since ??= now;
+            if (now - this.short_table_since >= this.options.stop_after_short_table_ms) {
+                throw new BotStopped(`Fewer than 2 players have been at the table for ${Math.round((now - this.short_table_since) / 60000)} minute(s); the table looks broken.`);
+            }
+        } else {
+            this.short_table_since = null;
+        }
+        if (now - this.last_activity >= this.options.stop_after_idle_ms) {
+            throw new BotStopped(`No hand activity for ${Math.round((now - this.last_activity) / 60000)} minutes; the game looks finished or paused.`);
+        }
+        // re-check the tab after the page reads above (they fail fast once it's gone)
+        const closed_now = this.puppeteer_service.stopReason();
+        if (closed_now) throw new BotStopped(closed_now);
+    }
+
+    /** Waits for hero's turn or the end of the hand, in short chunks so stop conditions are noticed. */
+    private async waitForTurnOrWinner(): Promise<string> {
+        console.log("Checking for bot's turn or winner of hand.");
+        while (true) {
+            await this.checkStop();
+            const res = await this.puppeteer_service.waitForBotTurnOrWinner(this.table.getNumPlayers(), this.game.getMaxTurnLength(), 10_000);
+            if (res.code === "success") {
+                this.markActivity();
+                return res.data as string;
+            }
+        }
+    }
+
+    /** Waits until hero has acted (the turn signal disappears), however long that takes. */
+    private async waitForTurnEnd(): Promise<void> {
+        console.log("Waiting for bot's turn to end");
+        while ((await this.puppeteer_service.waitForBotTurnEnd(10_000)).code !== "success") {
+            await this.checkStop();
+        }
+        this.markActivity();
     }
 
     // pull logs
@@ -230,13 +313,13 @@ export class Bot {
             var res;
             // wait for the bot's turn -> perform actions
             // OR winner is detected -> pull all the logs
-            console.log("Checking for bot's turn or winner of hand.");
-
-            res = await this.puppeteer_service.waitForBotTurnOrWinner(this.table.getNumPlayers(), this.game.getMaxTurnLength());
-            if (res.code == "success") {
-                const data = res.data as string;
+            const data = await this.waitForTurnOrWinner();
+            {
                 if (data.includes("action-signal")) {
                     console.log("Performing bot's turn.");
+                    if (this.assistant_mode) {
+                        await this.puppeteer_service.showOverlayStatus("Your turn · analyzing…", "…").catch(() => undefined);
+                    }
 
                     // fetch logs, hand, pot and stack concurrently to minimise latency
                     const [logsResult, pot_size, hand, stack_size, hand_messages] = await Promise.all([
@@ -259,7 +342,7 @@ export class Bot {
                     ]);
                     processed_logs = logsResult;
                     this.current_hand_messages = hand_messages;
-                    const hand_state = hand_messages.length > 0 ? this.buildHandState(hand_messages, hand) : null;
+                    const hand_state = hand_messages.length > 0 ? await this.buildValidatedState(hand_messages, hand) : null;
 
                     this.table.setPot(convertToBBs(pot_size, this.game.getBigBlind()));
 
@@ -300,15 +383,20 @@ export class Bot {
                             await this.recordDecision(hand_state, hand, query, bot_action, Date.now() - started, source, response);
                             this.table.resetPlayerActions();
                             if (this.assistant_mode) {
-                                const overlay = this.overlay_info ?? { header: `AI (${this.ai_service.getModelName()}) · basic prompt`, details: [] };
-                                this.overlay_info = null;
+                                const overlay: OverlayContent = this.overlay_content ?? {
+                                    status: "final", header: `AI (${this.ai_service.getModelName()}) · basic prompt (full hand state unavailable)`,
+                                    context: "", action: bot_action.action_str, size_bb: bot_action.bet_size_in_BBs,
+                                    big_blind: this.game.getBigBlind(), sections: [],
+                                    warnings: ["The full hand history couldn't be read, so this used the basic prompt without the engine."],
+                                    reason: bot_action.reason ?? ""
+                                };
+                                this.overlay_content = null;
+                                if (this.state_warning) overlay.warnings.unshift(this.state_warning);
                                 await this.puppeteer_service.injectSuggestion({
+                                    ...overlay,
                                     action: bot_action.action_str,
                                     size_bb: bot_action.bet_size_in_BBs,
-                                    big_blind: this.game.getBigBlind(),
-                                    header: overlay.header,
-                                    details: overlay.details,
-                                    reason: bot_action.reason ?? ""
+                                    reason: bot_action.reason ?? overlay.reason
                                 });
                                 console.log("Suggestion shown in top-right. Please act in the browser.");
                             } else {
@@ -319,10 +407,9 @@ export class Bot {
                         }
                     }
 
-                    console.log("Waiting for bot's turn to end");
-                    logResponse(await this.puppeteer_service.waitForBotTurnEnd(), this.debug_mode);
+                    await this.waitForTurnEnd();
                     if (this.assistant_mode) {
-                        await this.puppeteer_service.dimSuggestion();
+                        await this.puppeteer_service.dimSuggestion().catch(() => undefined);
                     }
                 } else if (data.includes("winner")) {
                     console.log("Detected winner in hand.")
@@ -353,11 +440,49 @@ export class Bot {
         console.log("Completed a hand.\n");
     }
 
-    /** Parses the current hand's log into a full state and prints a one-line summary of hero's spot. */
-    private buildHandState(messages: string[], dom_hand: string[]): HandState | null {
+    /** Set when the hand log still disagrees with the table after re-reading; shown in the overlay. */
+    private state_warning: string | null = null;
+
+    private parseState(messages: string[], dom_hand: string[]): HandState {
+        return parseHand(messages, { hero_name: this.bot_name, hero_cards: parseCards(dom_hand.join(" ")), big_blind: this.game.getBigBlind() });
+    }
+
+    /**
+     * The turn signal can appear before the opponent's last bet reaches the game log. Cross-check
+     * the parsed state against the action buttons on the table (a Call button means there's a bet
+     * to call) and re-read the log a few times if they disagree.
+     */
+    private async buildValidatedState(messages: string[], dom_hand: string[]): Promise<HandState | null> {
+        this.state_warning = null;
         try {
-            const bb = this.game.getBigBlind();
-            const state = parseHand(messages, { hero_name: this.bot_name, hero_cards: parseCards(dom_hand.join(" ")), big_blind: bb });
+            let state = this.parseState(messages, dom_hand);
+            for (let attempt = 0; attempt < 4; attempt++) {
+                const view = heroView(state);
+                const buttons = await this.puppeteer_service.actionButtons();
+                const facing_bet_on_table = buttons.call && !buttons.check;
+                const nothing_to_call_on_table = buttons.check && !buttons.call;
+                const mismatch = view !== null && ((facing_bet_on_table && view.to_call <= 0) || (nothing_to_call_on_table && view.to_call > 0));
+                if (!mismatch) break;
+                if (attempt === 3) {
+                    this.state_warning = "The game log may be behind the table: check the pot and amount to call yourself.";
+                    console.log(`[State] ${this.state_warning}`);
+                    break;
+                }
+                await sleep(400);
+                const fresh = await this.log_service.fetchCurrentHand();
+                this.current_hand_messages = fresh;
+                state = this.parseState(fresh, dom_hand);
+            }
+            return this.announceState(state);
+        } catch (err) {
+            console.log("[State] Could not build the hand state:", err instanceof Error ? err.message : err);
+            return null;
+        }
+    }
+
+    /** Prints a one-line summary of hero's spot (plus opponents and preflop equity). */
+    private announceState(state: HandState): HandState | null {
+        try {
             const view = heroView(state);
             if (!view) {
                 console.log(`[State] Could not find "${this.bot_name}" among the players in the hand log.`);
@@ -377,8 +502,8 @@ export class Bot {
     }
 
     private described_hand: number | null = null;
-    /** Header and detail lines for the overlay, set by whichever path made the current decision. */
-    private overlay_info: { header: string, details: string[] } | null = null;
+    /** Overlay content for the current decision, set by whichever path made it. */
+    private overlay_content: OverlayContent | null = null;
     /** Latest preflop equity estimate, for the overlay. */
     private last_equity: { equity: number, need: number } | null = null;
 
@@ -417,9 +542,17 @@ export class Bot {
     private async postflopDecision(state: HandState, view: HeroView): Promise<Decision> {
         const profiles = (name: string) => this.options.profiles?.profile(name);
         const opponents = opponentTendencies(state, (name) => this.statsLookup(name), profiles);
+        const inputs = { state, view, profiles, stats: (name: string) => this.statsLookup(name) };
         const d = await decidePostflop(state, view, this.ai_service, opponents, profiles, {
             llm_timeout_ms: this.options.llm_timeout_ms,
-            always_ask_llm: this.options.always_ask_llm
+            always_ask_llm: this.options.always_ask_llm,
+            // close spot: show the engine's pick right away while the AI thinks
+            on_asking_llm: async (analysis) => {
+                if (!this.assistant_mode) return;
+                const provisional = postflopOverlay(inputs, analysis, null, this.ai_service.getModelName(), this.options.llm_timeout_ms);
+                if (this.state_warning) provisional.warnings.unshift(this.state_warning);
+                await this.puppeteer_service.injectSuggestion(provisional).catch(() => undefined);
+            }
         });
         const a = d.analysis;
         const bb = state.big_blind;
@@ -430,31 +563,8 @@ export class Bot {
         const size = d.size_bb > 0 ? ` ${d.size_bb} BB` : "";
         console.log(`[Decision] ${who}: ${d.action.toUpperCase()}${size}. ${d.reason}`);
 
-        const details = [equityLine(a.equity, a.required_equity)];
-        const fmt = (c: { label: string, ev: number }) => `${c.label} ${(c.ev / bb >= 0 ? "+" : "")}${(c.ev / bb).toFixed(1)} BB`;
-        const top = a.candidates[0];
-        const same_as_top = top && (d.action === top.action || (d.action === "raise" && top.action === "bet") || (d.action === "bet" && top.action === "raise"));
-        if (d.source === "llm" && top && !same_as_top) details.push(`Engine's pick: ${fmt(top)}`);
-        else if (a.candidates[1]) details.push(`Next best: ${fmt(a.candidates[1])}`);
-        const opp = this.keyOpponentLine(state);
-        if (opp) details.push(opp);
-        const header = d.source === "llm" ? `AI (${this.ai_service.getModelName()}) · ${Math.round(d.confidence * 100)}% confident`
-            : d.source === "engine" ? "Engine · clear spot" : "Engine (AI fallback)";
-        this.overlay_info = { header, details };
+        this.overlay_content = postflopOverlay(inputs, a, d, this.ai_service.getModelName(), this.options.llm_timeout_ms);
         return d;
-    }
-
-    /** One line about the opponent who matters most: the last one to bet or raise, else the first one still in. */
-    private keyOpponentLine(state: HandState): string | null {
-        const active = state.seats.filter((p) => p.id !== state.hero_id && !p.folded);
-        if (active.length === 0) return null;
-        const aggressor_id = [...state.actions].reverse().find((a) => a.player_id !== state.hero_id && (a.type === "bet" || a.type === "raise"))?.player_id;
-        const seat = active.find((p) => p.id === aggressor_id) ?? active[0];
-        const profile = this.options.profiles?.profile(seat.name);
-        const more = active.length > 1 ? ` (+${active.length - 1} more)` : "";
-        return profile
-            ? `${seat.position} ${seat.name}: ${profile.type}, ${profile.hands} hands${more}`
-            : `${seat.position} ${seat.name}: no history${more}`;
     }
 
     /** Player stats by name for the engine (undefined if the player isn't known yet). */
@@ -478,11 +588,10 @@ export class Bot {
         if (!advice) return null;
         const size = advice.action === "raise" || advice.action === "all-in" ? ` to ${advice.size_bb} BB` : "";
         console.log(`[Preflop] ${advice.action.toUpperCase()}${size} (${advice.scenario}): ${advice.reason}`);
-        const details = [`Spot: ${advice.scenario}`];
-        if (this.last_equity) details.push(equityLine(this.last_equity.equity, this.last_equity.need) + " vs likely hands");
-        const opp = this.keyOpponentLine(state);
-        if (opp) details.push(opp);
-        this.overlay_info = { header: "Preflop chart", details };
+        this.overlay_content = preflopOverlay(
+            { state, view, profiles: (name) => this.options.profiles?.profile(name), stats: (name) => this.statsLookup(name) },
+            advice, this.last_equity
+        );
         return { action_str: advice.action, bet_size_in_BBs: advice.size_bb, reason: advice.reason };
     }
 
@@ -589,7 +698,7 @@ export class Bot {
         const res = await this.puppeteer_service.getPotSize();
         logResponse(res, this.debug_mode);
         if (res.code === "success") {
-            pot_size = res.data as number;
+            pot_size = Number(String(res.data).replace(/[^\d.]/g, "")) || 0;
         }
         return pot_size;
     }
@@ -609,7 +718,7 @@ export class Bot {
         const res = await this.puppeteer_service.getStackSize();
         logResponse(res, this.debug_mode);
         if (res.code === "success") {
-            stack_size = res.data as number;
+            stack_size = Number(String(res.data).replace(/[^\d.]/g, "")) || 0;
         }
         return stack_size;
     }
@@ -736,7 +845,4 @@ export class Bot {
                 break;
         }
     }
-}
-function equityLine(equity: number, need: number): string {
-    return `Equity ${Math.round(equity * 100)}%${need > 0 ? ` · need ${Math.round(need * 100)}%` : ""}`;
 }
