@@ -53,11 +53,14 @@ const DEFAULT_ROLE: Record<PostflopStreet, Record<BetRole, Response>> = {
     turn: { cbet: { fold: 0.38, raise: 0.10 }, barrel: { fold: 0.38, raise: 0.10 }, delayed: { fold: 0.43, raise: 0.06 }, lead: { fold: 0.35, raise: 0.10 }, stab: { fold: 0.42, raise: 0.05 } },
     river: { cbet: { fold: 0.45, raise: 0.09 }, barrel: { fold: 0.45, raise: 0.09 }, delayed: { fold: 0.52, raise: 0.12 }, lead: { fold: 0.58, raise: 0.08 }, stab: { fold: 0.64, raise: 0.03 } }
 };
-/** How folds and raises change with size, relative to a medium bet (small bets are called and raised more). */
-const DEFAULT_SIZE: Record<SizeBucket, Response> = {
-    small: { fold: 0.7, raise: 1.8 },
-    medium: { fold: 1.0, raise: 1.0 },
-    big: { fold: 1.25, raise: 0.6 }
+/**
+ * How folds and raises change with size, relative to a medium bet, by street (measured on the same hands):
+ * small bets are called and raised more, most of all on the river.
+ */
+const DEFAULT_SIZE: Record<PostflopStreet, Record<SizeBucket, Response>> = {
+    flop: { small: { fold: 0.85, raise: 1.1 }, medium: { fold: 1, raise: 1 }, big: { fold: 1.35, raise: 0.8 } },
+    turn: { small: { fold: 0.75, raise: 2.0 }, medium: { fold: 1, raise: 1 }, big: { fold: 1.25, raise: 0.8 } },
+    river: { small: { fold: 0.55, raise: 2.0 }, medium: { fold: 1, raise: 1 }, big: { fold: 1.2, raise: 0.4 } }
 };
 /** How many cases each level of defaults counts as (street, role, size effect, cell). */
 const WEIGHT = { street: 20, role: 30, size: 25, cell: 25 };
@@ -73,7 +76,7 @@ export function defaultResponseTable(): ResponseTable {
         for (const role of ROLES) {
             table[street][role] = {} as Record<SizeBucket, ResponseCell>;
             for (const bucket of BUCKETS) {
-                const d = DEFAULT_ROLE[street][role], m = DEFAULT_SIZE[bucket];
+                const d = DEFAULT_ROLE[street][role], m = DEFAULT_SIZE[street][bucket];
                 table[street][role][bucket] = { fold: clampFold(d.fold * m.fold), raise: clampRaise(d.raise * m.raise), n: 0 };
             }
         }
@@ -180,7 +183,7 @@ export function calibrateResponses(states: HandState[], include: (responder: Sea
         const street_rate = blend(cell[street], street_default, WEIGHT.street);
         const size_mult = {} as Record<SizeBucket, Response>;
         for (const bucket of BUCKETS) {
-            const d = DEFAULT_SIZE[bucket];
+            const d = DEFAULT_SIZE[street][bucket];
             const rate = blend(cell[`${street}|${bucket}`], { fold: street_rate.fold * d.fold, raise: street_rate.raise * d.raise }, WEIGHT.size);
             size_mult[bucket] = { fold: rate.fold / Math.max(street_rate.fold, 1e-9), raise: rate.raise / Math.max(street_rate.raise, 1e-9) };
         }
