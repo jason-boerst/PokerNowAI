@@ -8,6 +8,8 @@ import { equity } from './engine/equity.ts';
 import { requiredEquity } from './engine/odds.ts';
 import { ObservedStats, opponentModels } from './engine/opponent-range.ts';
 import { preflopAdvice } from './engine/preflop.ts';
+import { describeProfile } from './engine/player-profile.ts';
+import { ProfileService } from './services/profile-service.ts';
 import { rangePercent } from './engine/ranges.ts';
 import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
 
@@ -30,7 +32,9 @@ import { convertToBBs, convertToValue } from './utils/value-conversion-utils.ts'
 
 export interface BotOptions {
     /** Use the rule-based preflop engine instead of the AI for preflop decisions. */
-    preflop_engine: boolean
+    preflop_engine: boolean,
+    /** Opponent profiles from recorded hand histories. */
+    profiles?: ProfileService
 }
 
 export class Bot {
@@ -335,6 +339,7 @@ export class Bot {
                 return state;
             }
             console.log(`[State] ${formatSpot(state, view)}`);
+            this.printOpponents(state);
             this.printEquity(state, view);
             if (state.unparsed.length > 0) {
                 console.log(`[State] ${state.unparsed.length} log line(s) not understood, e.g. ${JSON.stringify(state.unparsed[0])}`);
@@ -343,6 +348,19 @@ export class Bot {
         } catch (err) {
             console.log("[State] Could not build the hand state:", err instanceof Error ? err.message : err);
             return null;
+        }
+    }
+
+    private described_hand: number | null = null;
+
+    /** Prints each opponent's profile once per hand. */
+    private printOpponents(state: HandState): void {
+        if (!this.options.profiles || state.hand_number === this.described_hand) return;
+        this.described_hand = state.hand_number;
+        for (const seat of state.seats) {
+            if (seat.id === state.hero_id) continue;
+            const p = this.options.profiles.profile(seat.name);
+            console.log(`[Opponent] ${seat.position} ${p ? `${describeProfile(p)}. ${p.exploit}` : `${seat.name}: no history yet`}`);
         }
     }
 
@@ -362,6 +380,8 @@ export class Bot {
 
     /** Player stats by name for the engine (undefined if the player isn't known yet). */
     private statsLookup(name: string): ObservedStats | undefined {
+        const profiled = this.options.profiles?.stats(name);
+        if (profiled) return profiled;
         try {
             const st = this.table.getPlayerStatsFromName(name);
             return { vpip: st.computeVPIPStat(), pfr: st.computePFRStat(), hands: st.getTotalHands() };
@@ -408,6 +428,7 @@ export class Bot {
             const messages = await this.log_service.fetchLastCompletedHand();
             if (messages) {
                 await this.recorder.recordHand(this.game_id, messages, this.bot_name, this.game.getBigBlind());
+                this.options.profiles?.addHand(messages, this.game.getBigBlind());
             }
         } catch (err) {
             console.log("Could not record the finished hand:", err instanceof Error ? err.message : err);

@@ -11,6 +11,7 @@ import { LogService } from './services/log-service.ts';
 import { PlayerService } from './services/player-service.ts';
 import { PuppeteerService } from './services/puppeteer-service.ts';
 import { HandRecorder } from './services/hand-recorder.ts';
+import { ProfileService } from './services/profile-service.ts';
 
 import { BotConfig, WebDriverConfig } from './interfaces/config-interfaces.ts';
 import { AIServiceFactory, resolveAIConfig } from './helpers/ai-service-factory.ts';
@@ -84,7 +85,10 @@ const bot_manager = async function() {
     await log_service.init();
 
     const recorder = new HandRecorder(db_service);
-    const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder, { preflop_engine: bot_config.preflop_engine ?? true });
+    const profiles = new ProfileService(recorder);
+    const loaded = await profiles.load();
+    if (loaded > 0) console.log(`Loaded opponent history from ${loaded} recorded hand(s).`);
+    const bot = new Bot(log_service, ai_service, player_service, puppeteer_service, game_id, bot_config.debug_mode, bot_config.query_retries, bot_config.assistant_mode, recorder, { preflop_engine: bot_config.preflop_engine ?? true, profiles });
     startLiveCommands(ai_service, ai_config);
     await bot.run();
 }

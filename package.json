@@ -19,7 +19,8 @@
     "export-hands": "tsx scripts/export-hands.ts",
     "stats": "tsx scripts/stats.ts",
     "label": "tsx scripts/label.ts",
-    "eval": "tsx scripts/eval.ts"
+    "eval": "tsx scripts/eval.ts",
+    "players": "tsx scripts/players.ts"
   },
   "keywords": [],
   "author": "",

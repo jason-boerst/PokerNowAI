@@ -6,7 +6,9 @@ export type PostflopAction = "bet" | "raise" | "call" | "check";
 export interface OpponentModel {
     range: Range,
     /** The opponent's post-flop actions so far, with the board at the time (used to narrow the range). */
-    postflop_actions?: { board: string[], action: PostflopAction }[]
+    postflop_actions?: { board: string[], action: PostflopAction }[],
+    /** Share of the opponent's post-flop actions that are bets or raises (0-1); aggressive players bluff more. */
+    aggression?: number
 }
 
 export interface EquityInput {
@@ -82,13 +84,30 @@ const DECK_NAMES: string[] = (() => {
     return names;
 })();
 
-function actionWeight(combo: [number, number], actions: OpponentModel["postflop_actions"]): number {
+const AVERAGE_AGGRESSION = 0.35;
+
+/**
+ * Action weights adjusted for how aggressive this opponent is: someone who bets twice as often as
+ * average is assumed to bet and raise with weak hands and draws about twice as often.
+ */
+export function weightsFor(aggression: number | undefined): Record<PostflopAction, Record<StrengthClass, number>> {
+    if (aggression === undefined) return ACTION_WEIGHTS;
+    const f = Math.max(0.5, Math.min(2.5, aggression / AVERAGE_AGGRESSION));
+    const scaled = (w: number) => Math.min(1, w * f);
+    return {
+        ...ACTION_WEIGHTS,
+        bet: { ...ACTION_WEIGHTS.bet, draw: scaled(ACTION_WEIGHTS.bet.draw), air: scaled(ACTION_WEIGHTS.bet.air) },
+        raise: { ...ACTION_WEIGHTS.raise, pair: scaled(ACTION_WEIGHTS.raise.pair), draw: scaled(ACTION_WEIGHTS.raise.draw), air: scaled(ACTION_WEIGHTS.raise.air) }
+    };
+}
+
+function actionWeight(combo: [number, number], actions: OpponentModel["postflop_actions"], weights: Record<PostflopAction, Record<StrengthClass, number>>): number {
     if (!actions || actions.length === 0) return 1;
     let w = 1;
     const hole = [cardString(combo[0]), cardString(combo[1])];
     for (const a of actions) {
         if (a.board.length < 3) continue;
-        w *= ACTION_WEIGHTS[a.action][strengthClass(hole, a.board)];
+        w *= weights[a.action][strengthClass(hole, a.board)];
     }
     return w;
 }
@@ -108,7 +127,8 @@ function buildSampler(model: OpponentModel, dead: Set<number>): Sampler {
             if (!dead.has(DECK[i]) && !dead.has(DECK[j])) combos.push({ cards: [DECK[i], DECK[j]], weight: 1 });
         }
     }
-    const weighted = combos.map((c) => ({ ...c, weight: c.weight * actionWeight(c.cards, model.postflop_actions) }))
+    const weights = weightsFor(model.aggression);
+    const weighted = combos.map((c) => ({ ...c, weight: c.weight * actionWeight(c.cards, model.postflop_actions, weights) }))
         .filter((c) => c.weight > 0);
     const cumulative = new Float64Array(weighted.length);
     let total = 0;

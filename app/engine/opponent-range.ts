@@ -8,9 +8,15 @@ export const POPULATION_TENDENCIES: PreflopTendencies = { vpip: 35, pfr: 12 };
 export const MIN_HANDS_FOR_STATS = 20;
 
 export interface ObservedStats {
+    /** Percent, 0-100. */
     vpip: number,
+    /** Percent, 0-100. */
     pfr: number,
-    hands: number
+    hands: number,
+    /** Post-flop aggression share, 0-1 (optional). */
+    aggression?: number,
+    /** True when vpip/pfr are already blended toward population averages, so they can be used at any sample size. */
+    shrunk?: boolean
 }
 
 /** What a player did preflop, in terms the range estimate understands. */
@@ -43,13 +49,16 @@ export function opponentModels(s: HandState, stats: (name: string) => ObservedSt
         .filter((p) => p.id !== s.hero_id && !p.folded)
         .map((seat) => {
             const observed = stats(seat.name);
-            const tendencies = observed && observed.hands >= MIN_HANDS_FOR_STATS
-                ? { vpip: observed.vpip, pfr: observed.pfr }
-                : POPULATION_TENDENCIES;
+            const usable = observed && (observed.shrunk || observed.hands >= MIN_HANDS_FOR_STATS);
+            const tendencies = usable ? { vpip: observed.vpip, pfr: observed.pfr } : POPULATION_TENDENCIES;
             return {
                 seat,
                 tendencies,
-                model: { range: preflopRange(preflopLine(s, seat.id), tendencies), postflop_actions: postflopActions(s, seat.id) }
+                model: {
+                    range: preflopRange(preflopLine(s, seat.id), tendencies),
+                    postflop_actions: postflopActions(s, seat.id),
+                    aggression: observed?.aggression
+                }
             };
         });
 }

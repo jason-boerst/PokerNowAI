@@ -139,6 +139,7 @@ Every decision and every finished hand is recorded in `app/pokernow-gpt.db` whil
 | `npm run stats` | Your results in bb/100 with a 95% confidence interval, overall and per model. Poker is noisy: expect "can't tell yet" for a long time (tens of thousands of hands). |
 | `npm run label` | Shows recorded spots (cards, full action history, pot, odds) and lets you enter the correct play. |
 | `npm run eval -- --models a/x,b/y` | Replays recorded spots through each model: % legal actions, agreement with your labels, latency. Costs API credits; asks first. |
+| `npm run players` | Opponent profiles from all recorded hands: type (calling station, nit, maniac, loose-passive, TAG, LAG), key stats with sample sizes, and the main exploit. `npm run players -- <name>` adds their recent showdowns. |
 | `npm run export-hands` | Writes hands and decisions to `hand-export.json` with player names anonymized. |
 
 While playing, each turn prints a `[State]` line (position, street, pot, amount to call, pot odds, min raise, effective stack, SPR). If it doesn't match the table, please report it.
