@@ -2,6 +2,7 @@ import { HandState, parseHand } from "../engine/hand-parser.ts";
 import { ObservedStats, POPULATION_TENDENCIES } from "../engine/opponent-range.ts";
 import { blendSession, calibratePriors, Deviation, PlayerProfile, PlayerRef, PRIORS, ProfileBuilder, RATE_KEYS, RateKey, resetPriors, sessionDeviations } from "../engine/player-profile.ts";
 import { CalibratedActionWeights, ShowdownCalibrator } from "../engine/showdown-calibration.ts";
+import { calibrateResponses, ResponseTable } from "../engine/response-calibration.ts";
 import { HandRecorder, HandRow, ME } from "./hand-recorder.ts";
 
 export { ME } from "./hand-recorder.ts";
@@ -40,6 +41,7 @@ export class ProfileService {
      */
     private calibrator: ShowdownCalibrator | null = null;
     private action_weights: CalibratedActionWeights | null = null;
+    private responses: { table: ResponseTable, samples: number } | null = null;
 
     constructor(private recorder: HandRecorder) {
         this.long = new ProfileBuilder(this.keyOf);
@@ -72,7 +74,17 @@ export class ProfileService {
         this.live_states = [];
         this.calibrator = null;
         this.action_weights = null;
+        this.responses = null;
         return hands.length;
+    }
+
+    /**
+     * How players in your games answer bets after the flop (fold, call, raise), by street, by who bets and
+     * by size, measured from every stored hand with your own answers left out. Built on first use.
+     */
+    responseTable(): { table: ResponseTable, samples: number } {
+        this.responses ??= calibrateResponses([...this.hands.map((h) => h.state), ...this.live_states], (seat) => this.keyOf(seat) !== ME);
+        return this.responses;
     }
 
     /**

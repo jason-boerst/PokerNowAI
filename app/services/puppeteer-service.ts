@@ -310,18 +310,21 @@ export class PuppeteerService {
         const label = verb[content.action.toLowerCase()] ?? content.action.toUpperCase();
         const main = `${label}${content.size_bb > 0 ? ` ${content.size_bb} BB` : ""}`;
         const chips = content.size_bb > 0 && content.big_blind > 0 ? `= ${Math.round(content.size_bb * content.big_blind * 100) / 100} chips` : "";
-        await this.renderOverlay(content.status, content.header, content.context, main, chips, content.warnings, content.sections, content.reason);
+        const tag = { text: content.tag ?? "", color: content.tag_color ?? "#e5e7eb", lines: content.tag_lines ?? [] };
+        await this.renderOverlay(content.status, content.header, content.context, main, chips, content.warnings, content.sections, content.reason, tag);
     }
 
     /** Minimal overlay, e.g. "Your turn: analyzing..." before the analysis is ready. */
     async showOverlayStatus(header: string, main: string): Promise<void> {
-        await this.renderOverlay("thinking", header, "", main, "", [], [], "");
+        await this.renderOverlay("thinking", header, "", main, "", [], [], "", { text: "", color: "", lines: [] });
     }
 
     private async renderOverlay(status: string, header: string, context: string, main: string, chips: string,
-                                warnings: string[], sections: { title: string, lines: string[] }[], reason: string): Promise<void> {
+                                warnings: string[], sections: { title: string, lines: string[] }[], reason: string,
+                                tag: { text: string, color: string, lines: string[] }): Promise<void> {
         await this.page.evaluate((status: string, header: string, context: string, main: string, chips: string,
-                                  warnings: string[], sections: { title: string, lines: string[] }[], reason: string) => {
+                                  warnings: string[], sections: { title: string, lines: string[] }[], reason: string,
+                                  tag: { text: string, color: string, lines: string[] }) => {
             const id = "pokernow-gpt-suggestion";
             if (!document.getElementById("pokernow-gpt-style")) {
                 const style = document.createElement("style");
@@ -371,6 +374,9 @@ export class PuppeteerService {
             if (context) rows.push([context, "font-size:11px;color:#9ca3af;margin-bottom:2px;", ""]);
             rows.push([main, `font-size:20px;font-weight:700;color:${thinking ? "#fde68a" : "#ffffff"};letter-spacing:0.02em;`, ""]);
             if (chips) rows.push([chips, "font-size:12px;color:#86efac;", ""]);
+            // what kind of bet this is (value, semi-bluff, bluff; lead or c-bet) and why, always visible
+            if (tag.text) rows.push([tag.text, `font-size:13px;font-weight:700;color:${tag.color};margin-top:3px;`, ""]);
+            for (const line of tag.lines) rows.push([line, "font-size:11px;color:#e5e7eb;line-height:1.35;", ""]);
             for (const w of warnings) rows.push([`⚠ ${w}`, "font-size:11px;color:#fbbf24;margin-top:3px;", ""]);
             for (const [text, css, cls] of rows) {
                 const d = document.createElement("div");
@@ -408,7 +414,7 @@ export class PuppeteerService {
                 d.style.cssText = "font-size:12px;color:#a3e4b0;line-height:1.5;border-top:1px solid rgba(74,222,128,0.3);padding-top:8px;";
                 el.appendChild(d);
             }
-        }, status, header, context, main, chips, warnings, sections, reason);
+        }, status, header, context, main, chips, warnings, sections, reason, tag);
     }
 
     /**

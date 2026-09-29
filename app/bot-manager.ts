@@ -16,6 +16,7 @@ import { importFiles } from './import/importer.ts';
 import { existsSync } from 'node:fs';
 import { PRIORS } from './engine/player-profile.ts';
 import { setActionWeights } from './engine/equity.ts';
+import { setResponseTable } from './engine/postflop.ts';
 
 const LOGS_FOLDER = 'logs';
 
@@ -126,6 +127,8 @@ const bot_manager = async function() {
     if (loaded > 0) {
         // read bets and raises the way players in your games actually showed them down
         setActionWeights(profiles.actionWeights().weights);
+        // how players in your games answer leads, c-bets and barrels of each size
+        setResponseTable(profiles.responseTable().table);
         const pct = (x: number) => `${Math.round(x * 100)}%`;
         console.log(`Loaded ${loaded} stored hand(s); hands from this game count as today's session.`);
         if (profiles.pool_hands > 0) {

@@ -4,6 +4,7 @@ import { ActionWeights, continuationEquity, equity, resetActionWeights, setActio
 import { heroView, parseHand } from "../../app/engine/hand-parser.ts";
 import { analyzePostflop, heroInPosition, OpponentTendency, PostflopAnalysis } from "../../app/engine/postflop.ts";
 import { topRange } from "../../app/engine/ranges.ts";
+import { PRIORS } from "../../app/engine/player-profile.ts";
 
 const p = (name: string, id: string) => `"${name} @ ${id}"`;
 const H = p("H", "h"), V = p("V", "v");
@@ -106,22 +107,60 @@ describe("continuing ranges", () => {
 });
 
 describe("analyzePostflop (two-street model)", () => {
-    it("uses the fold rate of the current street", () => {
-        const flat = villain();
-        const by_street = villain({ fold_by_street: { flop: 0.3, turn: 0.3, river: 0.6 } });
+    it("scales your games' measured fold rates by the player's own rate on the current street", () => {
+        const pool = { flop: PRIORS.fold_to_bet_flop.mean, turn: PRIORS.fold_to_bet_turn.mean, river: PRIORS.fold_to_bet_river.mean };
+        const average = villain({ fold_by_street: pool });
+        const river_folder = villain({ fold_by_street: { ...pool, river: Math.min(0.9, pool.river * 1.3) } });
         // river bluff with nine-high after a check
         const river = headsUp("4h, 5d", BOARD, "river", true, [`${V} checks`]);
-        const a_flat = analyzePostflop(river.s, river.v, [flat]);
-        const a_street = analyzePostflop(river.s, river.v, [by_street]);
-        for (const c of bets(a_flat)) {
-            expect(a_street.fold_probability.get(c.to)!).to.be.closeTo(2 * a_flat.fold_probability.get(c.to)!, 1e-9);
-            expect(evOf(a_street, "bet", c.to)).to.be.greaterThan(c.ev);
+        const a_avg = analyzePostflop(river.s, river.v, [average]);
+        const a_folder = analyzePostflop(river.s, river.v, [river_folder]);
+        for (const c of bets(a_avg)) {
+            expect(a_folder.fold_probability.get(c.to)!).to.be.closeTo(Math.min(0.9, 1.3 * a_avg.fold_probability.get(c.to)!), 1e-9);
+            expect(evOf(a_folder, "bet", c.to)).to.be.greaterThan(c.ev);
         }
-        // on the flop the flop rate applies, which is the same as the flat rate here
+        // on the flop the flop rate applies, which is the pool's here
         const flop = headsUp("4h, 5d", BOARD, "flop", true, [`${V} checks`]);
-        const f_flat = analyzePostflop(flop.s, flop.v, [flat]);
-        const f_street = analyzePostflop(flop.s, flop.v, [by_street]);
-        for (const c of bets(f_flat)) expect(f_street.fold_probability.get(c.to)).to.equal(f_flat.fold_probability.get(c.to));
+        const f_avg = analyzePostflop(flop.s, flop.v, [average]);
+        const f_folder = analyzePostflop(flop.s, flop.v, [river_folder]);
+        for (const c of bets(f_avg)) expect(f_folder.fold_probability.get(c.to)).to.equal(f_avg.fold_probability.get(c.to));
+    });
+
+    it("labels bets as value, semi-bluff or bluff, and says when hero leads", () => {
+        // river, first to act after a checked-down hand: a stab with nine-high is a bluff, with top set it's value
+        const river = headsUp("4h, 5d", BOARD, "river", false);
+        const air = analyzePostflop(river.s, river.v, [villain()]);
+        expect(air.bet_role).to.equal("stab");
+        for (const c of bets(air)) {
+            expect(c.purpose).to.equal("bluff");
+            expect(c.needs_folds).to.be.closeTo((c.to) / (river.v.pot + c.to), 1e-9);
+        }
+        const set = headsUp("Kh, Kd", BOARD, "river", false);
+        for (const c of bets(analyzePostflop(set.s, set.v, [villain()]))) expect(c.purpose).to.equal("value");
+    });
+
+    it("expects fewer folds and more raises against a flop lead than against a c-bet", () => {
+        // hero in the big blind called a raise: a flop bet is a lead into the raiser
+        const lines = (hero_raised: boolean) => {
+            const [raiser, caller] = hero_raised ? [H, V] : [V, H];
+            return [
+                `-- starting hand #1 (id: t)  No Limit Texas Hold'em (dealer: ${V}) --`,
+                `Player stacks: #1 ${H} (400) | #2 ${V} (400)`,
+                `Your hand is 4h, 5d`,
+                `${V} posts a small blind of 1`, `${H} posts a big blind of 2`,
+                ...(hero_raised ? [`${V} calls 2`, `${H} raises to 6`, `${V} calls 6`] : [`${V} raises to 6`, `${H} calls 6`]),
+                `Flop:  [Ks, 7d, 2c]`
+            ].filter(Boolean);
+        };
+        const lead = parseHand(lines(false), { hero_name: "H" });
+        const cbet = parseHand(lines(true), { hero_name: "H" });
+        const a_lead = analyzePostflop(lead, heroView(lead)!, [villain()]);
+        const a_cbet = analyzePostflop(cbet, heroView(cbet)!, [villain()]);
+        expect(a_lead.bet_role).to.equal("lead");
+        expect(a_cbet.bet_role).to.equal("cbet");
+        const lead_bet = bets(a_lead)[0], cbet_bet = bets(a_cbet).find((c) => c.to === lead_bet.to)!;
+        expect(lead_bet.fold_chance!).to.be.lessThan(cbet_bet.fold_chance!);
+        expect(lead_bet.raise_chance!).to.be.greaterThan(cbet_bet.raise_chance!);
     });
 
     it("values checking a medium hand less out of position against an aggressive player than when it checks through", () => {

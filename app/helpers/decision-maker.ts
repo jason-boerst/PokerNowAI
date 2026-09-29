@@ -6,6 +6,7 @@ import type { PlayerLookup } from "../services/profile-service.ts";
 import { analyzePostflop, Candidate, isClearSpot, OpponentTendency, PostflopAnalysis } from "../engine/postflop.ts";
 import { opponentModels, ObservedStats } from "../engine/opponent-range.ts";
 import { buildDecisionPrompt, parseDecision } from "./decision-prompt.ts";
+import { explainBet } from "./bet-explain.ts";
 
 export interface Decision extends SuggestedAction {
     reason: string,
@@ -111,7 +112,10 @@ function engineReason(a: PostflopAnalysis, big_blind: number): string {
     const [best, next] = a.candidates;
     const b = (x: number) => (x >= 0 ? "+" : "") + (x / big_blind).toFixed(1);
     const need = a.required_equity > 0 ? `, need ${Math.round(a.required_equity * 100)}%` : "";
-    return `Equity ${Math.round(a.equity * 100)}%${need}. ${best.label} is worth about ${b(best.ev)} BB` +
+    // a bet says what kind it is (value, semi-bluff, bluff; lead, c-bet, barrel) and why
+    const bet = best.purpose ? explainBet(a, best) : null;
+    return (a.note ? `${a.note} ` : "") + (bet ? `${bet.tag}. ${bet.lines[0]} ` : "") +
+        `Equity ${Math.round(a.equity * 100)}%${need}. ${best.label} is worth about ${b(best.ev)} BB` +
         (next ? ` vs ${b(next.ev)} BB for ${next.label}.` : ".");
 }
 

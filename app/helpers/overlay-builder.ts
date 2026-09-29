@@ -5,6 +5,7 @@ import { ObservedStats, opponentModels } from "../engine/opponent-range.ts";
 import { MIN_HANDS_FOR_TYPE, PlayerRef } from "../engine/player-profile.ts";
 import type { PlayerLookup } from "../services/profile-service.ts";
 import { PostflopAnalysis } from "../engine/postflop.ts";
+import { explainBet, matchCandidate, shortTag } from "./bet-explain.ts";
 import { PreflopAdvice } from "../engine/preflop.ts";
 import { rangePercent } from "../engine/ranges.ts";
 import { bb } from "../engine/spot-format.ts";
@@ -26,7 +27,11 @@ export interface OverlayContent {
     big_blind: number,
     sections: OverlaySection[],
     warnings: string[],
-    reason: string
+    reason: string,
+    /** Bets and raises: what kind of bet it is (e.g. "Bluff · lead into the preflop raiser"), its color, and why. */
+    tag?: string,
+    tag_color?: string,
+    tag_lines?: string[]
 }
 
 export interface OverlayInputs {
@@ -165,8 +170,15 @@ export function postflopOverlay(
         const is_chosen = c.action === chosen.action || (c.action === "bet" && chosen.action === "raise") || (c.action === "raise" && chosen.action === "bet");
         const same_size = !chosen.size_bb || Math.abs(c.to / b - chosen.size_bb) < 0.26;
         const mark = is_chosen && same_size ? "▶ " : "   ";
-        return `${mark}${c.label}: ${signed(c.ev / b)} BB${fold !== undefined ? ` (all fold ~${pct(fold)})` : ""}`;
+        const kind = shortTag(a, c);
+        return `${mark}${c.label}${kind ? ` (${kind})` : ""}: ${signed(c.ev / b)} BB${fold !== undefined ? ` · all fold ~${pct(fold)}` : ""}`;
     });
+    // a bet or raise says what kind it is and why, right under the action
+    const matched = matchCandidate(a, chosen.action, chosen.size_bb, b);
+    const passive_by_margin = !matched && a.note && a.candidates[0]?.action === chosen.action;
+    const bet = matched ? explainBet(a, matched)
+        : passive_by_margin ? { tag: `${chosen.action === "check" ? "Check" : chosen.action === "call" ? "Call" : "Fold"}: a bluff here is too close to call`, color: "#9ca3af", lines: [a.note!] }
+        : null;
 
     let header: string;
     if (decision === null) {
@@ -200,6 +212,7 @@ export function postflopOverlay(
             opponentsSection(inputs, warnings)
         ],
         warnings,
-        reason: decision?.reason ?? "Waiting for the AI; this is the engine's best option so far."
+        reason: decision?.reason ?? "Waiting for the AI; this is the engine's best option so far.",
+        ...(bet ? { tag: bet.tag, tag_color: bet.color, tag_lines: bet.lines } : {})
     };
 }

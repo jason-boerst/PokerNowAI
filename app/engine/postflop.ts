@@ -10,11 +10,18 @@
 //                 otherwise calls with the strongest part of their range (as much as their fold rate
 //                 leaves) or folds, and every caller adds chips. Raised -> hero continues only when
 //                 their equity against a raising range beats the price, else loses the bet.
-// Fold rates come from opponent profiles, per street when known, and grow with bet size. All the
-// constants below are stated assumptions, not measured values.
+// How opponents answer hero's bets (fold, call or raise) comes from a table measured from your stored
+// hands: by street, by who bets (a lead into the last aggressor, a c-bet, a barrel, a stab) and by size
+// (response-calibration.ts). It is adjusted for each player's own fold and raise rates and for how many
+// weak hands their likely range holds on this board. Answers to hero's raises use the players' fold-to-
+// raise estimates. The other constants below are stated assumptions, not measured values.
 import { HandState, HeroView, SeatState } from "./hand-parser.ts";
-import { continuationEquity, equity, OpponentModel, PostflopStreet } from "./equity.ts";
+import { continuationEquity, equity, OpponentModel, PostflopStreet, rangeClassShares, strengthClass } from "./equity.ts";
 import { PRIORS } from "./player-profile.ts";
+import { BetRole, defaultResponseTable, heroBetRole, responseFor, ResponseTable } from "./response-calibration.ts";
+
+/** Why a bet or raise: value (ahead of the hands that call), semi-bluff (behind but with a draw or real equity), bluff (wins by folds). */
+export type BetPurpose = "value" | "semi-bluff" | "bluff";
 
 export interface Candidate {
     action: "fold" | "check" | "call" | "bet" | "raise" | "all-in",
@@ -22,7 +29,16 @@ export interface Candidate {
     to: number,
     /** Estimated EV in chips relative to folding now. */
     ev: number,
-    label: string
+    label: string,
+    /** Bets and raises: chance everyone folds, chance hero gets raised, hero's equity against the hands that call. */
+    fold_chance?: number,
+    raise_chance?: number,
+    called_equity?: number,
+    purpose?: BetPurpose,
+    /** Folds this bet needs to break even as a pure bluff. */
+    needs_folds?: number,
+    /** Bets: how players in your games answer this kind and size of bet (before adjusting for this player and board). */
+    response?: { fold: number, raise: number, n: number }
 }
 
 export interface PostflopAnalysis {
@@ -33,7 +49,23 @@ export interface PostflopAnalysis {
     fold_probability: Map<number, number>,
     candidates: Candidate[],
     in_position: boolean,
-    realization: number
+    realization: number,
+    street?: PostflopStreet,
+    /** Why the top option isn't simply the highest EV (e.g. a bluff only barely ahead of checking). */
+    note?: string,
+    /** What a bet by hero would be here (lead, c-bet, barrel...); missing when hero faces a bet. */
+    bet_role?: BetRole,
+    /** Share of the opponents' likely hands with no pair and no strong draw on this board (average). */
+    air_share?: number
+}
+
+let response_table: ResponseTable = defaultResponseTable();
+/** How opponents answer hero's bets, measured from your stored hands (ProfileService.responseTable()). */
+export function setResponseTable(table: ResponseTable): void {
+    response_table = table;
+}
+export function resetResponseTable(): void {
+    response_table = defaultResponseTable();
 }
 
 export interface OpponentTendency {
@@ -146,6 +178,41 @@ function raiseChance(o: OpponentTendency): number {
     return rate(o.raise_vs_bet, DEFAULT_RAISE_VS_BET * aggressionFactor(o, 0.8, 1.2));
 }
 
+/** This player's fold rate on this street compared with your games' average (1 for an average or unknown player). */
+function playerFoldFactor(o: OpponentTendency, street: PostflopStreet): number {
+    if (o.fold_by_street) return clamp(o.fold_by_street[street] / Math.max(PRIORS[`fold_to_bet_${street}`].mean, 0.05), 0.6, 1.5);
+    return clamp(o.fold_to_bet / Math.max(PRIORS.fold_to_cbet.mean, 0.05), 0.6, 1.5);
+}
+
+/** This player's raise rate against bets compared with your games' average. */
+function playerRaiseFactor(o: OpponentTendency): number {
+    return o.raise_vs_bet !== undefined && Number.isFinite(o.raise_vs_bet)
+        ? clamp(o.raise_vs_bet / Math.max(PRIORS.raise_vs_bet.mean, 0.01), 0.6, 1.6)
+        : aggressionFactor(o, 0.8, 1.2);
+}
+
+/**
+ * Board effect: a player whose likely hands hold more air (no pair, no strong draw) on this board folds a
+ * little more. Measured on 2,569 heads-up bets in stored hands after the response table: no effect on the
+ * flop, small on the turn, clearer on the river (folds rose from about 50% to 60% as air went from 15% to
+ * 50-70% of the range). TYPICAL_AIR is the measured average for a player facing a bet on each street.
+ */
+const TYPICAL_AIR: Record<PostflopStreet, number> = { flop: 0.51, turn: 0.35, river: 0.28 };
+const AIR_SLOPE: Record<PostflopStreet, number> = { flop: 0, turn: 0.2, river: 0.35 };
+function boardFoldFactor(air: number | undefined, street: PostflopStreet): number {
+    return air === undefined ? 1 : clamp(1 + AIR_SLOPE[street] * (air - TYPICAL_AIR[street]), 0.85, 1.15);
+}
+
+/** Equity against the hands that call at or above which a bet is for value; below it, a semi-bluff needs a draw or this much. */
+const VALUE_EQUITY = 0.5;
+const SEMI_BLUFF_EQUITY = 0.3;
+/**
+ * A bluff or semi-bluff has to beat the best passive option (check, call or fold) by at least this much
+ * to be suggested: its profit rests on the fold estimate, the least certain number in the model.
+ */
+const BLUFF_MARGIN_BB = 0.5;
+const BLUFF_MARGIN_POT = 0.05;
+
 function betChance(o: OpponentTendency): number {
     return rate(o.bet_when_checked_to, DEFAULT_BET_WHEN_CHECKED_TO * aggressionFactor(o, 0.85, 1.15));
 }
@@ -184,6 +251,12 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
     const seats = opponentSeats(s, opponents);
     const bb = s.big_blind;
     const fmt = (chips: number) => `${Math.round(chips / bb * 10) / 10} BB`;
+    const hero = s.hero_cards;
+    const board = s.board;
+    // hero's bet here would be a lead, c-bet, barrel...; each opponent's share of weak hands on this board
+    const role = facing_bet ? undefined : heroBetRole(s);
+    const airs = facing_bet ? [] : models.map((m) => rangeClassShares(m, board, hero).air);
+    const hero_class = board.length >= 3 ? strengthClass(hero, board) : "air";
 
     // what each opponent does against a bet (or raise) to `to`
     const respond = (to: number, raise: boolean, overbet: boolean): Plan => {
@@ -191,15 +264,21 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         const all_in = to >= hero_total - 1e-9;
         const raise_to = Math.min(FACING_RAISE_MULTIPLIER * to, v.effective_stack);
         const folds: number[] = [], raises: number[] = [], adds: number[] = [];
+        const table = raise || !role ? null : responseFor(response_table, street, role, invest / Math.max(pot, 1e-9));
         opponents.forEach((o, i) => {
             const seat = seats[i];
             // a player who is already all-in can't fold, raise or add chips
             if (seat?.all_in) { folds.push(0); raises.push(0); adds.push(0); return; }
-            const fold = foldChance(o, street, invest, pot + (raise ? v.to_call : 0), raise);
+            // hero's bet: how players in your games answer this kind and size of bet, for this player on this board;
+            // hero's raise: this player's fold-to-raise estimate
+            const fold = table
+                ? clamp(table.fold * playerFoldFactor(o, street) * boardFoldFactor(airs[i], street), 0.03, 0.9)
+                : foldChance(o, street, invest, pot + (raise ? v.to_call : 0), raise);
+            const raise_rate = table ? table.raise * playerRaiseFactor(o) : raiseChance(o) * (raise ? RERAISE_SHARE : 1);
             // nobody raises an all-in, or a bet they can't cover more than
             const can_raise = !all_in && raise_to > to + 1e-9 && (!seat || seat.stack + seat.street_contribution > to + 1e-9);
             folds.push(fold);
-            raises.push(can_raise ? Math.min(raiseChance(o) * (raise ? RERAISE_SHARE : 1), 1 - fold) : 0);
+            raises.push(can_raise ? Math.min(raise_rate, 1 - fold) : 0);
             // a caller adds the difference between hero's new total and their current bet
             adds.push(seat
                 ? Math.max(0, Math.min(to - seat.street_contribution, seat.stack))
@@ -231,8 +310,6 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
     const reference = respond(s.current_bet + REFERENCE_BET * (pot + v.to_call), facing_bet, false);
 
     // one simulation for all of them (it also gives plain equity against everyone)
-    const hero = s.hero_cards;
-    const board = s.board;
     const main = continuationEquity({ hero, board, opponents: models, time_budget_ms, seed: SEED },
         [reference, ...plans].map((p) => ({ continue_fraction: p.folds.map((f) => 1 - f), raise_chance: p.raises, adds: p.adds })));
     const eq = main.equity;
@@ -299,11 +376,29 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         const ev = pf * pot + (1 - pf - pr) * called_ev + pr * raised_ev;
         fold_probability.set(p.to, pf);
         const action = all_in ? "all-in" : p.raise ? "raise" : "bet";
-        candidates.push({ action, to: p.to, ev, label: `${action === "all-in" ? "all-in" : action === "raise" ? "raise to" : "bet"} ${fmt(p.to)}` });
+        const purpose: BetPurpose = called.equity >= VALUE_EQUITY ? "value"
+            : street !== "river" && (hero_class === "draw" || called.equity >= SEMI_BLUFF_EQUITY) ? "semi-bluff"
+            : "bluff";
+        candidates.push({
+            action, to: p.to, ev, label: `${action === "all-in" ? "all-in" : action === "raise" ? "raise to" : "bet"} ${fmt(p.to)}`,
+            fold_chance: pf, raise_chance: pr, called_equity: called.equity, purpose,
+            needs_folds: p.invest / (pot + p.invest),
+            response: p.raise || !role ? undefined : responseFor(response_table, street, role, p.invest / Math.max(pot, 1e-9))
+        });
         // report the equity when called for the best bet or raise
         if (ev > best_aggressive) { best_aggressive = ev; equity_when_called = called.equity; }
     }
     candidates.sort((a, b) => b.ev - a.ev);
+    // a bluff only barely ahead of checking (or calling/folding) isn't worth the risk of a wrong fold estimate
+    let note: string | undefined;
+    const top = candidates[0];
+    const passive = candidates.find((c) => c.action === "check" || c.action === "call" || c.action === "fold");
+    const margin = Math.max(BLUFF_MARGIN_BB * bb, BLUFF_MARGIN_POT * pot);
+    if (top?.purpose && top.purpose !== "value" && passive && top.ev - passive.ev < margin) {
+        candidates.splice(candidates.indexOf(passive), 1);
+        candidates.unshift(passive);
+        note = `A ${top.purpose} (${top.label}) would beat ${passive.label} by only ${fmt(top.ev - passive.ev)}, within the margin of error of the fold estimate, so ${passive.label}.`;
+    }
     return {
         equity: eq,
         equity_when_called,
@@ -311,7 +406,11 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         fold_probability,
         candidates,
         in_position,
-        realization: R
+        realization: R,
+        street,
+        note,
+        bet_role: role,
+        air_share: airs.length ? airs.reduce((sum, x) => sum + x, 0) / airs.length : undefined
     };
 }
 

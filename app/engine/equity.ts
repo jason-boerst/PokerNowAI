@@ -321,6 +321,21 @@ function sample(s: Sampler, rand: () => number): number {
     return lo;
 }
 
+/**
+ * How a player's likely hands (their range, narrowed by their actions so far) split into strength
+ * classes on `board`: shares of strong hands, pairs, strong draws and air (no pair, no strong draw),
+ * with the cards in `dead` (hero's cards) removed. The shares add up to 1.
+ */
+export function rangeClassShares(model: OpponentModel, board: string[], dead: string[] = []): Record<StrengthClass, number> {
+    const shares: Record<StrengthClass, number> = { strong: 0, pair: 0, draw: 0, air: 0 };
+    if (board.length < 3) return { ...shares, air: 1 };
+    const sampler = buildSampler({ ...model, continue_fraction: undefined }, new Set([...dead, ...board].map(code)), board, false);
+    if (!(sampler.total > 0)) return { ...shares, air: 1 };
+    for (const c of sampler.combos) shares[strengthClass([cardString(c.cards[0]), cardString(c.cards[1])], board)] += c.weight;
+    for (const cls of CLASSES) shares[cls] /= sampler.total;
+    return shares;
+}
+
 /** Monte Carlo equity of hero's hand against one or more opponent range models. */
 export function equity(input: EquityInput): EquityResult {
     const r = simulate(input, null);

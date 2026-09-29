@@ -4,6 +4,7 @@ import { describeProfile, PRIORS } from "../engine/player-profile.ts";
 import type { PlayerLookup } from "../services/profile-service.ts";
 import { PostflopAnalysis } from "../engine/postflop.ts";
 import { bb, formatActions, formatSpot } from "../engine/spot-format.ts";
+import { roleText, shortTag } from "./bet-explain.ts";
 
 export interface LLMDecision extends SuggestedAction {
     confidence: number,
@@ -59,8 +60,16 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
     lines.push("  Rough EV of each option (models the next bet or raise on this street, not later streets):");
     for (const c of a.candidates) {
         const fold = a.fold_probability.get(c.to);
-        lines.push(`    ${c.label}: ${sign(b(c.ev))} BB${fold !== undefined ? ` (everyone folds ~${pct(fold)})` : ""}`);
+        const kind = shortTag(a, c);
+        const details = [
+            ...(fold !== undefined ? [`everyone folds ~${pct(fold)}`] : []),
+            ...(c.raise_chance !== undefined && c.raise_chance >= 0.05 ? [`raised ~${pct(c.raise_chance)}`] : []),
+            ...(c.called_equity !== undefined ? [`${pct(c.called_equity)} equity when called`] : []),
+            ...(kind ? [kind] : [])
+        ];
+        lines.push(`    ${c.label}: ${sign(b(c.ev))} BB${details.length ? ` (${details.join(", ")})` : ""}`);
     }
+    if (a.bet_role) lines.push(`  A bet by you here would be a ${roleText(a.bet_role, a.street, false)}; the fold and raise rates above are measured from similar spots in your games.`);
     lines.push("");
     lines.push(`Legal actions: ${legalActions(v, s.big_blind).join("; ")}.`);
     lines.push("Use the engine numbers as inputs, not orders: adjust for the opponents' tendencies, the board texture, future streets and the table rules.");
