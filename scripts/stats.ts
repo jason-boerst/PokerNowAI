@@ -1,12 +1,14 @@
-// Win rate from recorded hands, overall and by the model that made most of the hand's decisions.
-//   npm run stats
+// Win rate from recorded hands, overall and by the model that made most of the hand's decisions,
+// then how often you followed each kind of suggestion and how those hands went.
+//   npm run stats                      (DB_FILE=path/to/other.db npm run stats for another database)
 import { DBService } from "../app/services/db-service.ts";
 import { HandRecorder } from "../app/services/hand-recorder.ts";
 import { summarizeWinrate, WinrateSummary } from "../app/engine/winrate.ts";
 import { parseHand } from "../app/engine/hand-parser.ts";
 import { allInAdjustedNet } from "../app/engine/allin-ev.ts";
+import { GroupResult } from "../app/engine/decision-outcomes.ts";
 
-const db = new DBService("./app/pokernow-gpt.db");
+const db = new DBService(process.env.DB_FILE || "./app/pokernow-gpt.db");
 await db.init();
 await db.createTables();
 const recorder = new HandRecorder(db);
@@ -56,5 +58,21 @@ if (hands.length === 0) {
     }
     console.log("\nPoker results are noisy: a real edge usually needs tens of thousands of hands to show up reliably.");
     console.log("Treat any interval that crosses zero as \"no conclusion yet\". Use `npm run eval` to compare decision quality instead.");
+}
+
+// did you follow the suggestions, and did following them pay?
+if (decisions.length > 0) {
+    const results = await recorder.results();
+    const group = (g: GroupResult) => (g.hands === 0
+        ? `${"0".padStart(6)} hands`
+        : `${String(g.hands).padStart(6)} hands ${fmt(g.bb_per_100).padStart(8)} [${fmt(g.ci_low)}, ${fmt(g.ci_high)}]`).padEnd(44);
+    const columns = (cells: string[]) => "  " + cells.join(" ").trimEnd();
+    console.log("\nSuggestions: how often you followed each kind, and how those hands went (all-in adjusted bb/100, 95% range)");
+    console.log(columns(["Source".padEnd(18), "Suggestions".padStart(11), "Followed".padStart(9), "  When followed".padEnd(44), "  When not followed"]));
+    for (const s of results.sources) {
+        const rate = `${Math.round(s.follow_rate * 100)}%`;
+        console.log(columns([s.source.padEnd(18), String(s.decisions).padStart(11), rate.padStart(9), group(s.followed), group(s.not_followed)]));
+    }
+    console.log(`  ${results.note}`);
 }
 await db.close();
