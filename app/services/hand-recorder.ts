@@ -1,5 +1,6 @@
 import { DBService } from "./db-service.ts";
 import { netResult, parseHand } from "../engine/hand-parser.ts";
+import { DecisionOutcome, DecisionToMatch, matchHandDecisions, OutcomeRow, OutcomeSummary, summarizeOutcomes } from "../engine/decision-outcomes.ts";
 import type { ImportedHand } from "../import/pokernow-csv.ts";
 
 export interface DecisionRecord {
@@ -71,7 +72,14 @@ export interface DecisionRow {
     source: string,
     latency_ms: number,
     label: string | null,
-    recorded_at: string
+    recorded_at: string,
+    /** Filled in once the hand is stored: 1 you followed the suggestion, 0 you didn't, null unknown or not counted. */
+    followed: number | null,
+    /** What you actually did, e.g. "raise 7.5"; "" when no action matched; null before matching (or while you can't be found in the hand). */
+    actual_action: string | null,
+    /** The hand's result for you in BB, and the same all-in adjusted. */
+    hand_net_bb: number | null,
+    adjusted_net_bb: number | null
 }
 
 /** Person id for the ids that are the user's own. */
@@ -101,6 +109,7 @@ export class HandRecorder {
             if (state.hero_id) {
                 await this.db.run(`INSERT OR IGNORE INTO PlayerLinks (player_id, person_id, reason) VALUES (?, ?, 'you, playing live')`, [state.hero_id, ME]);
             }
+            await this.matchDecisions(game_id, state.hand_number);
         } catch (err) {
             console.log("Could not record hand:", err instanceof Error ? err.message : err);
         }
@@ -134,6 +143,8 @@ export class HandRecorder {
                 [game_id, file_name, hero_id, hands.length, first, last, now]
             );
         });
+        // suggestions made while playing this game whose hands weren't recorded live
+        await this.matchPendingDecisions(game_id);
         return { game_id, hands_in_file: hands.length, added, already_had: hands.length - added };
     }
 
@@ -167,6 +178,99 @@ export class HandRecorder {
         } catch (err) {
             console.log("Could not record decision:", err instanceof Error ? err.message : err);
         }
+    }
+
+    /**
+     * Fills in, for each suggestion made in a stored hand, what you actually did (followed or not)
+     * and what the hand earned. Safe to repeat. Failures are logged, never thrown.
+     */
+    async matchDecisions(game_id: string, hand_number: number): Promise<void> {
+        await this.matchHands(`d.game_id = ? AND d.hand_number = ?`, [game_id, hand_number]);
+    }
+
+    /**
+     * Matches suggestions whose hands are stored but that haven't been matched yet (older databases,
+     * hands added by an import), optionally for one game. Returns the number of hands matched. Never throws.
+     */
+    async matchPendingDecisions(game_id?: string): Promise<number> {
+        return this.matchHands(`d.actual_action IS NULL${game_id ? " AND d.game_id = ?" : ""}`, game_id ? [game_id] : []);
+    }
+
+    /**
+     * Matches every suggestion of each stored hand that has a suggestion meeting `where` (on Decisions d).
+     * Reads a batch of hands at a time and writes each batch's results in one statement, without
+     * holding a transaction open (the bot may be writing to the same database).
+     */
+    private async matchHands(where: string, params: Array<any>): Promise<number> {
+        const BATCH = 200;
+        let matched = 0;
+        try {
+            const keys = await this.db.all<{ game_id: string, hand_number: number }>(
+                `SELECT DISTINCT d.game_id, d.hand_number FROM Decisions d JOIN Hands h ON h.game_id = d.game_id AND h.hand_number = d.hand_number WHERE ${where}`,
+                params
+            );
+            if (keys.length === 0) return 0;
+            // your ids, in case the bot's name isn't in a hand's log (a changed display name)
+            const my_ids = new Set((await this.db.all<{ player_id: string }>(`SELECT player_id FROM PlayerLinks WHERE person_id = ?`, [ME])).map((r) => r.player_id));
+            for (let i = 0; i < keys.length; i += BATCH) {
+                const batch = keys.slice(i, i + BATCH);
+                const in_batch = `(VALUES ${batch.map(() => "(?, ?)").join(", ")}) AS k`;
+                const key_params = batch.flatMap((k) => [k.game_id, k.hand_number]);
+                const hands = await this.db.all<Pick<HandRow, "game_id" | "hand_number" | "messages_json" | "hero_name" | "hero_id" | "big_blind">>(
+                    `SELECT h.game_id, h.hand_number, h.messages_json, h.hero_name, h.hero_id, h.big_blind
+                     FROM Hands h JOIN ${in_batch} ON h.game_id = k.column1 AND h.hand_number = k.column2`, key_params
+                );
+                const decisions = await this.db.all<DecisionToMatch & { game_id: string, hand_number: number, hero_name: string | null }>(
+                    `SELECT d.id, d.game_id, d.hand_number, d.street, d.action_json, d.messages_json, d.hero_cards, d.hero_name
+                     FROM Decisions d JOIN ${in_batch} ON d.game_id = k.column1 AND d.hand_number = k.column2 ORDER BY d.id`, key_params
+                );
+                const by_hand = new Map<string, typeof decisions>();
+                for (const d of decisions) {
+                    const key = `${d.game_id}#${d.hand_number}`;
+                    by_hand.set(key, [...(by_hand.get(key) ?? []), d]);
+                }
+                const outcomes: DecisionOutcome[] = [];
+                for (const h of hands) {
+                    const ds = by_hand.get(`${h.game_id}#${h.hand_number}`) ?? [];
+                    try {
+                        const hero = { id: h.hero_id, ids: my_ids, name: ds[0]?.hero_name ?? h.hero_name };
+                        outcomes.push(...matchHandDecisions(JSON.parse(h.messages_json), ds, hero, h.big_blind));
+                        matched++;
+                    } catch (err) {
+                        console.log(`Could not match the suggestions of hand #${h.hand_number}:`, err instanceof Error ? err.message : err);
+                    }
+                }
+                await this.saveOutcomes(outcomes);
+            }
+        } catch (err) {
+            console.log("Could not match suggestions to hands:", err instanceof Error ? err.message : err);
+        }
+        return matched;
+    }
+
+    private async saveOutcomes(outcomes: DecisionOutcome[]): Promise<void> {
+        const BATCH = 150;
+        for (let i = 0; i < outcomes.length; i += BATCH) {
+            const batch = outcomes.slice(i, i + BATCH);
+            await this.db.run(
+                `UPDATE Decisions SET followed = v.column2, actual_action = v.column3, hand_net_bb = v.column4, adjusted_net_bb = v.column5
+                 FROM (VALUES ${batch.map(() => "(?, ?, ?, ?, ?)").join(", ")}) AS v WHERE Decisions.id = v.column1`,
+                batch.flatMap((o) => [o.id, o.followed, o.actual_action, o.hand_net_bb, o.adjusted_net_bb])
+            );
+        }
+    }
+
+    /** Every suggestion with its outcome, light enough to summarize often (see summarizeOutcomes). */
+    async outcomeRows(): Promise<OutcomeRow[]> {
+        return this.db.all<OutcomeRow>(
+            `SELECT game_id, hand_number, model, source, substr(prompt, 1, 40) AS prompt, followed, hand_net_bb, adjusted_net_bb FROM Decisions ORDER BY id`
+        );
+    }
+
+    /** Follow rate and results by suggestion source, after matching any suggestions not matched yet. */
+    async results(): Promise<OutcomeSummary> {
+        await this.matchPendingDecisions();
+        return summarizeOutcomes(await this.outcomeRows());
     }
 
     async hands(): Promise<HandRow[]> {

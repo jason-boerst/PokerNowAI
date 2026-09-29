@@ -70,6 +70,9 @@ export class DBService {
             );
         `);
         await this.addMissingColumns("Hands", { started_at: "TEXT", game_type: "TEXT", source: "TEXT", hero_id: "TEXT" });
+        // what you actually did after each suggestion and what the hand earned (filled in once the hand is stored)
+        await this.addMissingColumns("Decisions", { followed: "INT", actual_action: "TEXT", hand_net_bb: "REAL", adjusted_net_bb: "REAL" });
+        await this.db.exec(`CREATE INDEX IF NOT EXISTS Decisions_hand ON Decisions (game_id, hand_number)`);
         // hands recorded live by versions before the Games table existed
         await this.db.exec(`
             INSERT OR IGNORE INTO Games (game_id, source, hands, first_at, last_at, imported_at)
