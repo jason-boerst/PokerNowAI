@@ -1,7 +1,7 @@
-import { HandState, SeatState } from "./hand-parser.ts";
+import { ActionRecord, HandState, positionLabels, SeatState } from "./hand-parser.ts";
 import { OpponentModel, PostflopAction } from "./equity.ts";
 import type { PlayerRef } from "./player-profile.ts";
-import { PreflopLine, PreflopTendencies, positionWidth, preflopRange } from "./ranges.ts";
+import { PreflopLine, PreflopTendencies, positionWidth, preflopRange, topRange } from "./ranges.ts";
 
 /**
  * Population defaults for players with too few hands to judge (assumed loose home-game field).
@@ -10,6 +10,11 @@ import { PreflopLine, PreflopTendencies, positionWidth, preflopRange } from "./r
 export const POPULATION_TENDENCIES: PreflopTendencies = { vpip: 35, pfr: 12 };
 /** Hands observed before a player's own stats replace the population default. */
 export const MIN_HANDS_FOR_STATS = 20;
+/**
+ * House rules that change what players raise with. Every one of your stored games paid a bounty
+ * for winning a hand with 7-2, so it is on by default; set it to false for a game without one.
+ */
+export const TABLE_RULES = { seven_deuce_bounty: true };
 
 export interface ObservedStats {
     /** Percent, 0-100. */
@@ -19,24 +24,95 @@ export interface ObservedStats {
     hands: number,
     /** Post-flop aggression share, 0-1 (optional). */
     aggression?: number,
+    /** Preflop 3-bet frequency, percent 0-100 (optional). */
+    three_bet?: number,
     /** True when vpip/pfr are already blended toward population averages, so they can be used at any sample size. */
     shrunk?: boolean
 }
 
-/** What a player did preflop, in terms the range estimate understands. */
+/**
+ * What a player did preflop, in terms the range estimate understands. Forced posts (blinds,
+ * straddles, dead blinds, antes, bomb pot bets) are not actions: calling the big blind or a
+ * straddle is a limp, and a big blind or straddler who checks is "check_bb". A player who posted
+ * a missed big blind can check before the action is over; that counts as a limp if they act again.
+ */
 export function preflopLine(s: HandState, player_id: string): PreflopLine {
     let raises = 0;
+    // limped, or checked a posted blind: in only for the big blind so far
+    let limped = false;
     let line: PreflopLine = "unknown";
     for (const a of s.actions) {
         if (a.street !== "preflop") break;
+        const raise = a.type === "raise" || a.type === "bet";
         if (a.player_id === player_id) {
-            if (a.type === "raise" || a.type === "bet") line = raises === 0 ? "raise" : raises === 1 ? "3bet" : "4bet";
-            else if (a.type === "call") line = raises === 0 ? "limp" : "call_raise";
-            else if (a.type === "check") line = "check_bb";
+            if (raise) {
+                line = limped ? "limp_raise" : raises === 0 ? "raise" : raises === 1 ? "3bet" : "4bet";
+            } else if (a.type === "call") {
+                if (raises === 0) {
+                    line = "limp";
+                    limped = true;
+                } else if (line === "raise") {
+                    line = "call_3bet";
+                } else if (line === "unknown") {
+                    line = raises === 1 ? "call_raise" : "cold_call_3bet";
+                } else if (line === "limp" || line === "check_bb") {
+                    // like a cold call, with a limp (or a posted blind) already in
+                    line = raises === 1 ? "call_raise" : "cold_call_3bet";
+                }
+                // a re-raiser or a caller calling a further raise keeps their line
+            } else if (a.type === "check") {
+                line = "check_bb";
+                limped = true;
+            }
         }
-        if (a.type === "raise" || a.type === "bet") raises++;
+        if (raise) raises++;
     }
     return line;
+}
+
+/**
+ * 1.2 against a likely steal (an open from the cutoff, button or small blind), 0.8 against an open
+ * from 4 or more seats before the button (UTG to MP at a full table), else 1. Counted from the
+ * button so it also works at short tables, where the "UTG" seat can be the cutoff.
+ */
+function openerFactor(position: string, players: number): number {
+    if (position === "SB") return 1.2;
+    const labels = positionLabels(players);
+    const i = labels.indexOf(position);
+    if (i < 2) return 1;   // big blind, or a seat we can't place
+    const from_button = labels.length - 1 - i;
+    return from_button <= 1 ? 1.2 : from_button >= 4 ? 0.8 : 1;
+}
+
+/**
+ * How much wider (above 1) or tighter (below 1) than their usual 3-bet range a player's 3-bet is
+ * likely to be, from whose raise they re-raised and how big. 1 unless the player made the hand's
+ * first re-raise. Assumptions for loose home games, not measured values: 3-bets against a
+ * late-position open (often a steal) are wider and against an early-position open tighter, a
+ * short-stack all-in (25 BB or less) is wider, and an unusually big 3-bet (5 times the open or
+ * more, plus one open per caller in between) leans toward big hands.
+ */
+export function reraiseFactor(s: HandState, player_id: string): number {
+    let open: ActionRecord | undefined;
+    let callers = 0;
+    for (const a of s.actions) {
+        if (a.street !== "preflop") break;
+        if (a.type !== "raise" && a.type !== "bet") {
+            if (open && a.type === "call") callers++;
+            continue;
+        }
+        if (!open) {
+            open = a;
+            continue;
+        }
+        if (a.player_id !== player_id) return 1;
+        const opener_id = open.player_id;
+        let f = openerFactor(s.seats.find((p) => p.id === opener_id)?.position ?? "", s.seats.length);
+        if (a.all_in && a.street_total <= 25 * (s.big_blind || 1)) f *= 1.25;
+        else if (a.street_total >= open.street_total * (5 + callers)) f *= 0.85;
+        return Math.max(0.7, Math.min(1.4, f));
+    }
+    return 1;
 }
 
 /** The player's post-flop actions with the board at the time of each. */
@@ -54,12 +130,19 @@ export function opponentModels(s: HandState, stats: (player: PlayerRef) => Obser
         .map((seat) => {
             const observed = stats(seat);
             const usable = observed && (observed.shrunk || observed.hands >= MIN_HANDS_FOR_STATS);
-            const tendencies = usable ? { vpip: observed.vpip, pfr: observed.pfr } : POPULATION_TENDENCIES;
+            // preflopRange checks three_bet and falls back to PFR when it's missing or unusable
+            const tendencies: PreflopTendencies = usable ? { vpip: observed.vpip, pfr: observed.pfr, three_bet: observed.three_bet } : POPULATION_TENDENCIES;
+            const line = preflopLine(s, seat.id);
             return {
                 seat,
                 tendencies,
                 model: {
-                    range: preflopRange(preflopLine(s, seat.id), tendencies, positionWidth(seat.position, s.seats.length)),
+                    // a bomb pot has no preflop decisions: everyone is in with any two cards
+                    range: s.bomb_pot ? topRange(100)
+                        : preflopRange(line, tendencies, positionWidth(seat.position, s.seats.length), {
+                            reraise: line === "3bet" ? reraiseFactor(s, seat.id) : 1,
+                            seven_deuce_bounty: TABLE_RULES.seven_deuce_bounty
+                        }),
                     postflop_actions: postflopActions(s, seat.id),
                     aggression: observed?.aggression
                 }
