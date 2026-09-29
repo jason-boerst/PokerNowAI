@@ -3,6 +3,7 @@ import { sleep } from './helpers/bot-helper.ts';
 import { ask } from './helpers/terminal.ts';
 import { HandState, heroView, parseCards, parseHand } from './engine/hand-parser.ts';
 import { HandRecorder } from './services/hand-recorder.ts';
+import { formatSpot } from './engine/spot-format.ts';
 import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
 
 import { AIMessage, AIService, BotAction, defaultCheckAction, defaultFoldAction } from './interfaces/ai-client-interfaces.ts';
@@ -311,19 +312,7 @@ export class Bot {
                 console.log(`[State] Could not find "${this.bot_name}" among the players in the hand log.`);
                 return state;
             }
-            const inBB = (chips: number) => `${Math.round(chips / (state.big_blind || bb) * 100) / 100} BB`;
-            const parts = [
-                `${view.position}`,
-                `${state.street}${state.board.length ? ` [${state.board.join(" ")}]` : ""}`,
-                `pot ${inBB(view.pot)}`,
-                view.to_call > 0 ? `to call ${inBB(view.to_call)} (pot odds ${Math.round(view.pot_odds * 100)}%)` : "no bet to call",
-                view.min_raise_to !== null ? `min raise to ${inBB(view.min_raise_to)}` : "can't raise",
-                `eff. stack ${inBB(view.effective_stack)}`,
-                `SPR ${Math.round(view.spr * 10) / 10}`,
-                `${view.active_opponents.length} opponent(s)`
-            ];
-            if (state.street === "preflop" && view.limpers > 0) parts.push(`${view.limpers} limper(s)`);
-            console.log(`[State] ${parts.join(" | ")}`);
+            console.log(`[State] ${formatSpot(state, view)}`);
             if (state.unparsed.length > 0) {
                 console.log(`[State] ${state.unparsed.length} log line(s) not understood, e.g. ${JSON.stringify(state.unparsed[0])}`);
             }
