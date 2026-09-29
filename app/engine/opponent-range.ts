@@ -19,6 +19,8 @@ export interface ObservedStats {
     hands: number,
     /** Post-flop aggression share, 0-1 (optional). */
     aggression?: number,
+    /** Preflop 3-bet frequency, percent 0-100 (optional). */
+    three_bet?: number,
     /** True when vpip/pfr are already blended toward population averages, so they can be used at any sample size. */
     shrunk?: boolean
 }
