@@ -23,9 +23,28 @@ import { AIServiceFactory, resolveAIConfig } from './helpers/ai-service-factory.
 import { chooseModelIfNeeded } from './helpers/model-picker.ts';
 import { ask } from './helpers/terminal.ts';
 import { startLiveCommands } from './helpers/live-commands.ts';
+import { BackgroundDashboard, dashboardPort, launchDashboard } from './dashboard/server.ts';
 
 const bot_config: BotConfig = bot_config_json;
 const webdriver_config: WebDriverConfig = webdriver_config_json;
+
+const DB_FILE = "./app/pokernow-gpt.db";
+
+/** Starts the player stats page next to the bot (in its own process), unless DASHBOARD_PORT=0. */
+async function startStatsPage(): Promise<BackgroundDashboard | null> {
+    const port = dashboardPort(process.env.DASHBOARD_PORT);
+    if (port === 0) return null;
+    if (port === null) {
+        console.log(`Player stats page not started: DASHBOARD_PORT in .env should be a port number like 4545 (or 0 to turn it off).`);
+        return null;
+    }
+    try {
+        return await launchDashboard(port, DB_FILE);
+    } catch (err) {
+        console.log(`Player stats page could not start: ${err instanceof Error ? err.message : err}`);
+        return null;
+    }
+}
 
 async function init(): Promise<string> {
     if (bot_config.assistant_mode) {
@@ -49,6 +68,10 @@ async function init(): Promise<string> {
 const bot_manager = async function() {
     dotenv.config();
 
+    // started first so it is ready by the time the game link is entered; the line saying where it is
+    // comes after the questions below, so it never lands in the middle of one
+    const stats_page = await startStatsPage();
+
     // choose the model and create the AI service first, so a missing key or bad provider
     // fails before the browser opens
     const ai_service_factory = new AIServiceFactory();
@@ -58,6 +81,7 @@ const bot_manager = async function() {
     ai_service.init();
 
     const game_id = await init();
+    if (stats_page) console.log(stats_page.status());
 
     const use_existing = webdriver_config.use_existing_browser ?? false;
     const debugging_port = webdriver_config.debugging_port ?? 9222;
@@ -68,7 +92,7 @@ const bot_manager = async function() {
         console.log(`  npm run chrome\n`);
     } else {
         if (bot_config.assistant_mode) {
-            console.log("\nOpening browser — please sit down manually in the browser window.\n");
+            console.log("\nOpening browser. Please sit down manually in the browser window.\n");
         }
     }
 
@@ -81,7 +105,7 @@ const bot_manager = async function() {
     );
     await puppeteer_service.init();
 
-    const db_service = new DBService("./app/pokernow-gpt.db");
+    const db_service = new DBService(DB_FILE);
     await db_service.init();
 
     const player_service = new PlayerService(db_service);
@@ -117,7 +141,8 @@ const bot_manager = async function() {
     try {
         await bot.run();
     } finally {
-        // leave the user's Chrome open (only disconnect) and close the database
+        // stop the stats page, leave the user's Chrome open (only disconnect) and close the database
+        stats_page?.stop();
         await puppeteer_service.closeBrowser().catch(() => undefined);
         await db_service.close().catch(() => undefined);
     }

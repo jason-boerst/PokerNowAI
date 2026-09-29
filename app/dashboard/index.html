@@ -25,14 +25,19 @@ header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding
 header h1 { font-size: 18px; margin: 0; }
 #summary { color: var(--muted); }
 header .spacer { flex: 1; }
-nav a { margin-right: 14px; color: var(--muted); text-decoration: none; font-weight: 600; }
+nav a { margin-right: 14px; color: var(--muted); text-decoration: none; font-weight: 600; white-space: nowrap; }
 nav a.active { color: var(--accent); }
+nav .dot { display: none; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-left: 5px; vertical-align: 1px; }
+nav .dot.on { display: inline-block; }
 main { padding: 16px; max-width: 1500px; margin: 0 auto; }
 button, .button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 7px 12px; font: inherit; cursor: pointer; }
 button.secondary { background: var(--chip); color: var(--text); }
 input, select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
+input[type="checkbox"] { vertical-align: -2px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
 .panel h2 { font-size: 15px; margin: 0 0 10px; }
+.panel h3 { font-size: 13px; margin: 14px 0 8px; color: var(--muted); }
+.panel > :last-child { margin-bottom: 0; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
 .scroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; }
@@ -41,27 +46,34 @@ th:first-child, td:first-child, td.left, th.left { text-align: left; }
 th { font-size: 12px; color: var(--muted); font-weight: 600; cursor: default; user-select: none; }
 th.sortable { cursor: pointer; }
 th.sorted { color: var(--accent); }
+th.group { text-align: center; border-bottom: 2px solid var(--line); }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: var(--chip); }
+tr.away td { opacity: 0.6; }
 .n { color: var(--muted); font-size: 11px; margin-left: 3px; }
 .chip { display: inline-block; background: var(--chip); border-radius: 10px; padding: 1px 8px; font-size: 12px; margin-left: 6px; }
 .you { background: var(--accent); color: #fff; }
+.live { background: var(--good); color: #fff; }
 .pos { color: var(--good); } .neg { color: var(--bad); }
 .flag { color: var(--flag); }
 tr.sub td { white-space: normal; text-align: left; padding-top: 0; font-size: 13px; }
 tr:has(+ tr.sub) td { border-bottom: 0; }
 .muted { color: var(--muted); }
+.small { font-size: 12px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
 .stat { background: var(--chip); border-radius: 6px; padding: 8px 10px; }
 .stat .label { font-size: 12px; color: var(--muted); }
 .stat .value { font-size: 18px; font-weight: 600; }
+.averages { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px; }
+.averages span { white-space: nowrap; }
+.averages b { margin-left: 4px; }
 ul.plain { margin: 0; padding-left: 18px; }
 #drop { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(31, 111, 235, 0.18); border: 3px dashed var(--accent); font-size: 22px; font-weight: 600; z-index: 10; }
 #drop.show { display: flex; }
 #import-results:empty { display: none; }
 .cards { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 a { color: var(--accent); }
-@media (max-width: 640px) { header h1 { font-size: 16px; } main { padding: 12px 16px; } }
+@media (max-width: 640px) { header h1 { font-size: 16px; } main { padding: 12px 16px; } .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } }
 </style>
 </head>
 <body>
@@ -69,7 +81,7 @@ a { color: var(--accent); }
     <h1>PokerNow player database</h1>
     <span id="summary"></span>
     <span class="spacer"></span>
-    <nav><a href="#/players" id="nav-players">Players</a><a href="#/games" id="nav-games">Games</a></nav>
+    <nav><a href="#/now" id="nav-now" title="The game being played right now">Now<span class="dot" id="live-dot"></span></a><a href="#/players" id="nav-players">Players</a><a href="#/games" id="nav-games">Games</a><a href="#/results" id="nav-results">Results</a></nav>
     <label class="button" for="file-input">Import logs</label>
     <input id="file-input" type="file" accept=".csv,text/csv" multiple hidden>
 </header>
@@ -81,22 +93,32 @@ a { color: var(--accent); }
 <script>
 "use strict";
 // All content is built with textContent / DOM nodes (never innerHTML), since player names come from logs.
+// Stats in display order, grouped before / after the flop. `more`: in the players table only with
+// "More stats" on. A stat the server doesn't send is skipped everywhere.
 const STATS = [
-    ["vpip", "VPIP", "Put money in voluntarily preflop"],
-    ["pfr", "PFR", "Raised preflop"],
-    ["three_bet", "3-bet", "Re-raised when facing exactly one preflop raise"],
-    ["limp", "Limp", "Just called when first to put money in"],
-    ["steal", "Steal", "Raised first in from CO, BU or SB"],
-    ["fold_to_steal", "Fold to steal", "In the blinds, folded to a late-position open"],
-    ["fold_to_three_bet", "Fold to 3-bet", "Opened, then folded to a re-raise"],
-    ["cbet", "C-bet", "Bet the flop as the preflop raiser"],
-    ["fold_to_cbet", "Fold to c-bet", "Folded to the preflop raiser's flop bet"],
-    ["aggression", "Aggression", "Post-flop bets and raises as a share of bets, raises, calls and folds"],
-    ["went_to_showdown", "WTSD", "Went to showdown after seeing the flop"],
-    ["won_at_showdown", "W$SD", "Won when going to showdown"]
+    { key: "vpip", label: "VPIP", title: "Put money in voluntarily preflop", group: "pre" },
+    { key: "pfr", label: "PFR", title: "Raised preflop", group: "pre" },
+    { key: "three_bet", label: "3-bet", title: "Re-raised when facing exactly one preflop raise", group: "pre" },
+    { key: "limp", label: "Limp", title: "Just called when first to put money in", group: "pre" },
+    { key: "steal", label: "Steal", title: "Raised first in from CO, BU or SB", group: "pre", more: true },
+    { key: "fold_to_steal", label: "Fold to steal", title: "In the blinds, folded to a late-position open", group: "pre", more: true },
+    { key: "fold_to_three_bet", label: "Fold to 3-bet", title: "Opened, then folded to a re-raise", group: "pre" },
+    { key: "cbet", label: "C-bet", title: "Bet the flop as the preflop raiser", group: "post" },
+    { key: "fold_to_cbet", label: "Fold to c-bet", title: "Folded to the preflop raiser's flop bet", group: "post" },
+    { key: "fold_to_bet_flop", label: "Fold to flop bet", title: "Folded when facing a bet on the flop", group: "post", more: true },
+    { key: "fold_to_bet_turn", label: "Fold to turn bet", title: "Folded when facing a bet on the turn", group: "post", more: true },
+    { key: "fold_to_bet_river", label: "Fold to river bet", title: "Folded when facing a bet on the river", group: "post", more: true },
+    { key: "raise_vs_bet", label: "Raises vs bet", title: "Raised when facing a bet after the flop", group: "post", more: true },
+    { key: "bet_when_checked_to", label: "Bets when checked to", title: "Bet after the flop when nobody had bet yet and it was their turn", group: "post", more: true },
+    { key: "aggression", label: "Aggression", title: "Post-flop bets and raises as a share of bets, raises, calls and folds", group: "post" },
+    { key: "went_to_showdown", label: "WTSD", title: "Went to showdown after seeing the flop", group: "post" },
+    { key: "won_at_showdown", label: "W$SD", title: "Won when going to showdown", group: "post" }
 ];
 const GAME_STATS = ["vpip", "pfr", "three_bet", "aggression", "fold_to_cbet", "went_to_showdown"];
-const LABEL = Object.fromEntries(STATS.map(([k, l]) => [k, l]));
+const STAT = Object.fromEntries(STATS.map((s) => [s.key, s]));
+// where a suggestion came from (unknown ones are shown as sent)
+const SOURCE_NAMES = { engine: "Engine (clear spots)", llm: "AI model (close spots)", "engine-fallback": "Engine (when the AI failed)" };
+const REFRESH_MS = 15000;
 
 function el(tag, props, ...kids) {
     const e = document.createElement(tag);
@@ -113,14 +135,27 @@ function el(tag, props, ...kids) {
     }
     return e;
 }
-const pct = (x) => `${Math.round(x * 100)}%`;
+// replaceChildren, skipping empty parts (it would show a null as the text "null")
+const fill = (parent, ...kids) => parent.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false));
+const pct =(x) => `${Math.round(x * 100)}%`;
 const raw = (r) => r && r.n ? pct(r.k / r.n) : "-";
 const num = (x, d = 1) => (x >= 0 ? "+" : "") + x.toFixed(d);
 const when = (iso) => iso ? new Date(iso).toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
 const signed = (x, d = 1) => el("span", { class: x >= 0 ? "pos" : "neg" }, num(x, d));
+function ago(iso) {
+    const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : when(iso);
+}
+// the stats this server sends, in display order
+const present = (rates) => STATS.filter((s) => rates && rates[s.key]);
 async function api(path, body) {
-    const res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
-    const data = await res.json();
+    let res;
+    try {
+        res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
+    } catch {
+        throw new Error("The stats page is not running. It stops when the bot stops: run npm start (or npm run dashboard) in Terminal, then reload this page.");
+    }
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || res.statusText);
     return data;
 }
@@ -131,10 +166,10 @@ function rateCell(r, title) {
     // estimate (what the bot uses) with the raw sample next to it
     return el("td", { title: `${title}: ${r.k}/${r.n} raw, estimate ${pct(r.value)}` }, pct(r.value), el("span", { class: "n" }, r.n));
 }
-function nameCell(p, show_id) {
+function nameCell(p, show_id, ...extra) {
     return el("td", { class: "left" }, p.name, p.is_me ? el("span", { class: "chip you" }, "YOU") : null,
         show_id && !p.is_me ? el("span", { class: "n cards" }, p.key) : null,
-        p.names && p.names.length > 1 ? el("span", { class: "n", title: p.names.join(", ") }, `+${p.names.length - 1} name${p.names.length > 2 ? "s" : ""}`) : null);
+        p.names && p.names.length > 1 ? el("span", { class: "n", title: p.names.join(", ") }, `+${p.names.length - 1} name${p.names.length > 2 ? "s" : ""}`) : null, ...extra);
 }
 
 // the same name on different PokerNow ids: show the id so they can be told apart
@@ -144,24 +179,53 @@ function repeatedNames(list) {
     return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([name]) => name));
 }
 
+// ---------- summary (header counts and your games' averages) ----------
+let summary = null;
+async function loadSummary() {
+    summary = await api("/api/summary");
+    document.getElementById("summary").textContent = `${summary.games.length} games · ${summary.hands} hands · ${summary.players} players`;
+    return summary;
+}
+const average = (key) => summary && summary.pool && summary.pool.rates[key] !== undefined ? summary.pool.rates[key] : null;
+
+function averagesPanel() {
+    const pool = summary && summary.pool;
+    if (!pool) return null;
+    return el("div", { class: "panel" },
+        el("h2", {}, "Your games on average"),
+        el("div", { class: "averages" }, ...STATS.filter((s) => pool.rates[s.key] !== undefined).map((s) =>
+            el("span", { title: s.title }, s.label, el("b", {}, pct(pool.rates[s.key]))))),
+        el("p", { class: "muted small" }, pool.hands
+            ? `How your opponents play, from ${pool.hands} of their hands. Players the bot knows little about are assumed to play like this.`
+            : "No opponent hands yet, so these are built-in guesses for a loose home game. They update as you play or import logs."));
+}
+
 // ---------- players ----------
-const state = Object.assign({ search: "", min_hands: 20, sort: "hands", dir: -1 }, remember("players-view") || {});
+const state = Object.assign({ search: "", min_hands: 20, sort: "hands", dir: -1, more: false }, remember("players-view") || {});
 let players_cache = [];
 
 async function showPlayers(view) {
-    players_cache = await api("/api/players");
+    // the averages are extra: the table still shows if they can't be loaded
+    [players_cache] = await Promise.all([api("/api/players"), loadSummary().catch(() => null)]);
+    const stats = present(players_cache[0] && players_cache[0].rates);
+    const extra = stats.filter((s) => s.more);
     const search = el("input", { type: "search", placeholder: "Search name or id", value: state.search });
     const min = el("input", { type: "number", min: 0, value: state.min_hands, style: "width:80px" });
+    const more = el("input", { type: "checkbox" });
+    more.checked = !!state.more;
     const body = el("tbody");
     const head = el("tr");
-    const columns = [
-        ["name", "Player", "left"], ["type", "Type", "left"], ["hands", "Hands"], ["games", "Games"],
-        ...STATS.map(([k, l, t]) => [k, l, "", t]),
-        ["bb_per_100", "BB/100"], ["net_bb", "Net BB"], ["last_seen", "Last seen"]
-    ];
     const value = (p, key) => p.rates && p.rates[key] ? p.rates[key].value : p[key];
     const render = () => {
         remember("players-view", state);
+        const shown = stats.filter((s) => state.more || !s.more);
+        const columns = [
+            ["name", "Player", "left"], ["type", "Type", "left"], ["hands", "Hands"], ["games", "Games"],
+            ...shown.map((s) => [s.key, s.label, "", average(s.key) === null ? s.title : `${s.title}. Your games' average: ${pct(average(s.key))}`]),
+            ["bb_per_100", "BB/100"], ["net_bb", "Net BB"], ["last_seen", "Last seen"]
+        ];
+        // a hidden or missing column can't stay the sort order
+        if (!columns.some(([key]) => key === state.sort)) { state.sort = "hands"; state.dir = -1; }
         head.replaceChildren(...columns.map(([key, label, cls, title]) => el("th", {
             class: `sortable ${cls || ""} ${state.sort === key ? "sorted" : ""}`, title,
             onclick: () => { state.dir = state.sort === key ? -state.dir : (key === "name" || key === "type" ? 1 : -1); state.sort = key; render(); }
@@ -177,7 +241,7 @@ async function showPlayers(view) {
         const repeated = repeatedNames(rows);
         body.replaceChildren(...rows.map((p) => el("tr", { class: "clickable", onclick: () => { location.hash = `#/player/${encodeURIComponent(p.key)}`; } },
             nameCell(p, repeated.has(p.name)), el("td", { class: "left", title: p.exploit }, p.type), el("td", {}, p.hands), el("td", {}, p.games),
-            ...STATS.map(([k, l]) => rateCell(p.rates[k], l)),
+            ...shown.map((s) => rateCell(p.rates[s.key], s.label)),
             el("td", {}, signed(p.bb_per_100)), el("td", {}, signed(p.net_bb, 0)), el("td", {}, when(p.last_seen))
         )));
         count.textContent = `${rows.length} of ${players_cache.length} players`;
@@ -185,31 +249,42 @@ async function showPlayers(view) {
     const count = el("span", { class: "muted" });
     search.addEventListener("input", () => { state.search = search.value; render(); });
     min.addEventListener("input", () => { state.min_hands = Number(min.value) || 0; render(); });
-    view.replaceChildren(el("div", { class: "panel" },
-        el("div", { class: "toolbar" }, search, el("label", {}, "Min hands ", min), count),
-        el("div", { class: "scroll" }, el("table", {}, el("thead", {}, head), body)),
-        el("p", { class: "muted" }, "Percentages are estimates: small samples are pulled toward typical home-game averages, so a player needs a few dozen chances before a stat means much. The small number is how many chances the stat had. Results (BB/100, Net BB) include every hand; the tendency stats count Hold'em hands only, without bomb pots.")
-    ));
+    more.addEventListener("change", () => { state.more = more.checked; render(); });
+    fill(view,
+        averagesPanel(),
+        el("div", { class: "panel" },
+            el("div", { class: "toolbar" }, search, el("label", {}, "Min hands ", min),
+                extra.length ? el("label", { title: `Also show: ${extra.map((s) => s.label).join(", ")}` }, more, " More stats") : null, count),
+            el("div", { class: "scroll" }, el("table", {}, el("thead", {}, head), body)),
+            el("p", { class: "muted" }, "Percentages are estimates: small samples are pulled toward your games' averages, so a player needs a few dozen chances before a stat means much. The small number is how many chances the stat had. Hover over a column name for what it means. Results (BB/100, Net BB) include every hand; the tendency stats count Hold'em hands only, without bomb pots.")));
     render();
 }
 
+function statTile(s, r) {
+    const avg = average(s.key);
+    return el("div", { class: "stat", title: s.title },
+        el("div", { class: "label" }, s.label), el("div", { class: "value" }, pct(r.value)),
+        el("div", { class: "n" }, `${r.k}/${r.n} raw (${raw(r)})`),
+        avg === null ? null : el("div", { class: "n" }, `Your games: ${pct(avg)}`));
+}
+
 async function showPlayer(view, key) {
-    const p = await api(`/api/players/${encodeURIComponent(key)}`);
+    const [p] = await Promise.all([api(`/api/players/${encodeURIComponent(key)}`), summary ? null : loadSummary().catch(() => null)]);
     if (!players_cache.length) players_cache = await api("/api/players");
-    const stats = el("div", { class: "grid" }, ...STATS.map(([k, label, title]) => el("div", { class: "stat", title },
-        el("div", { class: "label" }, label), el("div", { class: "value" }, pct(p.rates[k].value)),
-        el("div", { class: "n" }, `${p.rates[k].k}/${p.rates[k].n} raw (${raw(p.rates[k])})`))));
+    const stats = present(p.rates);
+    const tiles = (group) => el("div", { class: "grid" }, ...stats.filter((s) => s.group === group).map((s) => statTile(s, p.rates[s.key])));
     const positions = el("div", { class: "grid" }, ...["early", "middle", "late", "blinds"].map((g) => el("div", { class: "stat" },
         el("div", { class: "label" }, `VPIP ${g}`), el("div", { class: "value" }, pct(p.vpip_by_position[g].value)),
         el("div", { class: "n" }, `${p.vpip_by_position[g].k}/${p.vpip_by_position[g].n} raw`))),
         el("div", { class: "stat" }, el("div", { class: "label" }, "Average bet size"),
             el("div", { class: "value" }, p.bets_seen ? `${pct(p.avg_bet_to_pot)} pot` : "-"), el("div", { class: "n" }, `${p.bets_seen} bets`)));
 
+    const game_stats = GAME_STATS.filter((k) => p.rates[k]);
     const games = el("table", {},
-        el("thead", {}, el("tr", {}, el("th", {}, "Game"), el("th", {}, "Hands"), ...GAME_STATS.map((k) => el("th", {}, LABEL[k])), el("th", {}, "BB/100"), el("th", {}, "Net BB"))),
+        el("thead", {}, el("tr", {}, el("th", {}, "Game"), el("th", {}, "Hands"), ...game_stats.map((k) => el("th", { title: STAT[k].title }, STAT[k].label)), el("th", {}, "BB/100"), el("th", {}, "Net BB"))),
         el("tbody", {}, ...p.games.map((g) => el("tr", { class: "clickable", onclick: () => { location.hash = `#/game/${encodeURIComponent(g.game_id)}`; } },
             el("td", { class: "left" }, when(g.first_at), el("span", { class: "n" }, g.game_id)), el("td", {}, g.hands),
-            ...GAME_STATS.map((k) => el("td", { title: `${g.rates[k].k}/${g.rates[k].n}` }, raw(g.rates[k]), el("span", { class: "n" }, g.rates[k].n))),
+            ...game_stats.map((k) => el("td", { title: `${g.rates[k].k}/${g.rates[k].n}` }, raw(g.rates[k]), el("span", { class: "n" }, g.rates[k].n))),
             el("td", {}, signed(g.bb_per_100)), el("td", {}, signed(g.net_bb, 0))))));
 
     const showdowns = p.showdowns.length ? el("table", {},
@@ -248,7 +323,9 @@ async function showPlayer(view, key) {
         el("div", { class: "panel" }, el("h2", {}, "Most recent game vs their usual play"),
             p.latest_vs_usual.length ? el("ul", { class: "plain" }, ...p.latest_vs_usual.map((t) => el("li", { class: "flag" }, t)))
                 : el("p", { class: "muted" }, p.games.length > 1 ? "No clear differences. A stat is flagged only with 15+ chances in that game and a gap bigger than 10 points and random noise." : "Only one game so far, so there is nothing to compare against.")),
-        el("div", { class: "panel" }, el("h2", {}, "Tendencies (all games)"), stats),
+        el("div", { class: "panel" }, el("h2", {}, "Tendencies (all games)"),
+            el("p", { class: "muted small" }, "Big number: the estimate the bot uses. Below it: the raw count, and the average player in your games for comparison. Hover over a box for what it means."),
+            el("h3", {}, "Before the flop"), tiles("pre"), el("h3", {}, "After the flop"), tiles("post")),
         el("div", { class: "panel" }, el("h2", {}, "By position"), positions),
         el("div", { class: "panel" }, el("h2", {}, "Game by game (raw numbers, newest first)"), el("div", { class: "scroll" }, games)),
         el("div", { class: "panel" }, el("h2", {}, `Shown cards (last ${p.showdowns.length})`), el("div", { class: "scroll" }, showdowns)),
@@ -260,54 +337,128 @@ async function showPlayer(view, key) {
 
 // ---------- games ----------
 async function showGames(view) {
-    const games = await api("/api/games");
+    const [games, live] = await Promise.all([api("/api/games"), api("/api/live").catch(() => null)]);
+    // the game in progress opens in the Now view
+    const inProgress = (g) => !!live && g.game_id === live.game_id;
     view.replaceChildren(el("div", { class: "panel" }, el("h2", {}, "Games"),
         el("div", { class: "scroll" }, el("table", {},
             el("thead", {}, el("tr", {}, el("th", {}, "Started"), el("th", {}, "Last hand"), el("th", { class: "left" }, "Source"), el("th", { class: "left" }, "Game id"), el("th", {}, "Hands"))),
-            el("tbody", {}, ...games.map((g) => el("tr", { class: "clickable", onclick: () => { location.hash = `#/game/${encodeURIComponent(g.game_id)}`; } },
+            el("tbody", {}, ...games.map((g) => el("tr", { class: "clickable", onclick: () => { location.hash = inProgress(g) ? "#/now" : `#/game/${encodeURIComponent(g.game_id)}`; } },
                 el("td", { class: "left" }, when(g.first_at)), el("td", {}, when(g.last_at)),
-                el("td", { class: "left" }, g.source === "live" ? "played live" : `imported ${g.file_name || ""}`),
+                el("td", { class: "left" }, g.source === "live" ? "played live" : `imported ${g.file_name || ""}`, inProgress(g) ? el("span", { class: "chip live" }, "playing now") : null),
                 el("td", { class: "left cards" }, g.game_id), el("td", {}, g.hands))))))));
 }
 
+// auto-refresh (views return whether they want it): a hidden browser tab waits and refreshes as
+// soon as it is shown again
 let refresh_timer = null;
-async function showGame(view, id) {
+let refresh_waiting = false;
+function scheduleRefresh(on) {
+    clearTimeout(refresh_timer);
+    refresh_waiting = false;
+    if (!on) return;
+    const hash = location.hash;
+    refresh_timer = setTimeout(() => {
+        if (location.hash !== hash) return;
+        if (document.hidden) refresh_waiting = true;
+        else route();
+    }, REFRESH_MS);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && refresh_waiting) route(); });
+
+async function showGame(view, id, live = false) {
     const { game, players } = await api(`/api/games/${encodeURIComponent(id)}`);
+    const stats = GAME_STATS.filter((k) => !players.length || players[0].session.rates[k]);
     const repeated = repeatedNames(players.map((p) => p.session));
+    // the live game refreshes by default; any other game only if you turned it on
+    const setting = live ? "now-auto-refresh" : "auto-refresh";
     const auto = el("input", { type: "checkbox" });
-    auto.checked = remember("auto-refresh") === true;
-    auto.addEventListener("change", () => { remember("auto-refresh", auto.checked); schedule(); });
-    const schedule = () => {
-        clearTimeout(refresh_timer);
-        if (auto.checked) refresh_timer = setTimeout(() => { if (location.hash === `#/game/${encodeURIComponent(id)}`) route(); }, 15000);
-    };
+    auto.checked = live ? remember(setting) !== false : remember(setting) === true;
+    auto.addEventListener("change", () => { remember(setting, auto.checked); scheduleRefresh(auto.checked); });
+    // right now, the players still at the table matter most
+    if (live) players.sort((a, b) => (b.seated ? 1 : 0) - (a.seated ? 1 : 0) || b.session.hands - a.session.hands);
     const cell = (p, k) => {
         const g = p.session.rates[k];
         const u = p.usual ? p.usual.rates[k] : null;
         return el("td", { title: `this game ${g.k}/${g.n}${u ? `, usually ${pct(u.value)} over ${u.n} chances` : ""}` },
             raw(g), el("span", { class: "n" }, g.n), u ? el("span", { class: "muted" }, ` · ${pct(u.value)}`) : null);
     };
-    view.replaceChildren(
-        el("p", {}, el("a", { href: "#/games" }, "← All games")),
-        el("div", { class: "panel" },
-            el("h2", {}, `Game ${game.game_id}`),
+    const away = (p) => live && !p.seated;
+    const intro = live
+        ? [el("h2", {}, "Your game right now", el("span", { class: "chip live" }, "live")),
+            el("p", {}, `${game.hands} hands so far · last hand ${ago(game.last_at)} · `, el("span", { class: "cards" }, game.game_id)),
+            el("label", {}, auto, ` Refresh every 15 seconds (last updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })})`)]
+        : [el("h2", {}, `Game ${game.game_id}`),
             el("p", {}, `${game.hands} hands · ${when(game.first_at)} to ${when(game.last_at)} · ${game.source === "live" ? "played live" : "imported"}`),
-            el("label", {}, auto, " Refresh every 15 seconds (for the game you are playing now)")),
+            el("label", {}, auto, " Refresh every 15 seconds (for the game you are playing now)")];
+    const table = el("table", {},
+        el("thead", {}, el("tr", {}, el("th", {}, "Player"), el("th", {}, "Hands"), ...stats.map((k) => el("th", { title: STAT[k].title }, STAT[k].label)),
+            el("th", {}, "Net BB"), el("th", { class: "left" }, "Usually → now"))),
+        el("tbody", {}, ...players.map((p) => [el("tr", { class: `clickable ${away(p) ? "away" : ""}`, onclick: () => { location.hash = `#/player/${encodeURIComponent(p.key)}`; } },
+            nameCell({ ...p.session, key: p.key, is_me: p.is_me, names: [] }, repeated.has(p.session.name),
+                away(p) ? el("span", { class: "chip", title: "Not dealt into the most recent hand: left the table or sitting out" }, "away") : null),
+            el("td", {}, p.session.hands, p.usual ? el("span", { class: "n" }, `of ${p.usual.hands + p.session.hands}`) : null),
+            ...stats.map((k) => cell(p, k)),
+            el("td", {}, signed(p.session.net_bb, 0)),
+            el("td", { class: "left" }, p.usual ? `${p.usual.type} → ${p.current.type}` : `new: ${p.session.type}`)),
+            p.deviations.length ? el("tr", { class: "sub" }, el("td", { colspan: stats.length + 4, class: "flag" }, p.deviations.map((d) => `⚑ ${d}`).join("   "))) : null
+        ])));
+    fill(view,
+        live ? null : el("p", {}, el("a", { href: "#/games" }, "← All games")),
+        el("div", { class: "panel" }, ...intro),
         el("div", { class: "panel" },
-            el("h2", {}, "How each player is playing in this game"),
-            el("p", { class: "muted" }, "Each cell: this game's raw number, the number of chances, then their usual estimate from every other game. ⚑ marks a clear difference."),
-            el("div", { class: "scroll" }, el("table", {},
-                el("thead", {}, el("tr", {}, el("th", {}, "Player"), el("th", {}, "Hands"), ...GAME_STATS.map((k) => el("th", {}, LABEL[k])),
-                    el("th", {}, "Net BB"), el("th", { class: "left" }, "Usually → now"))),
-                el("tbody", {}, ...players.map((p) => [el("tr", { class: "clickable", onclick: () => { location.hash = `#/player/${encodeURIComponent(p.key)}`; } },
-                    nameCell({ ...p.session, key: p.key, is_me: p.is_me, names: [] }, repeated.has(p.session.name)), el("td", {}, p.session.hands, p.usual ? el("span", { class: "n" }, `of ${p.usual.hands + p.session.hands}`) : null),
-                    ...GAME_STATS.map((k) => cell(p, k)),
-                    el("td", {}, signed(p.session.net_bb, 0)),
-                    el("td", { class: "left" }, p.usual ? `${p.usual.type} → ${p.current.type}` : `new: ${p.session.type}`)),
-                    p.deviations.length ? el("tr", { class: "sub" }, el("td", { colspan: GAME_STATS.length + 4, class: "flag" }, p.deviations.map((d) => `⚑ ${d}`).join("   "))) : null
-                ])))))
-    );
-    schedule();
+            el("h2", {}, live ? "How each player is playing today" : "How each player is playing in this game"),
+            el("p", { class: "muted" }, "Each cell: this game's raw number, the number of chances, then their usual estimate from every other game. ⚑ marks a clear difference. Click a player for everything about them."),
+            el("div", { class: "scroll" }, table)));
+    return auto.checked;
+}
+
+// ---------- now ----------
+function setLiveDot(on) { document.getElementById("live-dot").classList.toggle("on", on); }
+
+async function showNow(view, live) {
+    if (live === undefined) live = await api("/api/live");
+    setLiveDot(!!live);
+    if (live) return showGame(view, live.game_id, true);
+    view.replaceChildren(el("div", { class: "panel" },
+        el("h2", {}, "No game in progress"),
+        el("p", {}, "While the bot is playing, this page shows everyone in your game and how they are playing today, and updates itself every 15 seconds. The game shows up here once its first hand is finished."),
+        el("p", {}, el("a", { href: "#/players" }, "See all players"), " · ", el("a", { href: "#/games" }, "See past games"))));
+    // keep checking, so the page switches over by itself when a game starts
+    return true;
+}
+
+// ---------- results ----------
+async function showResults(view) {
+    const r = await api("/api/results");
+    const sources = r.sources || [];
+    const note = r.note ? el("p", { class: "muted" }, r.note) : null;
+    if (!sources.length) {
+        view.replaceChildren(el("div", { class: "panel" }, el("h2", {}, "How the suggestions worked out"),
+            note || el("p", { class: "muted" }, "No tracked suggestions yet. They are recorded while the bot runs.")));
+        return;
+    }
+    const has = (g) => g && g.hands > 0;
+    const side = (g) => [
+        el("td", {}, has(g) ? g.hands : "0"),
+        el("td", {}, has(g) ? signed(g.bb_per_100) : "-"),
+        el("td", { class: "muted" }, has(g) && Number.isFinite(g.ci_low) && Number.isFinite(g.ci_high) ? `${num(g.ci_low)} to ${num(g.ci_high)}` : "-")
+    ];
+    const range_title = "95% range: the true result is very likely somewhere in here. If it goes from below 0 to above 0, there is not enough data yet to tell.";
+    view.replaceChildren(el("div", { class: "panel" },
+        el("h2", {}, "How the suggestions worked out"),
+        el("p", {}, "For each kind of suggestion: how often you followed it, and how you did (in big blinds per 100 hands) when you followed it and when you did not."),
+        el("div", { class: "scroll" }, el("table", {},
+            el("thead", {},
+                el("tr", {}, el("th", { colspan: 3 }), el("th", { class: "group", colspan: 3 }, "When you followed it"), el("th", { class: "group", colspan: 3 }, "When you did something else")),
+                el("tr", {}, el("th", {}, "Suggested by"), el("th", {}, "Decisions"), el("th", {}, "Followed"),
+                    ...[1, 2].flatMap(() => [el("th", {}, "Hands"), el("th", {}, "BB/100"), el("th", { title: range_title }, "95% range")]))),
+            el("tbody", {}, ...sources.map((s) => el("tr", {},
+                el("td", { class: "left" }, SOURCE_NAMES[s.source] || s.source),
+                el("td", {}, s.decisions), el("td", {}, Number.isFinite(s.follow_rate) ? pct(s.follow_rate) : "-"),
+                ...side(s.followed), ...side(s.not_followed)))))),
+        el("p", { class: "muted small" }, range_title),
+        note));
 }
 
 // ---------- import ----------
@@ -329,7 +480,6 @@ async function importFiles(files) {
     } catch (err) {
         box.replaceChildren(el("p", { class: "neg" }, `Import failed: ${err.message}`));
     }
-    await loadSummary();
     route();
 }
 document.getElementById("file-input").addEventListener("change", (e) => { importFiles(e.target.files); e.target.value = ""; });
@@ -341,28 +491,54 @@ window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => { e.preventDefault(); drag_depth = 0; drop.classList.remove("show"); importFiles(e.dataTransfer.files); });
 
 // ---------- routing ----------
-async function loadSummary() {
-    const s = await api("/api/summary");
-    document.getElementById("summary").textContent = `${s.games.length} games · ${s.hands} hands · ${s.players} players`;
-}
-async function route() {
+const NAV = { now: ["now"], players: ["players", "player"], games: ["games", "game"], results: ["results"] };
+let rendered_hash = null;
+let route_count = 0;
+async function route(live) {
+    const this_route = ++route_count;
     clearTimeout(refresh_timer);
+    refresh_waiting = false;
     const view = document.getElementById("view");
-    const [, page, arg] = (location.hash || "#/players").split("/");
-    document.getElementById("nav-players").classList.toggle("active", page !== "games" && page !== "game");
-    document.getElementById("nav-games").classList.toggle("active", page === "games" || page === "game");
-    try {
-        if (page === "player" && arg) await showPlayer(view, decodeURIComponent(arg));
-        else if (page === "game" && arg) await showGame(view, decodeURIComponent(arg));
-        else if (page === "games") await showGames(view);
-        else await showPlayers(view);
-    } catch (err) {
-        view.replaceChildren(el("div", { class: "panel neg" }, `Could not load: ${err.message}`));
+    const hash = location.hash;
+    const [, page, arg] = (hash || "#/players").split("/");
+    for (const [name, pages] of Object.entries(NAV)) {
+        document.getElementById(`nav-${name}`).classList.toggle("active", pages.includes(page) || (name === "players" && !Object.values(NAV).flat().includes(page)));
     }
+    // built off-screen, and shown only if no other page was opened while it loaded
+    const target = el("div");
+    let refresh = false;
+    try {
+        if (page === "now") refresh = await showNow(target, live);
+        else if (page === "player" && arg) await showPlayer(target, decodeURIComponent(arg));
+        else if (page === "game" && arg) refresh = await showGame(target, decodeURIComponent(arg));
+        else if (page === "games") await showGames(target);
+        else if (page === "results") await showResults(target);
+        else await showPlayers(target);
+    } catch (err) {
+        target.replaceChildren(el("div", { class: "panel neg" }, `Could not load: ${err.message}`));
+        // the live page keeps trying (the bot may be restarting)
+        refresh = page === "now";
+    }
+    if (this_route !== route_count) return;
+    // a refresh of the same page keeps tables scrolled where they were (on a phone they scroll sideways)
+    const scrolled = rendered_hash === hash ? [...view.querySelectorAll(".scroll")].map((s) => s.scrollLeft) : [];
+    view.replaceChildren(...target.childNodes);
+    view.querySelectorAll(".scroll").forEach((s, i) => { s.scrollLeft = scrolled[i] || 0; });
+    rendered_hash = hash;
+    scheduleRefresh(refresh);
+    // header counts and the live dot stay current (cheap when nothing changed)
+    if (page !== "players") loadSummary().catch(() => {});
+    if (page !== "now") api("/api/live").then((g) => setLiveDot(!!g)).catch(() => {});
 }
-window.addEventListener("hashchange", route);
-loadSummary().catch(() => {});
-route();
+window.addEventListener("hashchange", () => route());
+
+// the landing page: the game being played right now if there is one, otherwise the players
+(async () => {
+    if (location.hash) return route();
+    const live = await api("/api/live").catch(() => null);
+    history.replaceState(null, "", live ? "#/now" : "#/players");
+    route(live);
+})();
 </script>
 </body>
 </html>
