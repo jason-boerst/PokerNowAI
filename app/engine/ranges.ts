@@ -170,15 +170,21 @@ function threeBetPercent(t: PreflopTendencies, pfr: number, reraise: number): nu
     return clamp(pfr / 3 * reraise, 2, 15);
 }
 
-/** Share of all hands a player 4-bets with: about 40% of their 3-bet range, or an eighth of PFR when their 3-bet frequency is unknown. */
-function fourBetPercent(t: PreflopTendencies, pfr: number): number {
-    if (isPercent(t.three_bet)) return clamp(t.three_bet * 0.4, 1.5, 8);
-    return clamp(pfr / 8, 1.5, 6);
+/**
+ * Share of all hands a player 4-bets with: about 40% of their 3-bet range, or an eighth of PFR when their
+ * 3-bet frequency is unknown. `reraise` widens it for the spot (see fourBetFactor).
+ */
+function fourBetPercent(t: PreflopTendencies, pfr: number, reraise = 1): number {
+    const base = isPercent(t.three_bet) ? clamp(t.three_bet * 0.4, 1.5, 8) : clamp(pfr / 8, 1.5, 6);
+    return clamp(base * reraise, 1.5, 16);
 }
 
 /** Details of the spot that change a range beyond the player's tendencies and seat. */
 export interface RangeContext {
-    /** Scales a 3-bet range for the spot (see reraiseFactor in opponent-range.ts); 1 = their usual 3-bet range. */
+    /**
+     * Scales a 3-bet or 4-bet range for the spot (see reraiseFactor and fourBetFactor in opponent-range.ts);
+     * 1 = their usual range.
+     */
     reraise?: number,
     /** The game pays a bounty for winning a hand with 7-2, so raises and re-raises include 7-2. */
     seven_deuce_bounty?: boolean
@@ -207,7 +213,7 @@ export function preflopRange(line: PreflopLine, t: PreflopTendencies, position_w
     switch (line) {
         case "raise": return raising(clamp(pfr * position_width.raise, 2, 90));
         case "3bet": return raising(threeBetPercent(t, pfr, context.reraise ?? 1));
-        case "4bet": return raising(fourBetPercent(t, pfr));
+        case "4bet": return raising(fourBetPercent(t, pfr, context.reraise ?? 1));
         // about as strong as their 3-bets (your games' limp-raisers showed big pairs, AK, AQ and middle pairs)
         case "limp_raise": return raising(clamp(threeBetPercent(t, pfr, 1), 3, 6));
         case "call_raise": return playingRange(Math.min(pfr * 0.35, 6), clamp(vpip * 0.8 * position_width.call, 5, 90), SLOWPLAY_SHARE);

@@ -203,9 +203,37 @@ function boardFoldFactor(air: number | undefined, street: PostflopStreet): numbe
     return air === undefined ? 1 : clamp(1 + AIR_SLOPE[street] * (air - TYPICAL_AIR[street]), 0.85, 1.15);
 }
 
+/**
+ * Facing hero's river raise, a player folds at least the share of their likely hands with no pair (up to
+ * this much). Checked on the stored hands: the engine's estimate of a river bettor's hands matches what
+ * called river bettors showed (62% strong, 21% pair, 17% air predicted; 62%, 17%, 22% shown; 333 bets).
+ */
+const MAX_RIVER_AIR_FOLD = 0.97;
+
+/**
+ * Multiway, each player continues less and raises less than heads-up (the response table is measured
+ * heads-up): per extra player facing hero's bet, a player's chance of continuing is multiplied by
+ * MULTIWAY_CONTINUE and of raising by MULTIWAY_RAISE. Measured on the stored hands (first bet of a street,
+ * each player's first answer): flop c-bets and barrels got 39% folds and 8% raises heads-up, 52% and 7%
+ * per player facing two, 65% and 3% facing three or more; flop leads 24% and 21% heads-up, 58% and 7%, 52%
+ * and 9%; the river 45-59% folds heads-up and 74-90% multiway. Without this a small lead into three
+ * players was modeled as raised 42-56% of the time (measured: 10-26%) and almost never folded to.
+ */
+const MULTIWAY_CONTINUE = 0.75;
+const MULTIWAY_RAISE = 0.6;
+/**
+ * Checked to, each player bets less when more players are left to act: per extra player behind hero, a
+ * player's bet chance is multiplied by this. Measured after the first player checks: someone bet 64% of
+ * flops with one player behind, 65% with two (38% each) and 67% with three or more (27% each); the turn and
+ * river look the same.
+ */
+const MULTIWAY_BET = 0.62;
+
 /** Equity against the hands that call at or above which a bet is for value; below it, a semi-bluff needs a draw or this much. */
 const VALUE_EQUITY = 0.5;
 const SEMI_BLUFF_EQUITY = 0.3;
+/** A draw counts as a semi-bluff only with at least this much equity against the hands that call (a gutshot often has less). */
+const SEMI_BLUFF_DRAW_EQUITY = 0.15;
 /**
  * A bluff or semi-bluff has to beat the best passive option (check, call or fold) by at least this much
  * to be suggested: its profit rests on the fold estimate, the least certain number in the model.
@@ -256,6 +284,8 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
     // hero's bet here would be a lead, c-bet, barrel...; each opponent's share of weak hands on this board
     const role = facing_bet ? undefined : heroBetRole(s);
     const airs = facing_bet ? [] : models.map((m) => rangeClassShares(m, board, hero).air);
+    // facing a river bet: the share of each player's likely hands with no pair, which can't call hero's raise
+    const river_airs = facing_bet && street === "river" ? models.map((m) => rangeClassShares(m, board, hero).air) : [];
     const hero_class = board.length >= 3 ? strengthClass(hero, board) : "air";
 
     // what each opponent does against a bet (or raise) to `to`
@@ -265,16 +295,19 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         const raise_to = Math.min(FACING_RAISE_MULTIPLIER * to, v.effective_stack);
         const folds: number[] = [], raises: number[] = [], adds: number[] = [];
         const table = raise || !role ? null : responseFor(response_table, street, role, invest / Math.max(pot, 1e-9));
+        // players who can answer the bet beyond the first (see MULTIWAY_CONTINUE)
+        const extra = Math.max(0, opponents.filter((_, i) => !seats[i]?.all_in).length - 1);
         opponents.forEach((o, i) => {
             const seat = seats[i];
             // a player who is already all-in can't fold, raise or add chips
             if (seat?.all_in) { folds.push(0); raises.push(0); adds.push(0); return; }
             // hero's bet: how players in your games answer this kind and size of bet, for this player on this board;
-            // hero's raise: this player's fold-to-raise estimate
+            // hero's raise: this player's fold-to-raise estimate, and on the river at least every hand without a
+            // pair (a river bettor's bluffs give up to a raise; otherwise they would count as calling it)
             const fold = table
-                ? clamp(table.fold * playerFoldFactor(o, street) * boardFoldFactor(airs[i], street), 0.03, 0.9)
-                : foldChance(o, street, invest, pot + (raise ? v.to_call : 0), raise);
-            const raise_rate = table ? table.raise * playerRaiseFactor(o) : raiseChance(o) * (raise ? RERAISE_SHARE : 1);
+                ? clamp(1 - (1 - clamp(table.fold * playerFoldFactor(o, street) * boardFoldFactor(airs[i], street), 0.03, 0.9)) * Math.pow(MULTIWAY_CONTINUE, extra), 0.03, 0.95)
+                : Math.max(foldChance(o, street, invest, pot + (raise ? v.to_call : 0), raise), Math.min(river_airs[i] ?? 0, MAX_RIVER_AIR_FOLD));
+            const raise_rate = table ? table.raise * playerRaiseFactor(o) * Math.pow(MULTIWAY_RAISE, extra) : raiseChance(o) * (raise ? RERAISE_SHARE : 1);
             // nobody raises an all-in, or a bet they can't cover more than
             const can_raise = !all_in && raise_to > to + 1e-9 && (!seat || seat.stack + seat.street_contribution > to + 1e-9);
             folds.push(fold);
@@ -324,7 +357,8 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         if (behind.length === 0) return eq * pot * R;
         const behind_ids = new Set(behind.map((p) => p.id));
         // tendencies without a known seat are assumed to act after hero
-        const bettors = opponents.map((o, i) => (!seats[i] || behind_ids.has(seats[i]!.id)) ? betChance(o) : 0);
+        const bet_scale = Math.pow(MULTIWAY_BET, Math.max(0, behind.length - 1));
+        const bettors = opponents.map((o, i) => (!seats[i] || behind_ids.has(seats[i]!.id)) ? betChance(o) * bet_scale : 0);
         const b = 1 - product(bettors.map((x) => 1 - x));
         if (b <= 0) return eq * pot * R;
         // the most likely bettor stands in for whoever bets
@@ -377,7 +411,7 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         fold_probability.set(p.to, pf);
         const action = all_in ? "all-in" : p.raise ? "raise" : "bet";
         const purpose: BetPurpose = called.equity >= VALUE_EQUITY ? "value"
-            : street !== "river" && (hero_class === "draw" || called.equity >= SEMI_BLUFF_EQUITY) ? "semi-bluff"
+            : street !== "river" && ((hero_class === "draw" && called.equity >= SEMI_BLUFF_DRAW_EQUITY) || called.equity >= SEMI_BLUFF_EQUITY) ? "semi-bluff"
             : "bluff";
         candidates.push({
             action, to: p.to, ev, label: `${action === "all-in" ? "all-in" : action === "raise" ? "raise to" : "bet"} ${fmt(p.to)}`,

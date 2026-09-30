@@ -115,6 +115,21 @@ export function reraiseFactor(s: HandState, player_id: string): number {
     return 1;
 }
 
+/**
+ * How much wider than their usual 4-bet range a player's 4-bet (or 5-bet) is: wider when it is all-in.
+ * Measured on the stored hands: all-in 4-bets and 5-bets are always shown when called, and whether they
+ * get called doesn't depend on the raiser's cards, so the 55 shown ones (stacks over 30 BB) are a fair
+ * sample. They looked like the top 8 to 9% of hands (half were in the top 4.4%, three quarters in the top
+ * 6.2%, with hands like AJo, JTo, 97s and 55 among them), while the usual 4-bet estimate is about 3.6% for
+ * your games' 9% 3-bets. 1 for anyone who didn't make the hand's last re-raise all-in.
+ */
+export const ALL_IN_FOUR_BET_WIDTH = 2;
+export function fourBetFactor(s: HandState, player_id: string): number {
+    const raises = s.actions.filter((a) => a.street === "preflop" && (a.type === "raise" || a.type === "bet"));
+    const last = raises[raises.length - 1];
+    return raises.length >= 3 && last.player_id === player_id && last.all_in ? ALL_IN_FOUR_BET_WIDTH : 1;
+}
+
 /** The player's post-flop actions with the board at the time of each. */
 export function postflopActions(s: HandState, player_id: string): { board: string[], action: PostflopAction }[] {
     const board_at = { flop: s.board.slice(0, 3), turn: s.board.slice(0, 4), river: s.board.slice(0, 5) };
@@ -140,7 +155,7 @@ export function opponentModels(s: HandState, stats: (player: PlayerRef) => Obser
                     // a bomb pot has no preflop decisions: everyone is in with any two cards
                     range: s.bomb_pot ? topRange(100)
                         : preflopRange(line, tendencies, positionWidth(seat.position, s.seats.length), {
-                            reraise: line === "3bet" ? reraiseFactor(s, seat.id) : 1,
+                            reraise: line === "3bet" ? reraiseFactor(s, seat.id) : line === "4bet" ? fourBetFactor(s, seat.id) : 1,
                             seven_deuce_bounty: TABLE_RULES.seven_deuce_bounty
                         }),
                     postflop_actions: postflopActions(s, seat.id),

@@ -237,20 +237,37 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         const pd = config.price_defense;
         const eq = context.equity;
         if (!pd.enabled || eq === undefined || !closes_action || v.to_call <= 0) return null;
-        const pot_after = v.pot + v.to_call;
+        // only the chips hero can win: a deeper player's all-in counts up to hero's own stack
+        const hero_max = hero.total_contribution + hero.stack;
+        const pot_after = s.seats.reduce((sum, p) => sum + Math.min(p.total_contribution, hero_max), 0) + v.to_call;
         const need = v.to_call / pot_after;
         const spr_after = Math.max(0, v.effective_stack - s.current_bet) / pot_after;
-        const r = realizationOf(config, cls, multiway, spr_after);
+        // everyone else still in is all-in: no more betting, the cards are simply dealt out
+        const showdown = s.seats.every((p) => p.id === hero.id || p.folded || p.all_in);
+        const r = showdown ? 1 : realizationOf(config, cls, multiway, spr_after);
         const realized = eq * r;
         const ev_bb = (realized * pot_after - v.to_call) / bb;
         const pct = (x: number) => `${Math.round(x * 100)}%`;
-        const numbers = `about ${pct(eq)} equity against their likely hands; out of position a hand like this keeps roughly ${pct(r)} of that (${pct(realized)})`;
+        const numbers = showdown
+            ? `about ${pct(eq)} equity against their likely hands, and nobody left can bet, so all of it counts`
+            : `about ${pct(eq)} equity against their likely hands; out of position a hand like this keeps roughly ${pct(r)} of that (${pct(realized)})`;
         const priced = `${scenario}, priced`;
         if (realized >= need + pd.margin) {
             return { action: "call", size_bb: 0, scenario: priced, reason: `Call ${cls}: ${numbers}, more than the ${pct(need)} this call needs (worth about +${roundBb(ev_bb)} BB).` };
         }
         const close = Math.abs(ev_bb) <= pd.close_spot_bb ? ` Close spot: calling would lose only about ${roundBb(-ev_bb)} BB on average, so either choice costs little.` : "";
         return fold(priced, `Fold ${cls}: ${numbers}, less than the ${pct(need)} this call needs.${close}`);
+    };
+
+    /**
+     * Facing an all-in re-raise (a 3-bet or more) that hero closes: a hand the charts fold still calls when the
+     * price is right (a short stack's all-in comes from a wider range and lays a big price). Hands the charts
+     * play are left alone.
+     */
+    const foldUnlessPriced = (scenario: string, reason: string): PreflopAdvice => {
+        const others_in = s.seats.filter((p) => p.id !== hero.id && !p.folded).length;
+        const priced = last_raise?.all_in && raises.length >= 2 ? priceDefense(`${scenario}, all-in`, others_in > 1) : null;
+        return priced?.action === "call" ? priced : fold(scenario, reason);
     };
 
     // hero opened and nobody re-raised: not a normal preflop decision point, let the caller decide
@@ -270,7 +287,7 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
             return finish({ action: "raise", size_bb: to, scenario, reason: `Raise ${cls} as a bluff.${note}` });
         }
         if (raises.length >= 2) {
-            return fold("7-2 bounty, facing a 3-bet", `Fold ${cls}: against a 3-bet the price is too high, even with the bounty.${note}`);
+            return foldUnlessPriced("7-2 bounty, facing a 3-bet", `Fold ${cls}: against a 3-bet the price is too high, even with the bounty.${note}`);
         }
         if (callers_after_raise.length <= config.bounty.max_callers_for_three_bet && v.min_raise_to !== null) {
             const advice = finish({ action: "raise", size_bb: threeBetTo(last_raise.street_total / bb, callers_after_raise.length), scenario: "7-2 bounty, facing a raise", reason: "" });
@@ -306,7 +323,7 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
                 if (inRange(config, hu.sb_call_vs_three_bet, cls)) {
                     return { action: "call", size_bb: 0, scenario, reason: `Call the 3-bet with ${cls}: good enough heads-up, and you have position after the flop.` };
                 }
-                return fold(scenario, `Fold ${cls} to the 3-bet.`);
+                return foldUnlessPriced(scenario, `Fold ${cls} to the 3-bet.`);
             }
         }
         if (hero.position === "BB" || (hero.position === "SB" && raises.length === 1)) {
@@ -355,7 +372,7 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
             }
             return { action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: too strong to fold, but too deep to put it all in with ${cls}.${deep_note}${loose_note}` };
         }
-        return fold(scenario, `Fold ${cls}: ${raises.length + 1}-bets in home games are almost always very strong.${deep_note}`);
+        return foldUnlessPriced(scenario, `Fold ${cls}: ${raises.length + 1}-bets in home games are almost always very strong.${deep_note}`);
     }
 
     // --- facing a 3-bet
@@ -379,14 +396,14 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         const extras = hero_raised && in_position ? [ranges.in_position_extra, deep_extra] : [];
         if (inAny(config, [base, ...extras], cls)) {
             if (!setMineOk()) {
-                return fold(scenario, `Fold ${cls}: stacks are too short to call a 3-bet hoping to hit a set (need ${size.set_mine_min_stack_to_call_ratio}x the call).`);
+                return foldUnlessPriced(scenario, `Fold ${cls}: stacks are too short to call a 3-bet hoping to hit a set (need ${size.set_mine_min_stack_to_call_ratio}x the call).`);
             }
             const why = inRange(config, base, cls) ? `strong enough to call, not to 4-bet for value${in_position ? ", and you have position" : ""}`
                 : inAny(config, [ranges.in_position_extra], cls) ? "worth a call because you have position"
                 : `stacks are deep and you have position, so you can win a big pot when you hit`;
             return { action: "call", size_bb: 0, scenario, reason: `Call the 3-bet with ${cls}: ${why}.${freq}` };
         }
-        return fold(scenario, `Fold ${cls} to the 3-bet.${freq}`);
+        return foldUnlessPriced(scenario, `Fold ${cls} to the 3-bet.${freq}`);
     }
 
     // --- facing one raise
