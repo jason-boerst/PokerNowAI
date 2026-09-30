@@ -7,11 +7,13 @@ import { PanelModel } from './ui/panel-model.ts';
 import { HandState, HeroView, heroView, parseCards, parseHand } from './engine/hand-parser.ts';
 import { HandRecorder } from './services/hand-recorder.ts';
 import { formatSpot } from './engine/spot-format.ts';
-import { equity } from './engine/equity.ts';
+import { equity, RangeProfile, rangeProfile } from './engine/equity.ts';
 import { requiredEquity } from './engine/odds.ts';
-import { ObservedStats, opponentModels, TABLE_RULES } from './engine/opponent-range.ts';
+import { ObservedStats, opponentModels, seatModel, TABLE_RULES } from './engine/opponent-range.ts';
 import { bountyFromHands, describeRules, GameRules, mergeRules } from './engine/game-rules.ts';
 import { preflopAdvice } from './engine/preflop.ts';
+import { describeMix, mixPreflop, MixStrategy, MixStyle, parseMixStyle, rollRng } from './engine/mixing.ts';
+import { classOf } from './engine/hand-classes.ts';
 import { describeProfile, isHoldem, PlayerRef } from './engine/player-profile.ts';
 import { decidePostflop, Decision, opponentTendencies } from './helpers/decision-maker.ts';
 import { PlayerLookup, ProfileService } from './services/profile-service.ts';
@@ -53,7 +55,9 @@ export interface BotOptions {
     /** Stop after being unseated this long. */
     stop_after_unseated_ms: number,
     /** Stop after fewer than 2 players have been at the table this long. */
-    stop_after_short_table_ms: number
+    stop_after_short_table_ms: number,
+    /** Mixed strategies with a 1-100 random number: "balanced" (default), "exploit", "gto" or "off" (see engine/mixing.ts). */
+    rng_mixing?: string
 }
 
 export class Bot {
@@ -80,6 +84,10 @@ export class Bot {
     private rules_described = "";
     /** When the current turn started (the AI's time budget counts from here). */
     private turn_started_at = 0;
+    /** This turn's random number (1-100): one per turn, so every panel of the turn shows the same roll. */
+    private turn_roll = 50;
+    /** The mixed strategy behind the current suggestion (recorded with the decision). */
+    private last_mix: MixStrategy | null = null;
     private hands_since_rules_check = 0;
 
     private table!: Table;
@@ -331,6 +339,8 @@ export class Bot {
             {
                 if (data.includes("action-signal")) {
                     this.turn_started_at = Date.now();
+                    this.turn_roll = rollRng();
+                    this.last_mix = null;
                     console.log("Performing bot's turn.");
                     if (this.assistant_mode) {
                         await this.puppeteer_service.showOverlayStatus("Your turn · analyzing…", "…").catch(() => undefined);
@@ -397,12 +407,19 @@ export class Bot {
                             }
                             const latency_ms = Date.now() - started;
                             this.table.resetPlayerActions();
+                            // the roll and the mix it picked from go into the decision record
+                            // (set by the decision methods above; read through a typed local)
+                            const mix = this.last_mix as MixStrategy | null;
+                            if (mix) {
+                                bot_action = { ...bot_action, rng: { roll: mix.roll, style: mix.style, mix: describeMix(mix), pick: mix.pick.label } };
+                            }
                             if (this.assistant_mode) {
                                 // the engine only models Hold'em; other games (e.g. Omaha in a mixed game) get the AI alone
                                 const other_game = hand_state && !isHoldem(hand_state) ? hand_state.game_type : null;
                                 const overlay: PanelModel = this.overlay_content ?? basicPanel({
                                     action: bot_action.action_str, size_bb: bot_action.bet_size_in_BBs, big_blind: this.game.getBigBlind(),
-                                    model_name: this.ai_service.getModelName(), reason: bot_action.reason ?? "", other_game
+                                    model_name: this.ai_service.getModelName(), reason: bot_action.reason ?? "", other_game,
+                                    ...(this.mixStyle() !== "off" ? { roll: this.turn_roll } : {})
                                 });
                                 this.overlay_content = null;
                                 await this.puppeteer_service.injectSuggestion(this.state_warning ? withWarning(overlay, this.state_warning) : overlay);
@@ -549,12 +566,41 @@ export class Bot {
         }
     }
 
+    /** The mixing style from the config ("balanced" when unset). */
+    private mixStyle(): MixStyle {
+        return parseMixStyle(this.options.rng_mixing);
+    }
+
+    /** Types of the opponents still in the hand ("unknown" without history), for the mix. */
+    private opponentTypes(state: HandState): string[] {
+        return state.seats.filter((p) => p.id !== state.hero_id && !p.folded)
+            .map((p) => this.options.profiles?.info(p).current?.type ?? "unknown");
+    }
+
+    /** Hero's range on this board as the other players can estimate it, with hero's hand placed in it. */
+    private heroRange(state: HandState): RangeProfile | undefined {
+        try {
+            const hero = state.seats.find((p) => p.id === state.hero_id);
+            if (!hero || state.board.length < 3) return undefined;
+            return rangeProfile(seatModel(state, hero, (player) => this.statsLookup(player)).model, state.board, state.hero_cards);
+        } catch (err) {
+            console.log("[RNG] Could not estimate your range:", err instanceof Error ? err.message : err);
+            return undefined;
+        }
+    }
+
+    /** One line for the terminal: the roll and the mix it picked from. */
+    private logMix(mix: MixStrategy): void {
+        console.log(`[RNG] ${mix.roll} -> ${mix.pick.label}${mix.pure ? " (clear spot: any roll)" : ` (mix: ${describeMix(mix)})`}`);
+    }
+
     /** Post-flop decision: engine analysis, the AI for close spots, validated with an engine fallback. */
     private async postflopDecision(state: HandState, view: HeroView): Promise<Decision> {
         const players = this.playerLookup();
         const opponents = opponentTendencies(state, (player) => this.statsLookup(player), players);
         const notes = this.tableNotes();
         const inputs = { state, view, players, stats: (player: PlayerRef) => this.statsLookup(player), notes };
+        const style = this.mixStyle();
         const d = await decidePostflop(state, view, this.ai_service, opponents, players, {
             llm_timeout_ms: this.options.llm_timeout_ms,
             always_ask_llm: this.options.always_ask_llm,
@@ -562,14 +608,19 @@ export class Bot {
             decision_seconds: this.rules.decision_seconds ?? this.options.decision_seconds,
             turn_started_at: this.turn_started_at || undefined,
             notes,
+            ...(style !== "off" ? { mixing: { style, roll: this.turn_roll, hero_range: this.heroRange(state), opponent_types: this.opponentTypes(state) } } : {}),
             // close spot: show the engine's pick right away while the AI thinks
-            on_asking_llm: async (analysis, budget_ms) => {
+            on_asking_llm: async (analysis, budget_ms, mix) => {
                 if (!this.assistant_mode) return;
-                const provisional = postflopOverlay(inputs, analysis, null, this.ai_service.getModelName(), budget_ms);
+                const provisional = postflopOverlay(inputs, analysis, null, this.ai_service.getModelName(), budget_ms, mix);
                 if (this.state_warning) provisional.warnings.unshift(this.state_warning);
                 await this.puppeteer_service.injectSuggestion(provisional).catch(() => undefined);
             }
         });
+        if (d.mix) {
+            this.last_mix = d.mix;
+            this.logMix(d.mix);
+        }
         const a = d.analysis;
         const bb = state.big_blind;
         console.log(`[Engine] equity ${Math.round(a.equity * 100)}% (${Math.round(a.equity_when_called * 100)}% when called)` +
@@ -617,10 +668,25 @@ export class Bot {
         if (!advice) return null;
         const size = advice.action === "raise" || advice.action === "all-in" ? ` to ${advice.size_bb} BB` : "";
         console.log(`[Preflop] ${advice.action.toUpperCase()}${size} (${advice.scenario}): ${advice.reason}`);
+        // mixing: hands at the edge of a chart range (and close prices) mix with the neighboring action
+        const style = this.mixStyle();
+        const mix = style !== "off" ? mixPreflop({
+            advice, cls: classOf(state.hero_cards), style, roll: this.turn_roll,
+            pot_bb: view.pot / state.big_blind, opponent_types: this.opponentTypes(state)
+        }) : undefined;
+        if (mix) {
+            this.last_mix = mix;
+            this.logMix(mix);
+        }
         this.overlay_content = preflopOverlay(
             { state, view, players: this.playerLookup(), stats: (player) => this.statsLookup(player), notes: this.tableNotes() },
-            advice, this.last_equity
+            advice, this.last_equity, mix
         );
+        if (mix && (mix.pick.action !== advice.action || mix.pick.size_bb !== (advice.action === "raise" || advice.action === "all-in" ? advice.size_bb : 0))) {
+            const pick = mix.pick;
+            const size_bb = pick.action === "all-in" ? Math.round(view.max_raise_to / state.big_blind * 100) / 100 : pick.size_bb;
+            return { action_str: pick.action, bet_size_in_BBs: size_bb, reason: `${mix.reasons[0] ?? ""} Chart default: ${advice.reason}`.trim() };
+        }
         return { action_str: advice.action, bet_size_in_BBs: advice.size_bb, reason: advice.reason };
     }
 

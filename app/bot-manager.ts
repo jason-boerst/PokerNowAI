@@ -17,6 +17,7 @@ import { existsSync } from 'node:fs';
 import { PRIORS } from './engine/player-profile.ts';
 import { setActionWeights } from './engine/equity.ts';
 import { setResponseTable } from './engine/postflop.ts';
+import { parseMixStyle } from './engine/mixing.ts';
 
 const LOGS_FOLDER = 'logs';
 
@@ -145,8 +146,12 @@ const bot_manager = async function() {
         stop_after_idle_ms: (bot_config.stop_after_idle_minutes ?? 10) * 60_000,
         stop_after_unseated_ms: (bot_config.stop_after_unseated_seconds ?? 60) * 1000,
         stop_after_short_table_ms: (bot_config.stop_after_short_table_minutes ?? 2) * 60_000,
+        rng_mixing: bot_config.rng_mixing,
         profiles
     });
+    const mix_style = parseMixStyle(bot_config.rng_mixing);
+    console.log(mix_style === "off" ? "[RNG] Mixing is off: every suggestion is the single best option."
+        : `[RNG] Mixing: ${mix_style}. Each suggestion shows a random number from 1 to 100; in close spots it picks the play (low numbers passive, high aggressive).`);
     startLiveCommands(ai_service, ai_config);
     try {
         await bot.run();

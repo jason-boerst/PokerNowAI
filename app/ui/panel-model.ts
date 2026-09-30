@@ -67,7 +67,37 @@ export interface PanelOption {
     fold_chance?: number,
     raise_chance?: number,
     /** e.g. "bluff, lead" or "value, c-bet". */
-    kind?: string
+    kind?: string,
+    /** Share of the time the mix plays it (0-1) and its random-number range, e.g. "63-100". */
+    mix?: number,
+    mix_range?: string
+}
+
+/** One option of the mix on the random-number strip. */
+export interface RngSegment {
+    /** e.g. "Check", "Bet 4 BB". */
+    label: string,
+    /** fold, check, call, bet, raise or all-in (for its color). */
+    action: string,
+    /** Its range of numbers, inclusive, within 1-100. */
+    from: number,
+    to: number,
+    /** The roll landed here. */
+    picked: boolean
+}
+
+/** This turn's random number and the mix it picks from: low numbers are the passive options, high the aggressive ones. */
+export interface PanelRng {
+    /** 1-100. */
+    roll: number,
+    /** One option at every roll (a clear spot). */
+    pure: boolean,
+    /** Passive to aggressive; together they cover 1-100. */
+    segments: RngSegment[],
+    /** One line on why it mixes or doesn't, e.g. "Close spot: check and bet 4 BB are within 0.3 BB". */
+    note?: string,
+    /** How a balanced range plays this spot as a whole, e.g. "Balanced range here: fold 33% · continue 67%". */
+    baseline?: string
 }
 
 export interface PanelModel {
@@ -88,6 +118,8 @@ export interface PanelModel {
     },
     /** Bets and raises: "Bluff · lead into the preflop raiser" and its kind (for color). */
     tag?: { text: string, kind: "value" | "semi-bluff" | "bluff" | "neutral" },
+    /** The random number and the mixed strategy (when mixing is on). */
+    rng?: PanelRng,
     /** Always visible: why this action, in short plain lines (first line is the main reason). */
     reasoning: string[],
     warnings: string[],

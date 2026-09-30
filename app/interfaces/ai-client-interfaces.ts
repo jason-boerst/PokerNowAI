@@ -61,7 +61,9 @@ export abstract class AIService {
 export interface BotAction {
     action_str: string,
     bet_size_in_BBs: number,
-    reason?: string
+    reason?: string,
+    /** This turn's random number and the mix it picked from (recorded with the decision). */
+    rng?: { roll: number, style: string, mix: string, pick: string }
 }
 
 export const defaultCheckAction = {

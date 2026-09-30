@@ -73,7 +73,9 @@ describe("scenario runner", () => {
         expect(r.pass).to.equal(false);
         expect(r.failures.join()).to.match(/expected fold, got raise/);
         const nut: Scenario = { id: "t2", description: "nut", table: { n: 9, hero: "BB", cards: "7c 2d" }, script: ["UTG raises 6"], nut: true, expect: {} };
-        expect(runScenario(nut, BUDGET_MS).failures).to.deep.equal(["folds a nut hand"]);
+        expect(runScenario(nut, BUDGET_MS, "off").failures).to.deep.equal(["folds a nut hand"]);
+        // every option the random number could pick is checked too
+        expect(runScenario(nut, BUDGET_MS).failures).to.deep.equal(["folds a nut hand", "mix: folds a nut hand 100% of the time"]);
     });
 });
 

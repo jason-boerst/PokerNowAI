@@ -3,6 +3,7 @@ import { ActionKind, SuggestedAction } from "../engine/legality.ts";
 import { describeProfile, PRIORS } from "../engine/player-profile.ts";
 import type { PlayerLookup } from "../services/profile-service.ts";
 import { PostflopAnalysis } from "../engine/postflop.ts";
+import { describeMix, MixStrategy } from "../engine/mixing.ts";
 import { bb, formatActions, formatSpot } from "../engine/spot-format.ts";
 import { roleText, shortTag } from "./bet-explain.ts";
 
@@ -15,7 +16,7 @@ export interface LLMDecision extends SuggestedAction {
  * Builds the structured post-flop prompt: the table (size, depth, your pool's averages, table notes),
  * full hand, engine numbers, opponent profiles, legal actions. Kept short so the AI answers fast.
  */
-export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalysis, players: PlayerLookup, notes: string[] = []): string {
+export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalysis, players: PlayerLookup, notes: string[] = [], mix?: MixStrategy): string {
     const b = (chips: number) => bb(chips, s.big_blind);
     const lines: string[] = [];
     lines.push(`No-Limit Hold'em cash game${s.bomb_pot ? " (bomb pot)" : ""}, ${s.seats.length} players dealt. ` +
@@ -70,6 +71,10 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
         lines.push(`    ${c.label}: ${sign(b(c.ev))} BB${details.length ? ` (${details.join(", ")})` : ""}`);
     }
     if (a.bet_role) lines.push(`  A bet by you here would be a ${roleText(a.bet_role, a.street, false)}; the fold and raise rates above are measured from similar spots in your games.`);
+    if (mix && !mix.pure) {
+        lines.push(`  Mixed strategy (random number 1-100, low numbers passive, high aggressive): ${describeMix(mix)}. This turn's number is ${mix.roll}, which plays ${mix.pick.label}.`);
+        lines.push("  These options are close in EV; mixing them keeps your play unpredictable. Follow the number unless you see a clear reason not to, and if you don't, say why.");
+    }
     lines.push("");
     lines.push(`Legal actions: ${legalActions(v, s.big_blind).join("; ")}.`);
     lines.push("Use the engine numbers as inputs, not orders: adjust for the opponents' tendencies, the board texture, future streets and the table rules.");

@@ -5,6 +5,8 @@ import { PlayerRef, PRIORS } from "../engine/player-profile.ts";
 import type { PlayerLookup } from "../services/profile-service.ts";
 import { analyzePostflop, Candidate, isClearSpot, OpponentTendency, PostflopAnalysis } from "../engine/postflop.ts";
 import { opponentModels, ObservedStats } from "../engine/opponent-range.ts";
+import { RangeProfile } from "../engine/equity.ts";
+import { describeMix, mixPostflop, MixStrategy, MixStyle } from "../engine/mixing.ts";
 import { buildDecisionPrompt, parseDecision } from "./decision-prompt.ts";
 import { explainBet } from "./bet-explain.ts";
 
@@ -16,13 +18,29 @@ export interface Decision extends SuggestedAction {
      * or "engine-fallback" (AI answer missing or unusable).
      */
     source: "engine" | "llm" | "engine-fallback",
-    /** Why the AI wasn't asked in a close spot: "off" (ai_mode) or "time" (not enough left on the clock). */
-    ai_skipped?: "off" | "time",
+    /**
+     * Why the AI wasn't asked in a close spot: "off" (ai_mode), "time" (not enough left on the clock) or
+     * "mixed" (the options are close enough to mix, so the random number picks).
+     */
+    ai_skipped?: "off" | "time" | "mixed",
     /** How long the AI was given, in milliseconds (0 when it wasn't asked). */
     ai_budget_ms: number,
     prompt: string,
     response: string,
-    analysis: PostflopAnalysis
+    analysis: PostflopAnalysis,
+    /** The mixed strategy and this turn's roll (when mixing is on). */
+    mix?: MixStrategy
+}
+
+/** Mixing for this decision: the style, this turn's random number, and what the mix is built from. */
+export interface MixingOptions {
+    style: MixStyle,
+    /** 1-100, one per turn. */
+    roll: number,
+    /** Hero's range on this board as the others can estimate it (rangeProfile of hero's seat model). */
+    hero_range?: RangeProfile,
+    /** Types of the opponents still in the hand (e.g. "calling station", "TAG"). */
+    opponent_types?: string[]
 }
 
 /** When to ask the AI post-flop: only in close spots, never (engine only, instant), or in every spot. */
@@ -52,9 +70,11 @@ export interface DecisionOptions {
     notes?: string[],
     /**
      * Called with the engine analysis and the AI's time budget (ms) once the AI has been asked, to show
-     * the engine's provisional pick while it thinks.
+     * the engine's provisional pick while it thinks (with the mix, when mixing is on).
      */
-    on_asking_llm?: (analysis: PostflopAnalysis, budget_ms: number) => Promise<void> | void
+    on_asking_llm?: (analysis: PostflopAnalysis, budget_ms: number, mix?: MixStrategy) => Promise<void> | void,
+    /** Mixed strategies with a random number (see engine/mixing.ts); off when missing. */
+    mixing?: MixingOptions
 }
 
 /** The AI mode from the config; the old `always_ask_llm: true` still means "always" (unless ai_mode is "off"). */
@@ -108,15 +128,23 @@ function fromCandidate(c: Candidate, big_blind: number): SuggestedAction {
     return { action: c.action, size_bb: c.to > 0 ? Math.round(c.to / big_blind * 100) / 100 : 0 };
 }
 
-function engineReason(a: PostflopAnalysis, big_blind: number): string {
-    const [best, next] = a.candidates;
+function engineReason(a: PostflopAnalysis, big_blind: number, chosen: Candidate = a.candidates[0], mix?: MixStrategy): string {
+    const next = a.candidates.filter((c) => c !== chosen).reduce<Candidate | undefined>((x, c) => (!x || c.ev > x.ev ? c : x), undefined);
     const b = (x: number) => (x >= 0 ? "+" : "") + (x / big_blind).toFixed(1);
     const need = a.required_equity > 0 ? `, need ${Math.round(a.required_equity * 100)}%` : "";
     // a bet says what kind it is (value, semi-bluff, bluff; lead, c-bet, barrel) and why
-    const bet = best.purpose ? explainBet(a, best) : null;
-    return (a.note ? `${a.note} ` : "") + (bet ? `${bet.tag}. ${bet.lines[0]} ` : "") +
-        `Equity ${Math.round(a.equity * 100)}%${need}. ${best.label} is worth about ${b(best.ev)} BB` +
+    const bet = chosen.purpose ? explainBet(a, chosen) : null;
+    // with mixing, the mix explains a thin bluff instead of the margin note
+    const rng = mix && !mix.pure ? `RNG ${mix.roll}: ${chosen.label} (mix: ${describeMix(mix)}). ` : "";
+    return rng + (!mix && a.note ? `${a.note} ` : "") + (bet ? `${bet.tag}. ${bet.lines[0]} ` : "") +
+        `Equity ${Math.round(a.equity * 100)}%${need}. ${chosen.label} is worth about ${b(chosen.ev)} BB` +
         (next ? ` vs ${b(next.ev)} BB for ${next.label}.` : ".");
+}
+
+/** The candidate a mix option stands for: same label, action and size (two sizes can round to one label). */
+function candidateOf(a: PostflopAnalysis, pick: { label: string, action: string, size_bb: number }, big_blind: number): Candidate | undefined {
+    return a.candidates.find((c) => c.label === pick.label && c.action === pick.action && Math.abs((c.to > 0 ? c.to / big_blind : 0) - pick.size_bb) < 0.011)
+        ?? a.candidates.find((c) => c.label === pick.label);
 }
 
 const aggressive = (action: string) => action === "bet" || action === "raise" || action === "all-in";
@@ -143,19 +171,27 @@ export async function decidePostflop(
     players: PlayerLookup, options: DecisionOptions
 ): Promise<Decision> {
     const analysis = analyzePostflop(s, v, opponents);
-    const best = fromCandidate(analysis.candidates[0], s.big_blind);
+    // mixing: the random number picks among close options; otherwise the engine's first option
+    const mix = options.mixing ? mixPostflop({ analysis, state: s, view: v, ...options.mixing }) : undefined;
+    const chosen = (mix && candidateOf(analysis, mix.pick, s.big_blind)) || analysis.candidates[0];
+    const best = fromCandidate(chosen, s.big_blind);
     let budget = 0;
     const engine = (source: Decision["source"], note = "", prompt = "", response = ""): Decision => ({
         ...best,
-        reason: note + engineReason(analysis, s.big_blind),
+        reason: note + engineReason(analysis, s.big_blind, chosen, mix),
         confidence: source === "engine" ? 0.8 : 0.5,
-        source, ai_budget_ms: budget, prompt, response, analysis
+        source, ai_budget_ms: budget, prompt, response, analysis,
+        ...(mix ? { mix } : {})
     });
 
     const mode = aiMode(options);
     const clear = clearSpot(analysis, v.pot, s.big_blind);
     if (clear && mode !== "always") {
         return engine("engine");
+    }
+    // the options are close enough to mix: the roll decides (the AI only when it is asked every time)
+    if (mix && !mix.pure && mode !== "always") {
+        return { ...engine("engine", "Close spot, mixed by the random number. "), confidence: 0.6, ai_skipped: "mixed" };
     }
     const elapsed_ms = options.turn_started_at !== undefined ? Date.now() - options.turn_started_at : 0;
     budget = aiBudgetMs({ ...options, elapsed_ms });
@@ -167,12 +203,12 @@ export async function decidePostflop(
         return { ...engine("engine", note), confidence: 0.6, ai_skipped: skipped };
     }
 
-    const prompt = buildDecisionPrompt(s, v, analysis, players, options.notes);
+    const prompt = buildDecisionPrompt(s, v, analysis, players, options.notes, mix);
     // ask first so showing the provisional pick doesn't eat into the AI's time; a failure becomes a
     // value right away (never an unhandled rejection while the overlay updates)
     const answer = withTimeout(Promise.resolve().then(() => ai.query(prompt, [])), budget)
         .then((res) => ({ text: res.curr_message?.text_content ?? "", error: undefined as unknown }), (error: unknown) => ({ text: "", error: error ?? "unknown error" }));
-    await Promise.resolve().then(() => options.on_asking_llm?.(analysis, budget)).catch(() => undefined);
+    await Promise.resolve().then(() => options.on_asking_llm?.(analysis, budget, mix)).catch(() => undefined);
     const { text: response, error } = await answer;
     if (error !== undefined) {
         return engine("engine-fallback", `AI unavailable (${error instanceof Error ? error.message : error}). `, prompt, response);
@@ -191,5 +227,5 @@ export async function decidePostflop(
     if (legality.dominated) {
         return engine("engine-fallback", `AI suggested folding when checking is free. `, prompt, response);
     }
-    return { ...parsed, source: "llm", ai_budget_ms: budget, prompt, response, analysis };
+    return { ...parsed, source: "llm", ai_budget_ms: budget, prompt, response, analysis, ...(mix ? { mix } : {}) };
 }

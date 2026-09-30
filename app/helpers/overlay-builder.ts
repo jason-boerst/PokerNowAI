@@ -8,9 +8,10 @@ import type { PlayerLookup } from "../services/profile-service.ts";
 import { Candidate, PostflopAnalysis } from "../engine/postflop.ts";
 import { explainBet, matchCandidate, shortTag } from "./bet-explain.ts";
 import { PreflopAdvice } from "../engine/preflop.ts";
+import { describeMix, MixStrategy } from "../engine/mixing.ts";
 import { bb } from "../engine/spot-format.ts";
 import { opponentCards } from "../ui/opponent-cards.ts";
-import { PanelModel, PanelOption, toneFor } from "../ui/panel-model.ts";
+import { PanelModel, PanelOption, PanelRng, toneFor } from "../ui/panel-model.ts";
 
 /** @deprecated The panel content is a PanelModel now; kept so older imports still compile. */
 export type OverlayContent = PanelModel;
@@ -31,7 +32,32 @@ export interface PanelDecision {
     reason: string,
     source: string,
     confidence: number,
-    ai_skipped?: string
+    ai_skipped?: string,
+    /** The mixed strategy and this turn's random number (when mixing is on). */
+    mix?: MixStrategy
+}
+
+const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/** "Balanced range here: fold 33% · continue 67%" from a mix's baseline (whole percents that add up to 100). */
+function baselineText(baseline: Record<string, number> | undefined): string | undefined {
+    if (!baseline) return undefined;
+    const entries = Object.entries(baseline).filter(([, x]) => Number.isFinite(x));
+    if (!entries.length) return undefined;
+    const rounded = entries.map(([, x]) => Math.round(x * 100));
+    rounded[rounded.length - 1] = 100 - rounded.slice(0, -1).reduce((s, x) => s + x, 0);
+    return `Balanced range here: ${entries.map(([k], i) => `${k} ${rounded[i]}%`).join(" · ")}`;
+}
+
+/** The random-number strip for a mix: its options passive to aggressive with their ranges, and the roll. */
+export function rngOf(mix: MixStrategy): PanelRng {
+    return {
+        roll: mix.roll,
+        pure: mix.pure,
+        segments: mix.options.map((o) => ({ label: capital(o.label), action: o.action, from: o.from, to: o.to, picked: o === mix.pick })),
+        note: mix.pure ? "Clear spot: the same play at any roll." : "Close spot: the roll picks (low numbers passive, high aggressive).",
+        ...(baselineText(mix.baseline) ? { baseline: baselineText(mix.baseline) } : {})
+    };
 }
 
 /** The most reasoning lines shown. */
@@ -138,8 +164,8 @@ function opponentsOf(inputs: OverlayInputs): { opponents: PanelModel["opponents"
     return { opponents: cards, more_opponents: more, warnings };
 }
 
-/** Panel for a preflop chart decision. */
-export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equity: { equity: number, need: number } | null): PanelModel {
+/** Panel for a preflop chart decision; with a mix, the roll's pick is the action. */
+export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equity: { equity: number, need: number } | null, mix?: MixStrategy): PanelModel {
     const { state: s, view: v } = inputs;
     const opp = opponentsOf(inputs);
     const odds: PanelModel["odds"] = { chart_spot: advice.scenario };
@@ -150,13 +176,22 @@ export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equ
     const fallback = equity
         ? `Chart play for ${advice.scenario}, with ${pct(equity.equity)} equity vs their likely hands.`
         : `Chart play for ${advice.scenario}.`;
+    const pick = mix ? { action: mix.pick.action as string, size_bb: mix.pick.size_bb } : { action: advice.action as string, size_bb: advice.size_bb };
+    let lines = sentences(advice.reason);
+    if (mix && !mix.pure) {
+        lines = pick.action === advice.action
+            ? [...lines, ...mix.reasons]
+            // the roll picked the neighboring action: say so first, then what the chart plays by default
+            : [`RNG ${mix.roll}: ${pick.action === "raise" ? mix.pick.label : pick.action} this time (${describeMix(mix)}).`, ...mix.reasons, `Chart default: ${advice.reason}`];
+    }
     return {
         status: "final",
-        tone: toneFor(advice.action),
-        source: { label: "Preflop chart" },
+        tone: toneFor(pick.action),
+        source: { label: "Preflop chart", ...(mix && !mix.pure ? { detail: "mixed by the roll" } : {}) },
         context: contextLine(s, v),
-        action: actionOf(s, v, advice.action, advice.size_bb),
-        reasoning: reasonLines(sentences(advice.reason), fallback),
+        action: actionOf(s, v, pick.action, pick.size_bb),
+        ...(mix ? { rng: rngOf(mix) } : {}),
+        reasoning: reasonLines(lines, fallback),
         warnings: opp.warnings.map(plain),
         spot: spotOf(inputs),
         hand: handOf(s),
@@ -189,10 +224,14 @@ function bestAlternative(a: PostflopAnalysis, chosen: Candidate): Candidate | un
         .reduce<Candidate | undefined>((best, c) => (!best || c.ev > best.ev ? c : best), undefined);
 }
 
-/** The engine's reasons for a candidate: why this bet, or the equity against the price, and the EV comparison. */
-function engineLines(a: PostflopAnalysis, v: HeroView, chosen: Candidate | undefined, big_blind: number, margin_note: boolean): string[] {
+/**
+ * The engine's reasons for a candidate: why this bet, or the equity against the price, and the EV comparison.
+ * `margin_note`: the engine's note on a thin bluff comes first (true), last (false) or not at all (null, when a
+ * mix explains the choice instead).
+ */
+function engineLines(a: PostflopAnalysis, v: HeroView, chosen: Candidate | undefined, big_blind: number, margin_note: boolean | null): string[] {
     const lines: string[] = [];
-    if (margin_note && a.note) lines.push(a.note);
+    if (margin_note === true && a.note) lines.push(a.note);
     const bet = chosen ? explainBet(a, chosen) : null;
     if (bet) lines.push(...bet.lines);
     else if (v.to_call > 0 && a.required_equity > 0) {
@@ -210,35 +249,43 @@ function engineLines(a: PostflopAnalysis, v: HeroView, chosen: Candidate | undef
         const b = (x: number) => signed(x / big_blind);
         lines.push(`${chosen.label[0].toUpperCase()}${chosen.label.slice(1)} is worth about ${b(chosen.ev)} BB${alt ? ` vs ${b(alt.ev)} BB for ${alt.label}` : ""}.`);
     }
-    if (!margin_note && a.note && !lines.includes(a.note)) lines.push(a.note);
+    if (margin_note === false && a.note && !lines.includes(a.note)) lines.push(a.note);
     return lines;
 }
 
 /**
  * Panel for a post-flop decision, or the engine's provisional pick (decision null) while the AI thinks.
- * `budget_ms` is the time the AI was actually given, for the countdown.
+ * `budget_ms` is the time the AI was actually given, for the countdown. `mix` is the mixed strategy for the
+ * provisional pick (a decision carries its own).
  */
 export function postflopOverlay(
     inputs: OverlayInputs, a: PostflopAnalysis, decision: PanelDecision | null,
-    model_name: string, budget_ms: number
+    model_name: string, budget_ms: number, mix?: MixStrategy
 ): PanelModel {
     const { state: s, view: v } = inputs;
     const b = s.big_blind;
+    const m = decision?.mix ?? mix;
     const top = a.candidates[0];
-    const chosen = decision ?? { action: top.action, size_bb: top.to > 0 ? round2(top.to / b) : 0, reason: "", source: "thinking", confidence: 0 };
+    // the engine's own pick: the roll's option when mixing, else its first option
+    const engine_pick = m ? { action: m.pick.action as string, size_bb: m.pick.size_bb, label: m.pick.label }
+        : { action: top.action as string, size_bb: top.to > 0 ? round2(top.to / b) : 0, label: top.label };
+    const chosen = decision ?? { ...engine_pick, reason: "", source: "thinking", confidence: 0 };
     const size_bb = targetBB(v, chosen.action, chosen.size_bb, b);
     const chosen_candidate = chosenCandidate(a, chosen.action, size_bb, b);
     const warnings: string[] = [];
+    const mixed = !!m && !m.pure;
 
     const options: PanelOption[] = a.candidates.map((c) => {
         const kind = shortTag(a, c);
+        const in_mix = m && !m.pure ? m.options.find((o) => o.label === c.label) : undefined;
         return {
             label: c.label,
             ev_bb: round2(c.ev / b),
             chosen: c === chosen_candidate,
             ...(c.fold_chance !== undefined ? { fold_chance: c.fold_chance } : {}),
             ...(c.raise_chance !== undefined ? { raise_chance: c.raise_chance } : {}),
-            ...(kind ? { kind } : {})
+            ...(kind ? { kind } : {}),
+            ...(in_mix ? { mix: in_mix.freq, mix_range: `${in_mix.from}-${in_mix.to}` } : {})
         };
     });
 
@@ -246,15 +293,22 @@ export function postflopOverlay(
     // (an AI size between options is tagged like the closest one; an all-in only like an all-in option)
     const closest = chosen.action === "all-in" ? chosen_candidate : matchCandidate(a, chosen.action, size_bb, b);
     const bet = closest ? explainBet(a, closest) : null;
-    const passive_by_margin = !aggressive(chosen.action) && !!a.note && top?.action === chosen.action;
+    // the engine's margin rule picked the passive option (with a mix: only when the mix kept it pure)
+    const passive_by_margin = !aggressive(chosen.action) && !!a.note && top?.action === chosen.action && !mixed;
     let tag: PanelModel["tag"];
     if (bet && closest?.purpose) tag = { text: bet.tag, kind: closest.purpose };
     else if (passive_by_margin) {
         const word = chosen.action === "check" ? "Check" : chosen.action === "call" ? "Call" : "Fold";
         tag = { text: `${word}: a bluff here is too close to call`, kind: "neutral" };
+    } else if (mixed && !aggressive(chosen.action)) {
+        tag = { text: `Mixed spot: ${chosen.action} on this roll`, kind: "neutral" };
     }
 
-    const engine = engineLines(a, v, chosen_candidate, b, passive_by_margin);
+    // with a mix, its reasons replace the engine's margin note: why it mixes and the balanced-range numbers
+    // first, then the engine's own reasons for the option the roll picked
+    const engine = m && mixed
+        ? [...m.reasons, ...engineLines(a, v, chosen_candidate, b, null)]
+        : engineLines(a, v, chosen_candidate, b, passive_by_margin);
     let source: PanelModel["source"];
     let reasoning: string[];
     if (decision === null) {
@@ -263,13 +317,19 @@ export function postflopOverlay(
     } else if (decision.source === "llm") {
         source = { label: `AI (${model_name})`, detail: `${pct(decision.confidence)} confident` };
         const family = (x: string) => (x === "raise" ? "bet" : x);
-        if (family(top.action) !== family(decision.action)) warnings.push(`The AI disagrees with the engine's top option (${top.label}).`);
+        if (mixed && family(engine_pick.action) !== family(decision.action)) {
+            warnings.push(`The AI went against the random number: roll ${m!.roll} plays ${engine_pick.label} (${describeMix(m!)}).`);
+        } else if (family(engine_pick.action) !== family(decision.action)) {
+            warnings.push(`The AI disagrees with the engine's top option (${engine_pick.label}).`);
+        }
         reasoning = sentences(decision.reason);
         if (!reasoning.length) reasoning = engine;
+        else if (mixed) reasoning.push(m!.reasons[0]);
     } else if (decision.source === "engine") {
         source = {
             label: "Engine",
-            detail: decision.ai_skipped === "off" ? "close spot, AI off" : decision.ai_skipped === "time" ? "close spot, no time for AI" : "clear spot"
+            detail: decision.ai_skipped === "off" ? "close spot, AI off" : decision.ai_skipped === "time" ? "close spot, no time for AI"
+                : decision.ai_skipped === "mixed" || mixed ? "mixed by the roll" : "clear spot"
         };
         reasoning = engine;
     } else {
@@ -291,6 +351,7 @@ export function postflopOverlay(
         context: contextLine(s, v, a.in_position),
         action: actionOf(s, v, chosen.action, chosen.size_bb),
         ...(tag ? { tag } : {}),
+        ...(m ? { rng: rngOf(m) } : {}),
         reasoning: reasonLines(reasoning, `${chosen.action[0].toUpperCase()}${chosen.action.slice(1)} is the engine's best option here.`),
         warnings: [...new Set(warnings.map(plain))],
         ...(decision === null ? { thinking: { model: model_name, budget_ms, started_at: Date.now() } } : {}),
@@ -311,7 +372,9 @@ export interface BasicPanelInputs {
     reason: string,
     /** The game when it isn't Hold'em (e.g. "Pot Limit Omaha Hi"); null when the hand state is missing. */
     other_game: string | null,
-    state_warning?: string
+    state_warning?: string,
+    /** This turn's random number, shown with the AI's single option (there is no mix without the engine). */
+    roll?: number
 }
 
 /** Panel for the basic prompt (no engine): a hand that isn't Hold'em, or no readable hand state. */
@@ -330,6 +393,13 @@ export function basicPanel(p: BasicPanelInputs): PanelModel {
         source: { label: `AI (${p.model_name})`, detail: `basic prompt (${p.other_game ? `${p.other_game}: no engine` : "full hand state unavailable"})` },
         context: p.other_game ? `${p.other_game} · no engine` : "Hand state unavailable",
         action,
+        ...(p.roll !== undefined ? {
+            rng: {
+                roll: p.roll, pure: true,
+                segments: [{ label: capital(a), action: a, from: 1, to: 100, picked: true }],
+                note: "No engine here, so no mix: the same play at any roll."
+            }
+        } : {}),
         reasoning: reasonLines(sentences(p.reason), "The AI gave no reason for this action."),
         warnings,
         spot: { pot_bb: 0, to_call_bb: 0, pot_odds: 0, stack_bb: 0, effective_bb: 0, spr: 0, spr_label: "SPR", notes: [] },

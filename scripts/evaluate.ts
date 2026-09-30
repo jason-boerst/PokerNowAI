@@ -14,6 +14,8 @@ import { replayAll } from "../app/eval/replay.ts";
 import { comparePolicies, counterfactualSpots, CounterfactualSpot, PolicyComparison } from "../app/eval/counterfactual.ts";
 import { agreementReport, AgreementReport } from "../app/eval/agreement.ts";
 import { capturePool, PoolModel, simulateParallel, SimSummary, summarizeSim } from "../app/eval/simulate.ts";
+import { mixingReport, MixingReport } from "../app/eval/mixing-report.ts";
+import type { MixStyle } from "../app/engine/mixing.ts";
 import { WinrateSummary } from "../app/engine/winrate.ts";
 import { SumInterval } from "../app/eval/stats.ts";
 
@@ -59,8 +61,9 @@ const interval = (s: SumInterval) => `${sign(s.total)} BB (95% CI bootstrap [${s
 const t0 = Date.now();
 log("PokerNow GPT evaluation on your hands");
 log("=====================================");
+const MIX_STYLES: MixStyle[] = ["exploit", "balanced", "gto"];
 const hands = await replayAll(rows, links, {
-    in_sample, time_budget_ms: 120,
+    in_sample, time_budget_ms: 120, mix_styles: MIX_STYLES,
     progress: (done, total) => process.stderr.write(`\rreplaying your hands: game ${done} of ${total}`)
 });
 process.stderr.write("\n");
@@ -138,6 +141,23 @@ const kinds = ["fold", "check", "call", "raise"] as const;
 log("            " + kinds.map((k) => k.padStart(7)).join(""));
 for (const a of kinds) log(`  you ${a.padEnd(6)} ` + kinds.map((b) => String(agree.confusion[a][b]).padStart(7)).join(""));
 
+// --- mixing ---
+log();
+log("Mixing with the random number (RNG), by style");
+log("---------------------------------------------");
+log("At every replayed decision: which options the mix plays and how often (engine/mixing.ts). The cost is the post-flop EV given up");
+log("by mixing instead of always taking the best option, by the engine's own estimates (preflop charts have no EVs, so no cost there).");
+log("This shows what mixing changes, not that it wins: its benefit, being harder to read, can't be measured from these hands.");
+const mixing: MixingReport[] = MIX_STYLES.map((style) => mixingReport(hands, style));
+for (const r of mixing) {
+    const mixed = (["preflop", "flop", "turn", "river"] as const).map((st) => `${st} ${pct(r.by_street[st].mixed / Math.max(1, r.by_street[st].decisions))}`).join(", ");
+    log(`  ${r.style}: mixed spots ${mixed}; cost ${sign(-r.cost_per_100, 1)} BB per 100 hands (${sign(-r.cost_bb, 1)} BB over ${r.hands} hands)`);
+    log(`    post-flop bluffs: engine ${pct(r.bluffs.engine)} of decisions, mix ${pct(r.bluffs.mix)}`);
+    log(`    facing a bet (${r.defense.spots}): continues engine ${pct(r.defense.engine)}, mix ${pct(r.defense.mix)}, balanced defense (MDF) ${pct(r.defense.balanced)}`);
+    log(`    not facing a bet (${r.betting.spots}): bets engine ${pct(r.betting.engine)}, mix ${pct(r.betting.mix)}, balanced range ${pct(r.betting.balanced)}`);
+    log(`    all decisions: ` + kinds.map((k) => `${k} ${pct(r.kinds.engine[k])} -> ${pct(r.kinds.mix[k])}`).join(", "));
+}
+
 // --- 3. simulation ---
 let sim: { pool: PoolModel, pool_hands: number, runs: { label: string, summary: SimSummary, seconds: number }[] } | null = null;
 if (!flag("--no-sim") && sim_hands > 0) {
@@ -191,6 +211,7 @@ if (out_file) {
             details: spots.map(({ game_id: _g, ...rest }) => rest)
         },
         agreement: agree as AgreementReport,
+        mixing,
         simulation: sim
     };
     writeFileSync(out_file, JSON.stringify(report, null, 2));

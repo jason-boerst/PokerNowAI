@@ -10,10 +10,12 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { equity, resetActionWeights, setActionWeights } from "../app/engine/equity.ts";
+import { equity, rangeProfile, resetActionWeights, setActionWeights } from "../app/engine/equity.ts";
 import { heroView, HandState, HeroView, parseHand, positionLabels } from "../app/engine/hand-parser.ts";
 import { ActionKind, checkLegality } from "../app/engine/legality.ts";
-import { ObservedStats, opponentModels, POPULATION_TENDENCIES, TABLE_RULES } from "../app/engine/opponent-range.ts";
+import { ObservedStats, opponentModels, POPULATION_TENDENCIES, seatModel, TABLE_RULES } from "../app/engine/opponent-range.ts";
+import { describeMix, mixPostflop, mixPreflop, MixStrategy, MixStyle } from "../app/engine/mixing.ts";
+import { classOf } from "../app/engine/hand-classes.ts";
 import { PlayerProfile, PlayerRef, PRIORS, RATE_KEYS, RateKey, resetPriors } from "../app/engine/player-profile.ts";
 import { analyzePostflop, PostflopAnalysis, resetResponseTable, setResponseTable } from "../app/engine/postflop.ts";
 import { preflopAdvice, PreflopAdvice } from "../app/engine/preflop.ts";
@@ -55,6 +57,8 @@ const ARCHETYPES: Record<Exclude<Archetype, "pool">, ArchetypeStats> = {
         raise_vs_bet: 0.12, bet_when_checked_to: 0.45, went_to_showdown: 0.28, fold_to_three_bet: 0.5 } }
 };
 const ARCHETYPE_HANDS = 300;
+/** The profile service's type name for each archetype (what the mix reads to decide how much balance matters). */
+const PLAYER_TYPE: Record<Archetype, string> = { station: "calling station", nit: "nit", maniac: "maniac", tag: "TAG", pool: "unknown" };
 
 function statsOf(type: Archetype | undefined): ObservedStats | undefined {
     if (!type || type === "pool") return undefined;
@@ -481,7 +485,9 @@ export interface ScenarioResult {
     analysis?: PostflopAnalysis,
     /** Hero's equity (preflop: against the likely hands of the players still in). */
     equity?: number,
-    view: HeroView
+    view: HeroView,
+    /** The mixed strategy the random number picks from (every option in it is checked too). */
+    mix?: MixStrategy
 }
 
 /** The longest an analysis may take: the action clock needs the answer quickly. */
@@ -509,8 +515,12 @@ export function spotOf(sc: Scenario): { s: HandState, v: HeroView } {
     return { s, v };
 }
 
-/** Runs one scenario through the engine (preflop charts or the post-flop model) and checks it. */
-export function runScenario(sc: Scenario, time_budget_ms?: number): ScenarioResult {
+/**
+ * Runs one scenario through the engine (preflop charts or the post-flop model) and checks it: the engine's
+ * single pick, and every option the random number could pick under `mix_style` (they must all be legal and
+ * respect the scenario's "never" rules, and the expected play must stay at least half of the mix).
+ */
+export function runScenario(sc: Scenario, time_budget_ms?: number, mix_style: MixStyle = "balanced"): ScenarioResult {
     const { s, v } = spotOf(sc);
     const bb = s.big_blind;
     const type = (ref: PlayerRef) => sc.players?.[ref.name];
@@ -564,7 +574,37 @@ export function runScenario(sc: Scenario, time_budget_ms?: number): ScenarioResu
     if (e.size_bb && aggressive(action) && action !== "all-in" && (size_bb < e.size_bb[0] - 1e-9 || size_bb > e.size_bb[1] + 1e-9)) {
         failures.push(`size ${size_bb} BB outside the expected ${e.size_bb[0]}-${e.size_bb[1]} BB`);
     }
-    return { scenario: sc, pass: failures.length === 0, failures, action, size_bb, ms, street: s.street, big_blind: bb, preflop, analysis, equity: eq ?? analysis?.equity, view: v };
+
+    // the mix: every option the roll could pick
+    let mix: MixStrategy | undefined;
+    if (mix_style !== "off") {
+        const opponent_types = s.seats.filter((p) => p.id !== s.hero_id && !p.folded).map((p) => PLAYER_TYPE[type(p) ?? "pool"]);
+        if (preflop) {
+            mix = mixPreflop({ advice: preflop, cls: classOf(s.hero_cards), style: mix_style, roll: 50, pot_bb: v.pot / bb, opponent_types });
+        } else if (analysis) {
+            const hero = s.seats.find((p) => p.id === s.hero_id)!;
+            const hero_range = rangeProfile(seatModel(s, hero, stats).model, s.board, s.hero_cards);
+            mix = mixPostflop({ analysis, state: s, view: v, style: mix_style, roll: 50, hero_range, opponent_types });
+        }
+    }
+    const share = (x: number) => `${Math.round(x * 100)}%`;
+    for (const o of mix?.options ?? []) {
+        const size = o.action === "all-in" ? v.max_raise_to / bb : o.size_bb;
+        const ok = checkLegality({ action: o.action as ActionKind, size_bb: size }, v, bb);
+        if (!ok.legal) failures.push(`mix: ${o.label} is illegal (${ok.reason})`);
+        if (ok.dominated) failures.push(`mix: ${o.label} folds when checking is free`);
+        if (sc.nut && o.action === "fold") failures.push(`mix: folds a nut hand ${share(o.freq)} of the time`);
+        if (aggressive(o.action) && o.action !== "all-in" && v.min_raise_to !== null) {
+            const chips = size * bb;
+            if (chips < v.min_raise_to - 1e-6 || chips > v.max_raise_to + 1e-6) failures.push(`mix: size ${size} BB outside ${v.min_raise_to / bb}-${v.max_raise_to / bb} BB`);
+        }
+        for (const x of e.not ?? []) if (matches(o.action, x)) failures.push(`mix: must not ${x}, but ${o.label} ${share(o.freq)} of the time`);
+    }
+    if (mix && wanted.length) {
+        const other = mix.options.filter((o) => !wanted.some((w) => matches(o.action, w))).reduce((sum, o) => sum + o.freq, 0);
+        if (other > 0.5) failures.push(`mix: expected ${wanted.join(" or ")} at least half the time, but other plays ${share(other)} (${describeMix(mix)})`);
+    }
+    return { scenario: sc, pass: failures.length === 0, failures, action, size_bb, ms, street: s.street, big_blind: bb, preflop, analysis, equity: eq ?? analysis?.equity, view: v, mix };
 }
 
 /** One line per result, plus every option's EV when it failed (or `verbose`). */
@@ -573,6 +613,7 @@ export function describeResult(r: ScenarioResult, verbose = false): string {
     const size = r.size_bb > 0 ? ` ${r.size_bb} BB` : "";
     const head = `${r.pass ? "PASS" : "FAIL"} ${r.scenario.id.padEnd(34)} ${`${r.action}${size}`.padEnd(16)} ${Math.round(r.ms).toString().padStart(4)} ms  ${r.scenario.description}`;
     const lines = [head];
+    if (r.mix && !r.mix.pure) lines.push(`     mix: ${describeMix(r.mix)}`);
     if (!r.pass) lines.push(`     ${r.failures.join("; ")}`);
     if (!r.pass || verbose) {
         if (r.preflop) {

@@ -7,13 +7,15 @@
 // hands it is judged on. The engine's built-in constants were tuned on these same games, which no
 // replay can undo.
 import { allInAdjustedNet } from "../engine/allin-ev.ts";
-import { equity } from "../engine/equity.ts";
+import { equity, rangeProfile } from "../engine/equity.ts";
 import { bountyFromHands } from "../engine/game-rules.ts";
 import { HandState, heroView, HeroView, netResult, parseHand, Street } from "../engine/hand-parser.ts";
-import { opponentModels, TABLE_RULES } from "../engine/opponent-range.ts";
-import { analyzePostflop, setResponseTable } from "../engine/postflop.ts";
+import { opponentModels, seatModel, TABLE_RULES } from "../engine/opponent-range.ts";
+import { analyzePostflop, PostflopAnalysis, setResponseTable } from "../engine/postflop.ts";
 import { preflopAdvice } from "../engine/preflop.ts";
 import { setActionWeights } from "../engine/equity.ts";
+import { mixPostflop, mixPreflop, MixStrategy, MixStyle } from "../engine/mixing.ts";
+import { classOf } from "../engine/hand-classes.ts";
 import { opponentTendencies } from "../helpers/decision-maker.ts";
 import type { PlayerRef } from "../engine/player-profile.ts";
 import type { ObservedStats } from "../engine/opponent-range.ts";
@@ -27,7 +29,33 @@ export interface EngineChoice {
     kind: Kind,
     /** Bet or raise-to in chips (0 otherwise). */
     to: number,
-    label: string
+    label: string,
+    /** The engine's pick is a bluff or semi-bluff bet or raise (post-flop). */
+    bluff?: boolean,
+    /** With AdvisorOptions.mix_styles: the mixed strategy under each style (roll 50; only the frequencies matter). */
+    mixes?: Partial<Record<MixStyle, MixedChoice>>
+}
+
+/** A mixed strategy reduced to what the mixing report needs. */
+export interface MixedChoice {
+    pure: boolean,
+    /** EV given up by mixing, big blinds (post-flop). */
+    cost_bb?: number,
+    options: { kind: Kind, freq: number, bluff: boolean }[],
+    baseline?: Record<string, number>
+}
+
+function mixedChoice(m: MixStrategy, s: HandState, a: PostflopAnalysis | null): MixedChoice {
+    const bb = s.big_blind;
+    return {
+        pure: m.pure,
+        ...(m.cost_bb !== undefined ? { cost_bb: m.cost_bb } : {}),
+        options: m.options.map((o) => {
+            const c = a?.candidates.find((x) => x.label === o.label);
+            return { kind: kindOf(o.action, o.size_bb * bb, s), freq: o.freq, bluff: !!c?.purpose && c.purpose !== "value" };
+        }),
+        ...(m.baseline ? { baseline: m.baseline } : {})
+    };
 }
 
 export type Advisor = (s: HandState, v: HeroView) => EngineChoice | null;
@@ -126,13 +154,16 @@ export interface AdvisorOptions {
     /** Time budget for the preflop equity estimate the price check uses (the live bot uses 150). */
     preflop_equity_ms?: number,
     /** 7-2 bounty in chips (0: none). */
-    seven_deuce_bounty?: number
+    seven_deuce_bounty?: number,
+    /** Also record the mixed strategy under these styles (see engine/mixing.ts). */
+    mix_styles?: MixStyle[]
 }
 
-/** The engine as the live bot runs it with the AI off. */
+/** The engine as the live bot runs it with the AI off (its deterministic pick; mixes on request). */
 export function engineAdvisor(o: AdvisorOptions): Advisor {
     return (s, v) => {
         const bb = s.big_blind;
+        const types = () => s.seats.filter((p) => p.id !== s.hero_id && !p.folded).map((p) => o.players(p).current?.type ?? "unknown");
         if (s.street === "preflop") {
             // the live bot prices calls with its equity estimate against the players still in
             let eq: number | undefined;
@@ -143,13 +174,33 @@ export function engineAdvisor(o: AdvisorOptions): Advisor {
             const advice = preflopAdvice(s, v, o.stats, undefined, { seven_deuce_bounty: o.seven_deuce_bounty ?? 0, equity: eq });
             if (!advice) return null;
             const to = advice.action === "raise" || advice.action === "all-in" ? advice.size_bb * bb : 0;
-            return { kind: kindOf(advice.action, to, s), to, label: advice.action + (to ? ` ${Math.round(advice.size_bb * 10) / 10} BB` : "") };
+            const choice: EngineChoice = { kind: kindOf(advice.action, to, s), to, label: advice.action + (to ? ` ${Math.round(advice.size_bb * 10) / 10} BB` : "") };
+            if (o.mix_styles?.length) {
+                const opponent_types = types();
+                choice.mixes = {};
+                for (const style of o.mix_styles) {
+                    const m = mixPreflop({ advice, cls: classOf(s.hero_cards), style, roll: 50, pot_bb: v.pot / bb, opponent_types });
+                    choice.mixes[style] = mixedChoice(m, s, null);
+                }
+            }
+            return choice;
         }
         const tendencies = opponentTendencies(s, o.stats, o.players);
         const a = analyzePostflop(s, v, tendencies, o.time_budget_ms ?? 120);
         const best = a.candidates[0];
         if (!best) return null;
-        return { kind: kindOf(best.action, best.to, s), to: best.to, label: best.label };
+        const choice: EngineChoice = { kind: kindOf(best.action, best.to, s), to: best.to, label: best.label, bluff: !!best.purpose && best.purpose !== "value" };
+        if (o.mix_styles?.length) {
+            const hero = s.seats.find((p) => p.id === s.hero_id);
+            const hero_range = hero ? rangeProfile(seatModel(s, hero, o.stats).model, s.board, s.hero_cards) : undefined;
+            const opponent_types = types();
+            choice.mixes = {};
+            for (const style of o.mix_styles) {
+                const m = mixPostflop({ analysis: a, state: s, view: v, style, roll: 50, hero_range, opponent_types });
+                choice.mixes[style] = mixedChoice(m, s, a);
+            }
+        }
+        return choice;
     };
 }
 
@@ -158,6 +209,8 @@ export interface ReplayOptions {
     in_sample?: boolean,
     time_budget_ms?: number,
     preflop_equity_ms?: number,
+    /** Also record the mixed strategy under these styles at every decision. */
+    mix_styles?: MixStyle[],
     /** Called after each game with (games done, games total). */
     progress?: (done: number, total: number) => void
 }
@@ -196,7 +249,8 @@ export async function replayAll(rows: HandRow[], links: Map<string, string>, opt
             TABLE_RULES.seven_deuce_bounty = bounty > 0;
             const advisor = engineAdvisor({
                 stats: (p) => profiles.stats(p), players: (p) => profiles.info(p),
-                time_budget_ms: opts.time_budget_ms, preflop_equity_ms: opts.preflop_equity_ms, seven_deuce_bounty: bounty
+                time_budget_ms: opts.time_budget_ms, preflop_equity_ms: opts.preflop_equity_ms, seven_deuce_bounty: bounty,
+                mix_styles: opts.mix_styles
             });
             for (const row of hero_rows) {
                 if (row.game_id !== game_id) continue;

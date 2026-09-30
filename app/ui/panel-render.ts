@@ -23,6 +23,8 @@
 // `.pgpt-countdown`   only while thinking: data-budget-ms, data-started-at (epoch ms). It is the fill
 //                     bar inside `.pgpt-countdown-track`; the host animates its width 100% -> 0.
 // `.pgpt-tag`         bet kind chip, data-kind="value|semi-bluff|bluff|neutral".
+// `.pgpt-rng`         this turn's random number (`.pgpt-rng-roll-value`) and the mix: one `.pgpt-rng-seg` per option
+//                     (widths add up to 100%), `.pgpt-rng-marker` at the roll, `.pgpt-rng-legend` with each range.
 // `.pgpt-keyline`     equity, need, pot, to call and SPR in one line under the action (in the top area).
 // `.pgpt-body`        everything below the top.
 // `.pgpt-why`         reasoning box, always visible (not a section, never collapses).
@@ -160,6 +162,47 @@ function countdown(m: PanelModel): string {
         + `<div class="pgpt-countdown-row"><span class="pgpt-countdown-model">Asking ${esc(t.model)}</span>`
         + `<span class="pgpt-countdown-text">up to ${secs}s</span></div>`
         + `<div class="pgpt-countdown-track"><div class="pgpt-countdown" data-budget-ms="${budget}" data-started-at="${started}"></div></div></div>`;
+}
+
+/** Color family of an action on the random-number strip; bigger bets get darker greens. */
+function rngKind(action: string, aggressive_index: number): string {
+    if (action === "fold" || action === "check" || action === "call") return action;
+    if (action === "all-in") return "allin";
+    return aggressive_index <= 0 ? "bet" : aggressive_index === 1 ? "bet2" : "bet3";
+}
+
+/**
+ * This turn's random number and the mix it picks from: a 1-100 bar split into the options (passive on the
+ * left, aggressive on the right) with a marker at the roll, and a legend with each option's numbers.
+ */
+function rngStrip(m: PanelModel): string {
+    const r = m.rng;
+    if (!r || !r.segments.length) return "";
+    const roll = Math.max(1, Math.min(100, Math.round(finite(r.roll) ? r.roll : 1)));
+    let aggressive_index = -1;
+    const kinds = r.segments.map((s) => {
+        if (s.action === "bet" || s.action === "raise") aggressive_index++;
+        return rngKind(s.action, aggressive_index);
+    });
+    const range = (s: { from: number, to: number }) => (s.from === s.to ? `${s.from}` : `${s.from}-${s.to}`);
+    const segs = r.segments.map((s, i) => {
+        const width = Math.max(0, Math.min(100, s.to - s.from + 1));
+        return `<span class="pgpt-rng-seg pgpt-rng-${kinds[i]}${s.picked ? " pgpt-rng-picked" : ""}" style="width:${width}%" title="${esc(s.label)}: ${esc(range(s))}"></span>`;
+    }).join("");
+    const legend = r.pure
+        ? `<span class="pgpt-rng-item pgpt-rng-item-picked"><i class="pgpt-rng-swatch pgpt-rng-${kinds[0]}"></i>${esc(r.segments[0].label)} <b>at any roll</b></span>`
+        : r.segments.map((s, i) => `<span class="pgpt-rng-item${s.picked ? " pgpt-rng-item-picked" : ""}"><i class="pgpt-rng-swatch pgpt-rng-${kinds[i]}"></i>${esc(s.label)} <b>${esc(range(s))}</b></span>`).join("");
+    const label = r.pure ? `Random number ${roll}: ${r.segments[0].label} at any roll`
+        : `Random number ${roll}: ${r.segments.map((s) => `${s.label} ${range(s)}`).join(", ")}`;
+    return `<div class="pgpt-rng" data-pure="${r.pure ? "1" : "0"}">`
+        + `<div class="pgpt-rng-roll" title="This turn's random number (1-100): low numbers pick the passive options, high numbers the aggressive ones">`
+        + `<span class="pgpt-rng-roll-label">RNG</span><span class="pgpt-rng-roll-value">${roll}</span></div>`
+        + `<div class="pgpt-rng-main"><div class="pgpt-rng-bar" role="img" aria-label="${esc(label)}">${segs}`
+        + `<span class="pgpt-rng-marker" style="left:${(roll - 0.5).toFixed(1)}%"></span></div>`
+        + `<div class="pgpt-rng-legend">${legend}</div>`
+        + (r.note ? `<div class="pgpt-rng-note">${esc(r.note)}</div>` : "")
+        + (r.baseline ? `<div class="pgpt-rng-note pgpt-rng-baseline">${esc(r.baseline)}</div>` : "")
+        + `</div></div>`;
 }
 
 /** The numbers that decide the spot, one line under the action so they stay visible without scrolling. */
@@ -323,6 +366,7 @@ function optionRow(o: PanelOption, max: number): string {
     if (o.kind) meta.push(`<span class="pgpt-opt-kind">${esc(o.kind)}</span>`);
     if (finite(o.fold_chance)) meta.push(`<span>folds ${esc(pct(o.fold_chance))}</span>`);
     if (finite(o.raise_chance)) meta.push(`<span>raised ${esc(pct(o.raise_chance))}</span>`);
+    if (finite(o.mix)) meta.push(`<span class="pgpt-opt-mix">mix ${esc(pct(o.mix))}${o.mix_range ? ` (RNG ${esc(o.mix_range)})` : ""}</span>`);
     return `<div class="pgpt-option${o.chosen ? " pgpt-option-chosen" : ""}" data-chosen="${o.chosen ? "1" : "0"}">`
         + `<div class="pgpt-opt-head"><span class="pgpt-opt-mark" aria-hidden="true">${o.chosen ? "▶" : ""}</span>`
         + `<span class="pgpt-opt-label">${esc(o.label)}</span>`
@@ -576,8 +620,41 @@ ${R} .pgpt-kv { display: flex; justify-content: space-between; align-items: base
 ${R} .pgpt-kv b { font-weight: 700; color: var(--pgpt-text); text-align: right; overflow-wrap: anywhere; }
 ${R} .pgpt-odds-row + .pgpt-meter + .pgpt-kv { border-top: 0; }
 
+/* random number strip: the roll, a 1-100 bar split into the mix's options, and a legend */
+${R} .pgpt-rng { display: flex; align-items: stretch; gap: 9px; margin: 8px 10px 0; padding: 7px 9px 7px 7px; border-radius: 10px;
+  background: var(--pgpt-card); border: 1px solid var(--pgpt-line); }
+${R} .pgpt-rng-roll { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 46px; padding: 3px 4px;
+  border-radius: 8px; background: #0b0f0d; border: 1px solid rgba(255,255,255,0.18); }
+${R} .pgpt-rng-roll-label { font-size: 9px; font-weight: 800; letter-spacing: 0.12em; color: var(--pgpt-muted); }
+${R} .pgpt-rng-roll-value { font-size: 22px; font-weight: 900; line-height: 1.05; color: #fff; font-variant-numeric: tabular-nums; }
+${R} .pgpt-rng-main { flex: 1 1 auto; min-width: 0; }
+${R} .pgpt-rng-bar { position: relative; display: flex; height: 12px; margin-top: 3px; border-radius: 6px; overflow: visible; background: rgba(255,255,255,0.06); }
+${R} .pgpt-rng-seg { display: block; height: 100%; opacity: 0.55; box-shadow: inset -1px 0 0 rgba(0,0,0,0.55); }
+${R} .pgpt-rng-seg:first-child { border-radius: 6px 0 0 6px; }
+${R} .pgpt-rng-seg:nth-last-child(2) { border-radius: 0 6px 6px 0; box-shadow: none; }
+${R} .pgpt-rng[data-pure="1"] .pgpt-rng-seg { border-radius: 6px; }
+${R} .pgpt-rng-seg.pgpt-rng-picked { opacity: 1; }
+${R} .pgpt-rng-fold { background: #ef4444; }
+${R} .pgpt-rng-check { background: #eab308; }
+${R} .pgpt-rng-call { background: #86efac; }
+${R} .pgpt-rng-bet { background: #4ade80; }
+${R} .pgpt-rng-bet2 { background: #16a34a; }
+${R} .pgpt-rng-bet3 { background: #15803d; }
+${R} .pgpt-rng-allin { background: #166534; }
+${R} .pgpt-rng-marker { position: absolute; top: -5px; bottom: -5px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.8), 0 0 6px rgba(255,255,255,0.6); }
+${R} .pgpt-rng-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 7px; font-size: 12px; color: var(--pgpt-muted); }
+${R} .pgpt-rng-item { display: inline-flex; align-items: center; gap: 4px; overflow-wrap: anywhere; }
+${R} .pgpt-rng-item b { font-weight: 700; color: #cbd5e1; font-variant-numeric: tabular-nums; }
+${R} .pgpt-rng-item-picked { color: var(--pgpt-text); font-weight: 700; }
+${R} .pgpt-rng-item-picked b { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+${R} .pgpt-rng-swatch { flex: none; display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+${R} .pgpt-rng-note { margin-top: 3px; font-size: 11px; color: var(--pgpt-faint); overflow-wrap: anywhere; }
+${R} .pgpt-panel[data-status="stale"] .pgpt-rng-seg, ${R} .pgpt-panel[data-status="stale"] .pgpt-rng-swatch { filter: grayscale(1); }
+
 /* options */
 ${R} .pgpt-options { display: flex; flex-direction: column; gap: 4px; }
+${R} .pgpt-opt-mix { color: #e2e8f0; font-weight: 700; }
 ${R} .pgpt-option { padding: 6px 8px 7px; border-radius: 8px; border: 1px solid transparent; }
 ${R} .pgpt-option-chosen { background: var(--pgpt-tone-soft); border-color: var(--pgpt-tone); }
 ${R} .pgpt-opt-head { display: flex; align-items: baseline; gap: 6px; }
@@ -632,7 +709,7 @@ ${R} .pgpt-note { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-
 export function renderPanel(model: PanelModel): { html: string, css: string } {
     const tone = token(model.tone, "go");
     const status = token(model.status, "final");
-    const top = header(model) + banner(model) + countdown(model) + tag(model) + keyline(model);
+    const top = header(model) + banner(model) + rngStrip(model) + countdown(model) + tag(model) + keyline(model);
     const body = why(model) + warnings(model)
         + opponentsSection(model) + oddsSection(model) + optionsSection(model) + handSection(model) + spotSection(model);
     const html = `<div class="pgpt-panel" data-tone="${tone}" data-status="${status}">`

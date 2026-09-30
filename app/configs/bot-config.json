@@ -8,5 +8,6 @@
     "llm_timeout_ms": 6000,
     "stop_after_idle_minutes": 10,
     "stop_after_unseated_seconds": 60,
-    "stop_after_short_table_minutes": 2
+    "stop_after_short_table_minutes": 2,
+    "rng_mixing": "balanced"
 }

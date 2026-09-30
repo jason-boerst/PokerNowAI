@@ -266,6 +266,29 @@ const SAMPLES: { name: string, model: PanelModel, host?: HostState }[] = [
         })
     },
 ];
+// the random-number strip: clear spots (one option at any roll) and mixes of two and three options
+const withRng = (name: string, rng: NonNullable<PanelModel["rng"]>) => {
+    const sample = SAMPLES.find((x) => x.name === name);
+    if (sample) sample.model = { ...sample.model, rng };
+};
+const MIXED_NOTE = "Close spot: the roll picks (low numbers passive, high aggressive).";
+const CLEAR_NOTE = "Clear spot: the same play at any roll.";
+withRng("01-fold-preflop", { roll: 67, pure: true, segments: [{ label: "Fold", action: "fold", from: 1, to: 100, picked: true }], note: CLEAR_NOTE });
+withRng("02-check", { roll: 41, pure: false, note: MIXED_NOTE, baseline: "Balanced range here: check 52% · bet 48%", segments: [
+    { label: "Check", action: "check", from: 1, to: 62, picked: true }, { label: "Bet 4 BB", action: "bet", from: 63, to: 100, picked: false }] });
+withRng("03-call-facing-bet", { roll: 88, pure: false, note: MIXED_NOTE, baseline: "Balanced range here: fold 33% · continue 67%", segments: [
+    { label: "Fold", action: "fold", from: 1, to: 24, picked: false }, { label: "Call 6 BB", action: "call", from: 25, to: 100, picked: true }] });
+withRng("04-value-bet", { roll: 12, pure: true, segments: [{ label: "Bet 16 BB", action: "bet", from: 1, to: 100, picked: true }], note: CLEAR_NOTE });
+withRng("06-semi-bluff", { roll: 90, pure: false, note: MIXED_NOTE, baseline: "Balanced range here: check 45% · bet 55%", segments: [
+    { label: "Check", action: "check", from: 1, to: 30, picked: false }, { label: "Bet 4 BB", action: "bet", from: 31, to: 55, picked: false },
+    { label: "Bet 8 BB", action: "bet", from: 56, to: 100, picked: true }] });
+withRng("07-raise", { roll: 3, pure: true, segments: [{ label: "Raise to 10.5 BB", action: "raise", from: 1, to: 100, picked: true }], note: CLEAR_NOTE });
+withRng("09-thinking", { roll: 34, pure: false, note: MIXED_NOTE, segments: [
+    { label: "Check", action: "check", from: 1, to: 71, picked: true }, { label: "Bet 3 BB", action: "bet", from: 72, to: 100, picked: false }] });
+withRng("10-stale", { roll: 83, pure: false, note: MIXED_NOTE, segments: [
+    { label: "Check", action: "check", from: 1, to: 58, picked: false }, { label: "Bet 4 BB", action: "bet", from: 59, to: 100, picked: true }] });
+withRng("12-hostile-name", { roll: 5, pure: false, note: "<b>note</b> & \"q\"", baseline: "<i>base</i>", segments: [
+    { label: "<b>Fold</b>", action: "fold", from: 1, to: 50, picked: true }, { label: "Call & \"x\" <script>", action: "call", from: 51, to: 100, picked: false }] });
 // the same panels as the host shows them after a click: compact, some sections collapsed, scrolled down
 SAMPLES.push(
     { name: "13-compact", model: SAMPLES[6].model, host: { compact: true } },

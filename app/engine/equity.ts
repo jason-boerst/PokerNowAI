@@ -336,6 +336,69 @@ export function rangeClassShares(model: OpponentModel, board: string[], dead: st
     return shares;
 }
 
+/** How a range splits on a board, for balancing hero's own play (see mixing.ts). Shares add up to 1. */
+export interface RangeProfile {
+    /** Top pair, an overpair or better: the hands a balanced range bets for value. */
+    value: number,
+    /** Two pair or better (included in value). */
+    strong: number,
+    /** Weaker pairs: showdown value, mostly checked. */
+    medium: number,
+    /** A flush draw or open-ended straight draw without a pair. */
+    draw: number,
+    /** No pair and no strong draw. */
+    air: number,
+    /** With `hole`: share of the range stronger than that hand, and tied with it (by strength for continuing against a bet). */
+    above?: number,
+    tied?: number
+}
+
+/**
+ * The shares of a player's likely hands (their range narrowed by their actions) that are value, medium
+ * pairs, draws and air on `board`, and where `hole` ranks inside that range. Used with hero's own range as
+ * other players see it: only the board's cards are removed, since nobody else knows hero's cards.
+ */
+export function rangeProfile(model: OpponentModel, board: string[], hole?: string[]): RangeProfile {
+    const out: RangeProfile = { value: 0, strong: 0, medium: 0, draw: 0, air: 0 };
+    if (board.length < 3) return { ...out, air: 1 };
+    const board_codes = board.map(code);
+    const sampler = buildSampler({ ...model, continue_fraction: undefined }, new Set(board_codes), board, false);
+    if (!(sampler.total > 0)) return { ...out, air: 1 };
+    const top = Math.max(...board.map((c) => RANKS.indexOf(c[0])));
+    const draw_score = drawScore(board);
+    const score = (h: string[], value: number) => continueScore(h, board, value, classify(h, board, value), draw_score);
+    const hero_score = hole && hole.length === 2 ? score(hole, evaluate([...hole, ...board].map(code))) : undefined;
+    let above = 0, tied = 0;
+    for (const c of sampler.combos) {
+        const h = [cardString(c.cards[0]), cardString(c.cards[1])];
+        const value = evaluate([c.cards[0], c.cards[1], ...board_codes]);
+        const cls = classify(h, board, value);
+        if (cls === "strong") {
+            out.strong += c.weight;
+            out.value += c.weight;
+        } else if (cls === "pair") {
+            const r0 = RANKS.indexOf(h[0][0]), r1 = RANKS.indexOf(h[1][0]);
+            // an overpair, or a hole card pairing the highest board card
+            const top_pair = r0 === r1 ? r0 > top : r0 === top || r1 === top;
+            if (top_pair) out.value += c.weight; else out.medium += c.weight;
+        } else {
+            out[cls] += c.weight;
+        }
+        if (hero_score !== undefined) {
+            const sc = continueScore(h, board, value, cls, draw_score);
+            if (sc > hero_score) above += c.weight;
+            else if (sc === hero_score) tied += c.weight;
+        }
+    }
+    const t = sampler.total;
+    const shares: RangeProfile = { value: out.value / t, strong: out.strong / t, medium: out.medium / t, draw: out.draw / t, air: out.air / t };
+    if (hero_score !== undefined) {
+        shares.above = above / t;
+        shares.tied = tied / t;
+    }
+    return shares;
+}
+
 /** Monte Carlo equity of hero's hand against one or more opponent range models. */
 export function equity(input: EquityInput): EquityResult {
     const r = simulate(input, null);

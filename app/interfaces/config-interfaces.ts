@@ -44,7 +44,13 @@ export interface BotConfig {
     /** Stop after you've been unseated this long. Default 60. */
     stop_after_unseated_seconds?: number,
     /** Stop after fewer than 2 players have been seated this long. Default 2. */
-    stop_after_short_table_minutes?: number
+    stop_after_short_table_minutes?: number,
+    /**
+     * Mixed strategies with a 1-100 random number shown on every suggestion. "balanced" (default): close
+     * options mix with balanced-range frequencies, less against players who don't adjust; "exploit": only
+     * near-ties mix; "gto": wider mixing against everyone; "off": always the single best option.
+     */
+    rng_mixing?: string
 }
 
 export interface WebDriverConfig {

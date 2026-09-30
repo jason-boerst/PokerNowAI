@@ -12,6 +12,23 @@ export interface PreflopAdvice {
     /** Raise-to size in big blinds (0 for other actions). */
     size_bb: number,
     scenario: string,
+    reason: string,
+    /** The chart's actions for this spot, most aggressive first, so mixing.ts can mix hands at the edges of each range. */
+    tiers?: PreflopTier[],
+    /** A call or fold decided by price (hero closes the action): the call's EV in big blinds. */
+    price?: { ev_bb: number }
+}
+
+/** One action of a chart spot and the hands that take it. */
+export interface PreflopTier {
+    action: PreflopAdvice["action"],
+    /** Raise-to size in big blinds (0 for other actions). */
+    size_bb: number,
+    /** Range notations whose hands take this action (hands in a tier above count there); empty for the last tier: every other hand. */
+    ranges: string[],
+    /** How hands are ranked to find the range's edge: by strength (value raises) or by playability (opens, calls). */
+    order: "strength" | "playability",
+    /** Short name used in reasons, e.g. "3-bet for value", "call". */
     reason: string
 }
 
@@ -223,6 +240,18 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     };
     const fold = (scenario: string, reason: string): PreflopAdvice =>
         v.to_call > 0 ? { action: "fold", size_bb: 0, scenario, reason } : { action: "check", size_bb: 0, scenario, reason: reason.replace(/fold/i, "check") };
+
+    // the chart's actions for a spot, most aggressive first (see PreflopTier)
+    const fold_tier: PreflopTier = { action: v.to_call > 0 ? "fold" : "check", size_bb: 0, ranges: [], order: "strength", reason: v.to_call > 0 ? "fold" : "check" };
+    const raiseTier = (size_bb: number, ranges: (string | undefined)[], order: PreflopTier["order"], reason: string): PreflopTier => {
+        const f = finish({ action: "raise", size_bb, scenario: "", reason: "" });
+        return { action: f.action, size_bb: f.size_bb, ranges: ranges.filter((r): r is string => !!r), order, reason };
+    };
+    const callTier = (ranges: (string | undefined)[], reason = "call"): PreflopTier =>
+        ({ action: "call", size_bb: 0, ranges: ranges.filter((r): r is string => !!r), order: "playability", reason });
+    /** A price decision (call or fold by equity) takes every hand below the raise tier. */
+    const pricedTier = (priced: PreflopAdvice): PreflopTier => ({ action: priced.action, size_bb: 0, ranges: [], order: "playability", reason: priced.action });
+    const tiered = (advice: PreflopAdvice, tiers: PreflopTier[]): PreflopAdvice => ({ ...advice, tiers });
     const setMineOk = () => {
         const small_pair = cls.length === 2 && "23456789".includes(cls[0]);
         return !small_pair || v.effective_stack / Math.max(v.to_call, 1e-9) >= size.set_mine_min_stack_to_call_ratio;
@@ -252,11 +281,12 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
             ? `about ${pct(eq)} equity against their likely hands, and nobody left can bet, so all of it counts`
             : `about ${pct(eq)} equity against their likely hands; out of position a hand like this keeps roughly ${pct(r)} of that (${pct(realized)})`;
         const priced = `${scenario}, priced`;
+        const price = { ev_bb: Math.round(ev_bb * 100) / 100 };
         if (realized >= need + pd.margin) {
-            return { action: "call", size_bb: 0, scenario: priced, reason: `Call ${cls}: ${numbers}, more than the ${pct(need)} this call needs (worth about +${roundBb(ev_bb)} BB).` };
+            return { action: "call", size_bb: 0, scenario: priced, reason: `Call ${cls}: ${numbers}, more than the ${pct(need)} this call needs (worth about +${roundBb(ev_bb)} BB).`, price };
         }
         const close = Math.abs(ev_bb) <= pd.close_spot_bb ? ` Close spot: calling would lose only about ${roundBb(-ev_bb)} BB on average, so either choice costs little.` : "";
-        return fold(priced, `Fold ${cls}: ${numbers}, less than the ${pct(need)} this call needs.${close}`);
+        return { ...fold(priced, `Fold ${cls}: ${numbers}, less than the ${pct(need)} this call needs.${close}`), price };
     };
 
     /**
@@ -308,44 +338,51 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         if (hero.position === "SB") {
             if (raises.length === 0) {
                 const scenario = "heads-up, small blind (button) first in";
+                const loose = villain_types.has("loose");
+                const to = hu.sb_open_bb + (loose ? hu.sb_open_extra_bb_vs_loose : 0);
+                const tiers = [raiseTier(to, [hu.sb_open], "playability", "heads-up open"), fold_tier];
                 if (inRange(config, hu.sb_open, cls)) {
-                    const loose = villain_types.has("loose");
-                    const to = hu.sb_open_bb + (loose ? hu.sb_open_extra_bb_vs_loose : 0);
-                    return finish({ action: "raise", size_bb: to, scenario, reason: `Raise ${cls}: heads-up the small blind is the button and plays most hands (you act last after the flop).${loose ? " The big blind calls too much, so raise a bit bigger." : ""}` });
+                    return tiered(finish({ action: "raise", size_bb: to, scenario, reason: `Raise ${cls}: heads-up the small blind is the button and plays most hands (you act last after the flop).${loose ? " The big blind calls too much, so raise a bit bigger." : ""}` }), tiers);
                 }
-                return fold(scenario, `Fold ${cls}: one of the weakest hands, even heads-up.`);
+                return tiered(fold(scenario, `Fold ${cls}: one of the weakest hands, even heads-up.`), tiers);
             }
             if (raises.length === 2 && hero_raised) {
                 const scenario = "heads-up, facing a 3-bet";
+                const four_bet_to = last_raise.street_total / bb * size.four_bet_multiplier;
+                const tiers = [raiseTier(four_bet_to, [hu.sb_four_bet_value], "strength", "4-bet for value"), callTier([hu.sb_call_vs_three_bet]), fold_tier];
                 if (inRange(config, hu.sb_four_bet_value, cls)) {
-                    return finish({ action: "raise", size_bb: last_raise.street_total / bb * size.four_bet_multiplier, scenario, reason: `4-bet ${cls} for value.` });
+                    return tiered(finish({ action: "raise", size_bb: four_bet_to, scenario, reason: `4-bet ${cls} for value.` }), tiers);
                 }
                 if (inRange(config, hu.sb_call_vs_three_bet, cls)) {
-                    return { action: "call", size_bb: 0, scenario, reason: `Call the 3-bet with ${cls}: good enough heads-up, and you have position after the flop.` };
+                    return tiered({ action: "call", size_bb: 0, scenario, reason: `Call the 3-bet with ${cls}: good enough heads-up, and you have position after the flop.` }, tiers);
                 }
-                return foldUnlessPriced(scenario, `Fold ${cls} to the 3-bet.`);
+                return tiered(foldUnlessPriced(scenario, `Fold ${cls} to the 3-bet.`), tiers);
             }
         }
         if (hero.position === "BB" || (hero.position === "SB" && raises.length === 1)) {
             if (raises.length === 0) {
                 const scenario = "heads-up, small blind limped";
+                const tiers = [raiseTier(hu.bb_raise_vs_limp_bb, [hu.bb_raise_vs_limp], "strength", "raise over the limp"), fold_tier];
                 if (inRange(config, hu.bb_raise_vs_limp, cls)) {
-                    return finish({ action: "raise", size_bb: hu.bb_raise_vs_limp_bb, scenario, reason: `Raise ${cls} over the limp for value.` });
+                    return tiered(finish({ action: "raise", size_bb: hu.bb_raise_vs_limp_bb, scenario, reason: `Raise ${cls} over the limp for value.` }), tiers);
                 }
-                return { action: "check", size_bb: 0, scenario, reason: `Check ${cls} and see a free flop.` };
+                return tiered({ action: "check", size_bb: 0, scenario, reason: `Check ${cls} and see a free flop.` }, tiers);
             }
             if (raises.length === 1) {
                 const scenario = "heads-up, facing a raise";
                 const value = villain_types.has("loose_raiser") ? hu.bb_three_bet_value_vs_loose : hu.bb_three_bet_value;
-                if (inRange(config, value, cls)) {
-                    return finish({ action: "raise", size_bb: last_raise.street_total / bb * size.three_bet_multiplier_out_of_position, scenario, reason: `3-bet ${cls} for value.` });
-                }
+                const three_bet_to = last_raise.street_total / bb * size.three_bet_multiplier_out_of_position;
                 const priced = priceDefense(scenario, false);
-                if (priced) return priced;
-                if (inRange(config, hu.bb_call_vs_raise, cls)) {
-                    return { action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: heads-up the raiser's range is wide, so this hand is worth defending.` };
+                const tiers = [raiseTier(three_bet_to, [value], "strength", "3-bet for value"),
+                    ...(priced ? [pricedTier(priced)] : [callTier([hu.bb_call_vs_raise]), fold_tier])];
+                if (inRange(config, value, cls)) {
+                    return tiered(finish({ action: "raise", size_bb: three_bet_to, scenario, reason: `3-bet ${cls} for value.` }), tiers);
                 }
-                return fold(scenario, `Fold ${cls}: too weak to defend even against a wide heads-up range.`);
+                if (priced) return tiered(priced, tiers);
+                if (inRange(config, hu.bb_call_vs_raise, cls)) {
+                    return tiered({ action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: heads-up the raiser's range is wide, so this hand is worth defending.` }, tiers);
+                }
+                return tiered(fold(scenario, `Fold ${cls}: too weak to defend even against a wide heads-up range.`), tiers);
             }
         }
         // anything else (e.g. hero 3-bet and faces a 4-bet) uses the general rules below
@@ -387,13 +424,15 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         const freq = three_bet === undefined
             ? ` No 3-bet history on ${who} yet, so assume a typical 3-bet range.`
             : ` ${who} 3-bets ${Math.round(three_bet)}% of the time${kind === "tight" ? ", a tight range" : kind === "loose" ? ", a wide range" : ""}.`;
-        if (inRange(config, ranges.four_bet_value, cls)) {
-            return finish({ action: "raise", size_bb: last_raise.street_total / bb * size.four_bet_multiplier, scenario, reason: `4-bet ${cls} for value.${freq}` });
-        }
+        const four_bet_to = last_raise.street_total / bb * size.four_bet_multiplier;
         const in_position = heroActsAfter(three_bettor);
         const deep_extra = deepTier(config, depthVs(three_bettor))?.add_to_three_bet_calls_in_position;
         const base = hero_raised ? ranges.call_after_opening : ranges.call_cold;
         const extras = hero_raised && in_position ? [ranges.in_position_extra, deep_extra] : [];
+        const tiers = [raiseTier(four_bet_to, [ranges.four_bet_value], "strength", "4-bet for value"), callTier([base, ...extras]), fold_tier];
+        if (inRange(config, ranges.four_bet_value, cls)) {
+            return tiered(finish({ action: "raise", size_bb: four_bet_to, scenario, reason: `4-bet ${cls} for value.${freq}` }), tiers);
+        }
         if (inAny(config, [base, ...extras], cls)) {
             if (!setMineOk()) {
                 return foldUnlessPriced(scenario, `Fold ${cls}: stacks are too short to call a 3-bet hoping to hit a set (need ${size.set_mine_min_stack_to_call_ratio}x the call).`);
@@ -401,9 +440,9 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
             const why = inRange(config, base, cls) ? `strong enough to call, not to 4-bet for value${in_position ? ", and you have position" : ""}`
                 : inAny(config, [ranges.in_position_extra], cls) ? "worth a call because you have position"
                 : `stacks are deep and you have position, so you can win a big pot when you hit`;
-            return { action: "call", size_bb: 0, scenario, reason: `Call the 3-bet with ${cls}: ${why}.${freq}` };
+            return tiered({ action: "call", size_bb: 0, scenario, reason: `Call the 3-bet with ${cls}: ${why}.${freq}` }, tiers);
         }
-        return foldUnlessPriced(scenario, `Fold ${cls} to the 3-bet.${freq}`);
+        return tiered(foldUnlessPriced(scenario, `Fold ${cls} to the 3-bet.${freq}`), tiers);
     }
 
     // --- facing one raise
@@ -421,13 +460,9 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
             : late ? vs_late.three_bet_value
             : raiser_types.has("loose_raiser") ? config.three_bet_value.vs_loose
             : config.three_bet_value.default;
-        if (inRange(config, value, cls)) {
-            const why = raiser_types.has("loose_raiser") ? ` ${raiser.position} raises a lot, so 3-bet a wider value range.` : "";
-            return finish({ action: "raise", size_bb: threeBetTo(raise_to_bb, callers_after_raise.length), scenario, reason: `3-bet ${cls} for value.${why}` });
-        }
+        const three_bet_to = threeBetTo(raise_to_bb, callers_after_raise.length);
         // closing the action (e.g. the big blind): the price decides, using equity against the actual ranges
         const priced = priceDefense(scenario, multiway);
-        if (priced) return priced;
         const vs_nit = !multiway && raiser_types.has("nit");
         const calls = multiway ? config.call_raise_multiway
             : vs_nit ? config.call_raise.vs_nit
@@ -440,6 +475,13 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         const deep_add = vs_nit ? undefined : role === "in_position" ? deep?.add_to_calls : deep?.add_to_calls_from_blinds;
         // with antes in the pot the blinds get a better price
         const ante_add = widen === 0 || vs_nit ? undefined : role === "big_blind" ? ante.big_blind_defense_extra : role === "small_blind" ? ante.small_blind_defense_extra : undefined;
+        const tiers = [raiseTier(three_bet_to, [value], "strength", "3-bet for value"),
+            ...(priced ? [pricedTier(priced)] : [callTier([calls, deep_add, ante_add]), fold_tier])];
+        if (inRange(config, value, cls)) {
+            const why = raiser_types.has("loose_raiser") ? ` ${raiser.position} raises a lot, so 3-bet a wider value range.` : "";
+            return tiered(finish({ action: "raise", size_bb: three_bet_to, scenario, reason: `3-bet ${cls} for value.${why}` }), tiers);
+        }
+        if (priced) return tiered(priced, tiers);
         const in_base = inRange(config, calls, cls);
         const removed = !late && !!deep?.remove_from_calls && inRange(config, deep.remove_from_calls, cls);
         if (removed && (in_base || inAny(config, [deep_add, ante_add], cls))) {
@@ -452,9 +494,9 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
             const why = in_base ? `good enough to see a flop, not strong enough to 3-bet for value${multiway ? " into several players" : ""}`
                 : inAny(config, [deep_add], cls) ? `stacks are about ${Math.round(depth * level)} BB deep, so a hand that can make a set, straight or flush is worth a call`
                 : "the antes make the pot bigger, so the blinds defend a little wider";
-            return { action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: ${why}.` };
+            return tiered({ action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: ${why}.` }, tiers);
         }
-        return fold(scenario, `Fold ${cls} against a raise from ${raiser.position}.`);
+        return tiered(fold(scenario, `Fold ${cls} against a raise from ${raiser.position}.`), tiers);
     }
 
     // --- limped pot (no raise yet)
@@ -462,21 +504,27 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         const scenario = `${limpers.length} limper(s)`;
         const category = out_of_position ? "blinds" : categoryOf(hero.position);
         const loose_limpers = limpers.some((a) => playerType(config, stats(seatById.get(a.player_id)!)).has("loose"));
+        const iso_to = isolateTo(limpers.length, loose_limpers);
+        const deep = deepTier(config, v.effective_stack / blind_level);
+        const iso = raiseTier(iso_to, [config.isolate_limpers[category]], "strength", "raise to isolate");
+        const tiers = v.to_call === 0 ? [iso, fold_tier]
+            : role === "small_blind" ? [iso, callTier([config.complete_small_blind], "complete"), fold_tier]
+            : category === "late" || category === "middle" ? [iso, callTier([config.overlimp_in_position, deep?.add_to_calls], "limp behind"), fold_tier]
+            : [iso, fold_tier];
         if (inRange(config, config.isolate_limpers[category], cls)) {
             const why = loose_limpers ? " The limpers call too much, so size up." : "";
-            return finish({ action: "raise", size_bb: isolateTo(limpers.length, loose_limpers), scenario, reason: `Raise ${cls} to isolate the limpers and play a bigger pot with a strong hand.${why}${straddle_note}` });
+            return tiered(finish({ action: "raise", size_bb: iso_to, scenario, reason: `Raise ${cls} to isolate the limpers and play a bigger pot with a strong hand.${why}${straddle_note}` }), tiers);
         }
         if (v.to_call === 0) {
-            return { action: "check", size_bb: 0, scenario, reason: `Check ${cls} in the ${seat_name} and see a free flop.` };
+            return tiered({ action: "check", size_bb: 0, scenario, reason: `Check ${cls} in the ${seat_name} and see a free flop.` }, tiers);
         }
         if (role === "small_blind" && inRange(config, config.complete_small_blind, cls)) {
-            return { action: "call", size_bb: 0, scenario, reason: `Complete ${cls} from the ${seat_name}: cheap price with several players in.` };
+            return tiered({ action: "call", size_bb: 0, scenario, reason: `Complete ${cls} from the ${seat_name}: cheap price with several players in.` }, tiers);
         }
-        const deep = deepTier(config, v.effective_stack / blind_level);
         if ((category === "late" || category === "middle") && inAny(config, [config.overlimp_in_position, deep?.add_to_calls], cls)) {
-            return { action: "call", size_bb: 0, scenario, reason: `Limp behind with ${cls}: it plays well multiway and in position.` };
+            return tiered({ action: "call", size_bb: 0, scenario, reason: `Limp behind with ${cls}: it plays well multiway and in position.` }, tiers);
         }
-        return fold(scenario, `Fold ${cls}: not strong enough to raise and not good enough to limp in behind.`);
+        return tiered(fold(scenario, `Fold ${cls}: not strong enough to raise and not good enough to limp in behind.`), tiers);
     }
 
     // --- unopened
@@ -493,18 +541,20 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     const widened = open_key !== seat_key;
     const open_range = (config.open as Record<string, string>)[open_key];
     const scenario = `unopened (${open_key} range${widened ? ", wider for the antes" : ""})`;
+    const avg_vpip = behind.length ? behind.reduce((sum, p) => sum + vpipOf(stats(p)), 0) / behind.length : 0;
+    const loose_field = avg_vpip >= config.player_types.loose_vpip;
+    // completing is cheap with only one player left to act; with a straddle behind too, play tighter
+    const complete = behind.length <= 1 ? config.complete_small_blind_when_folded_to : config.complete_small_blind;
+    const open = raiseTier(openTo(loose_field), [open_range], "playability", "open");
+    const tiers = role === "small_blind" ? [open, callTier([complete], "complete"), fold_tier] : [open, fold_tier];
     if (inRange(config, open_range, cls)) {
-        const avg_vpip = behind.length ? behind.reduce((sum, p) => sum + vpipOf(stats(p)), 0) / behind.length : 0;
-        const loose_field = avg_vpip >= config.player_types.loose_vpip;
         const notes = (loose_field ? " Players behind call too much, so open bigger." : "")
             + (widened ? ` The blinds and antes already make a ${roundBb(dead_chips / bb)} BB pot, so open wider than usual from ${hero.position}.` : "")
             + straddle_note;
-        return finish({ action: "raise", size_bb: openTo(loose_field), scenario, reason: `Open ${cls} from ${hero.position}: it's in the ${open_key} opening range.${notes}` });
+        return tiered(finish({ action: "raise", size_bb: openTo(loose_field), scenario, reason: `Open ${cls} from ${hero.position}: it's in the ${open_key} opening range.${notes}` }), tiers);
     }
-    // completing is cheap with only one player left to act; with a straddle behind too, play tighter
-    const complete = behind.length <= 1 ? config.complete_small_blind_when_folded_to : config.complete_small_blind;
     if (role === "small_blind" && inRange(config, complete, cls)) {
-        return { action: "call", size_bb: 0, scenario, reason: `Complete ${cls} from the ${seat_name}: not strong enough to raise, but cheap to see a flop${behind.length <= 1 ? ` against the ${straddled ? "straddle" : "big blind"}` : ""}.` };
+        return tiered({ action: "call", size_bb: 0, scenario, reason: `Complete ${cls} from the ${seat_name}: not strong enough to raise, but cheap to see a flop${behind.length <= 1 ? ` against the ${straddled ? "straddle" : "big blind"}` : ""}.` }, tiers);
     }
-    return fold(scenario, `Fold ${cls}: outside the ${open_key} opening range.`);
+    return tiered(fold(scenario, `Fold ${cls}: outside the ${open_key} opening range.`), tiers);
 }
