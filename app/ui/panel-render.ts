@@ -29,7 +29,7 @@
 // `.pgpt-body`        everything below the top.
 // `.pgpt-why`         reasoning box, always visible (not a section, never collapses).
 // `.pgpt-warnings`    warning box (only when there are warnings).
-// `.pgpt-section[data-section="opponents|odds|options|hand|spot"]` one card per analysis section,
+// `.pgpt-section[data-section="opponents|odds|options|hand|spot|you"]` one card per analysis section,
 //   children `.pgpt-section-title` (the collapse toggle) and `.pgpt-section-body`. The host adds
 //   `pgpt-collapsible` and toggles `pgpt-collapsed` (it hides the body); this CSS draws the arrow
 //   (`.pgpt-chevron`, the host's ::after arrow is turned off) and keeps `.pgpt-section-summary` in
@@ -419,6 +419,32 @@ function spotSection(m: PanelModel): string {
     return section("spot", "Spot", esc(summary), grid + notes_html);
 }
 
+/** Your own stats: all your hands and today side by side, against your games' averages. */
+function youSection(m: PanelModel): string {
+    const y = m.you;
+    if (!y || !y.rows.length) return "";
+    const tone = token(y.type_tone, "unknown");
+    const signed = (x: number) => `${x >= 0 ? "+" : ""}${num(x, 1)}`;
+    const result = (r: { hands: number, net_bb: number, bb_per_100?: number }) => r.hands > 0
+        ? `<b class="pgpt-you-net pgpt-ev-${r.net_bb > 0 ? "pos" : r.net_bb < 0 ? "neg" : "zero"}">${esc(signed(r.net_bb))} BB</b>`
+            + `<span class="pgpt-you-sub">${esc(num(r.hands, 0))} hands${finite(r.bb_per_100) ? ` · ${esc(signed(r.bb_per_100))} BB/100` : ""}</span>`
+        : `<span class="pgpt-you-sub">no hands yet</span>`;
+    const cell = (v: { value: number, n: number } | undefined, level: string | undefined) => v
+        ? `<td class="pgpt-level-${token(level, "unknown")}"><span class="pgpt-you-val">${esc(pct(v.value))}${statLevelMark(token(level, "unknown"))}</span><span class="pgpt-you-n">n=${esc(num(v.n, 0))}</span></td>`
+        : `<td class="pgpt-you-none">-</td>`;
+    const rows = y.rows.map((r) => `<tr${r.hint ? ` title="${esc(r.hint)}"` : ""}><th>${esc(r.label)}</th>${cell(r.all, r.level)}${cell(r.today, r.today_level)}`
+        + `<td class="pgpt-you-pool">${esc(pct(r.pool))}</td></tr>`).join("");
+    const body = `<div class="pgpt-opp-badges"><span class="pgpt-type pgpt-type-${tone}" data-type-tone="${tone}">${esc(y.type || "unknown")}</span>`
+        + `<span class="pgpt-opp-facts">how your play reads to others</span></div>`
+        + `<div class="pgpt-you-results"><div class="pgpt-you-result"><span class="pgpt-line-label">All hands</span>${result(y.all)}</div>`
+        + `<div class="pgpt-you-result"><span class="pgpt-line-label">Today</span>${result(y.today)}</div></div>`
+        + `<table class="pgpt-you-table"><thead><tr><th></th><th>All hands</th><th>Today</th><th>Pool</th></tr></thead><tbody>${rows}</tbody></table>`
+        + (y.counter ? `<div class="pgpt-exploit"><span class="pgpt-exploit-label">Against you</span><span>${esc(y.counter)}</span></div>` : "")
+        + `<div class="pgpt-muted-line">Raw counts, not blended with the averages. Win rates swing a lot: thousands of hands are still mostly luck.</div>`;
+    const summary = `${num(y.all.hands, 0)} hands${y.today.hands > 0 ? ` · ${num(y.today.hands, 0)} today` : ""}`;
+    return section("you", "You", esc(summary), body);
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------------------------------
@@ -656,6 +682,20 @@ ${R} .pgpt-rng-swatch { flex: none; display: inline-block; width: 9px; height: 9
 ${R} .pgpt-rng-note { margin-top: 3px; font-size: 11px; color: var(--pgpt-faint); overflow-wrap: anywhere; }
 ${R} .pgpt-panel[data-status="stale"] .pgpt-rng-seg, ${R} .pgpt-panel[data-status="stale"] .pgpt-rng-swatch { filter: grayscale(1); }
 
+/* you */
+${R} .pgpt-you-results { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
+${R} .pgpt-you-result { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border-radius: 7px; background: var(--pgpt-card-2); min-width: 0; }
+${R} .pgpt-you-net { font-size: 16px; font-weight: 800; }
+${R} .pgpt-you-sub { font-size: 11px; color: var(--pgpt-muted); }
+${R} .pgpt-you-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+${R} .pgpt-you-table th, ${R} .pgpt-you-table td { padding: 4px 4px; border-top: 1px solid var(--pgpt-line); text-align: right; vertical-align: top; }
+${R} .pgpt-you-table thead th { border-top: 0; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--pgpt-faint); }
+${R} .pgpt-you-table tbody th { text-align: left; font-weight: 600; color: #d7dfdb; width: 38%; overflow-wrap: anywhere; }
+${R} .pgpt-you-table td { color: var(--pgpt-level, var(--pgpt-text)); }
+${R} .pgpt-you-val { display: block; font-size: 13px; font-weight: 800; }
+${R} .pgpt-you-n { display: block; font-size: 10px; color: var(--pgpt-faint); }
+${R} .pgpt-you-pool, ${R} .pgpt-you-none { color: var(--pgpt-muted) !important; }
+
 /* options */
 ${R} .pgpt-options { display: flex; flex-direction: column; gap: 4px; }
 ${R} .pgpt-opt-mix { color: #e2e8f0; font-weight: 700; }
@@ -715,7 +755,7 @@ export function renderPanel(model: PanelModel): { html: string, css: string } {
     const status = token(model.status, "final");
     const top = header(model) + banner(model) + rngStrip(model) + countdown(model) + tag(model) + keyline(model);
     const body = why(model) + warnings(model)
-        + opponentsSection(model) + oddsSection(model) + optionsSection(model) + handSection(model) + spotSection(model);
+        + opponentsSection(model) + oddsSection(model) + optionsSection(model) + handSection(model) + spotSection(model) + youSection(model);
     const html = `<div class="pgpt-panel" data-tone="${tone}" data-status="${status}">`
         + `<div class="pgpt-top">${top}</div>`
         + `<div class="pgpt-body">${body}</div></div>`;

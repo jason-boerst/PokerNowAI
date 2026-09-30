@@ -12,6 +12,7 @@ import { classOf } from "../engine/hand-classes.ts";
 import { describeMix, MixStrategy } from "../engine/mixing.ts";
 import { bb } from "../engine/spot-format.ts";
 import { opponentCards } from "../ui/opponent-cards.ts";
+import { selfStats } from "../ui/self-stats.ts";
 import { PanelModel, PanelOption, PanelRng, toneFor } from "../ui/panel-model.ts";
 
 /** @deprecated The panel content is a PanelModel now; kept so older imports still compile. */
@@ -160,6 +161,13 @@ function handOf(s: HandState): PanelModel["hand"] {
     return hand;
 }
 
+/** Your own stats for the bottom section (nothing when you have no history yet). */
+function youOf(inputs: OverlayInputs): { you?: PanelModel["you"] } {
+    const hero = inputs.state.seats.find((p) => p.id === inputs.state.hero_id);
+    const you = hero ? selfStats(inputs.players(hero)) : undefined;
+    return you ? { you } : {};
+}
+
 function opponentsOf(inputs: OverlayInputs): { opponents: PanelModel["opponents"], more_opponents: number, warnings: string[] } {
     const { cards, more, warnings } = opponentCards({ state: inputs.state, view: inputs.view, players: inputs.players, stats: inputs.stats }, MAX_OPPONENT_CARDS);
     return { opponents: cards, more_opponents: more, warnings };
@@ -218,7 +226,8 @@ export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equ
         odds,
         options: [],
         opponents: opp.opponents,
-        more_opponents: opp.more_opponents
+        more_opponents: opp.more_opponents,
+        ...youOf(inputs)
     };
 }
 
@@ -380,7 +389,8 @@ export function postflopOverlay(
         odds,
         options,
         opponents: opp.opponents,
-        more_opponents: opp.more_opponents
+        more_opponents: opp.more_opponents,
+        ...youOf(inputs)
     };
 }
 

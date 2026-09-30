@@ -58,6 +58,33 @@ export interface OpponentCard {
     to_act?: boolean
 }
 
+/** One of your stats: over all your hands (earlier games and today) and today only, against your games' average. */
+export interface SelfStatRow {
+    label: string,
+    /** 0-1 and the chances it was measured over. */
+    all: { value: number, n: number },
+    today?: { value: number, n: number },
+    /** Your games' average for this stat, 0-1. */
+    pool: number,
+    level: StatLevel,
+    today_level?: StatLevel,
+    /** What it measures, e.g. "share of hands you play". */
+    hint?: string
+}
+
+/** Your own stats, like an opponent card for yourself: all your hands and this session. */
+export interface SelfStats {
+    /** How your play reads to others (the same classification the opponents get). */
+    type: string,
+    type_tone: TypeTone,
+    /** What a thinking opponent would do against a player like that. */
+    counter?: string,
+    /** Hands, chips won or lost (big blinds) and win rate: all your hands, and today. */
+    all: { hands: number, net_bb: number, bb_per_100?: number },
+    today: { hands: number, net_bb: number, bb_per_100?: number },
+    rows: SelfStatRow[]
+}
+
 export interface PanelOption {
     /** e.g. "bet 5.3 BB", "check", "call 2 BB". */
     label: string,
@@ -164,5 +191,7 @@ export interface PanelModel {
     options: PanelOption[],
     opponents: OpponentCard[],
     /** Opponents in the hand not shown as cards. */
-    more_opponents: number
+    more_opponents: number,
+    /** Your own stats (bottom section). */
+    you?: SelfStats
 }

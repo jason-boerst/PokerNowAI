@@ -47,6 +47,8 @@ export interface PlayerProfile extends Record<RateKey, Rate> {
     /** Total chips won or lost across all hands, in big blinds, and the win rate. */
     net_bb: number,
     bb_per_100: number,
+    /** Hands the result counts (the win rate's denominator). */
+    result_hands?: number,
     avg_bet_to_pot: number,
     bets_seen: number,
     vpip_by_position: Record<PositionGroup, Rate>,
@@ -465,6 +467,7 @@ function finalize(acc: Accumulator): PlayerProfile {
         ...r,
         net_bb: acc.net_bb,
         bb_per_100: acc.result_hands ? acc.net_bb / acc.result_hands * 100 : 0,
+        result_hands: acc.result_hands,
         avg_bet_to_pot: acc.bets_seen ? acc.bet_to_pot_sum / acc.bets_seen : 0,
         bets_seen: acc.bets_seen,
         vpip_by_position: by_position,
