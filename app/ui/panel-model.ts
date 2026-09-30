@@ -155,6 +155,9 @@ export interface PanelModel {
         /** Equity a call needs, 0-1 (when facing a bet or raise). */
         need?: number,
         equity_when_called?: number,
+        /** Preflop when you close the action: the equity a hand like yours keeps out of position (0-1) and that share. */
+        realized?: number,
+        realization?: number,
         /** Preflop chart scenario, e.g. "heads-up, facing a raise". */
         chart_spot?: string
     },

@@ -8,6 +8,7 @@ import type { PlayerLookup } from "../services/profile-service.ts";
 import { Candidate, PostflopAnalysis } from "../engine/postflop.ts";
 import { explainBet, matchCandidate, shortTag } from "./bet-explain.ts";
 import { PreflopAdvice } from "../engine/preflop.ts";
+import { classOf } from "../engine/hand-classes.ts";
 import { describeMix, MixStrategy } from "../engine/mixing.ts";
 import { bb } from "../engine/spot-format.ts";
 import { opponentCards } from "../ui/opponent-cards.ts";
@@ -173,11 +174,30 @@ export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equ
         odds.equity = equity.equity;
         if (equity.need > 0) odds.need = equity.need;
     }
+    // closing the action: the price numbers (the same equity, the exact need and what the hand keeps)
+    const price = advice.price;
+    if (price) {
+        odds.equity = price.equity;
+        odds.need = price.need;
+        if (price.realization < 0.999) { odds.realized = price.realized; odds.realization = price.realization; }
+    }
     const fallback = equity
         ? `Chart play for ${advice.scenario}, with ${pct(equity.equity)} equity vs their likely hands.`
         : `Chart play for ${advice.scenario}.`;
     const pick = mix ? { action: mix.pick.action as string, size_bb: mix.pick.size_bb } : { action: advice.action as string, size_bb: advice.size_bb };
     let lines = sentences(advice.reason);
+    // a chart decision the raw equity seems to contradict: say what the price looks like once position is counted
+    if (price && !price.decided) {
+        const cls = s.hero_cards.length === 2 ? classOf(s.hero_cards) : "this hand";
+        const kept = `out of position ${cls} keeps about ${pct(price.realization)} of its ${pct(price.equity)} equity (${pct(price.realized)})`;
+        if (advice.action === "fold" && price.equity >= price.need) {
+            lines.push(price.realized < price.need
+                ? `Raw equity ${pct(price.equity)} is above the ${pct(price.need)} the call needs, but ${kept}, less than that, so calling loses.`
+                : `On price alone this is close to a call (${kept}, against ${pct(price.need)} needed), but the chart folds it here: the raiser's range is strong and you play the rest of the hand out of position.`);
+        } else if (advice.action === "call" && price.realized < price.need) {
+            lines.push(`Short on price right now (${kept}, against ${pct(price.need)} needed); the chart calls for what the hand wins on later streets when it hits.`);
+        }
+    }
     if (mix && !mix.pure) {
         lines = pick.action === advice.action
             ? [...lines, ...mix.reasons]

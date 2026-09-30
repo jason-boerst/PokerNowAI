@@ -305,7 +305,12 @@ function gtoPriors(a: PostflopAnalysis, s: HandState, v: HeroView, close: Candid
         const pot_before = last ? last.pot_before : Math.max(v.pot - v.to_call, 1e-9);
         const mdf = pot_before / (pot_before + risk);
         const k = defendersOf(s, last_index, last?.player_id);
-        const mdf_each = 1 - Math.pow(1 - mdf, 1 / k);
+        const mdf_share = 1 - Math.pow(1 - mdf, 1 / k);
+        // hands keep only part of their equity before the river, less out of position (the engine's realization),
+        // so the defense line moves down by that share: solvers defend close to MDF in position and on the river,
+        // clearly less out of position on earlier streets
+        const realization = clamp(a.realization ?? 1, 0.5, 1);
+        const mdf_each = mdf_share * realization;
         let g_continue = mdf_each;
         let where = "";
         if (r?.above !== undefined) {
@@ -316,7 +321,8 @@ function gtoPriors(a: PostflopAnalysis, s: HandState, v: HeroView, close: Candid
                 : `your hand is right at that line (top ${pct(q)} of your range)`;
         }
         const share = k > 1 ? `, shared by ${k} players` : "";
-        lines.push(`A balanced defense continues with ${pct(mdf_each)} of its range against this ${sizeText(risk, pot_before)} (minimum defense frequency${share})${where ? `; ${where}` : ""}.`);
+        const adjusted = realization < 0.995 ? `, less than the ${pct(mdf_share)} minimum defense frequency because hands keep only about ${pct(realization)} of their equity ${a.in_position ? "before the river" : "out of position"}` : " (minimum defense frequency)";
+        lines.push(`A balanced defense continues with ${pct(mdf_each)} of its range against this ${sizeText(risk, pot_before)}${share ? ` (${share.slice(2)})` : ""}${adjusted}${where ? `; ${where}` : ""}.`);
         // bluff-raises: a balanced raising range adds bluffs to its value raises (half of its two pair or better)
         const raise_ratio = (c: Candidate) => bluffRatio(Math.max(c.to - (s.seats.find((p) => p.id === s.hero_id)?.street_contribution ?? 0), 0), v.pot + v.to_call);
         for (const c of close) {
@@ -403,7 +409,8 @@ export function mixPostflop(input: PostflopMixInput): MixStrategy {
     const tail = [...(families > 1 ? priors.lines : []), ...(balance.line ? [balance.line] : [])];
     if (close.length === 1) {
         const others = cands.filter((c) => c !== anchor);
-        const gap = others.length ? ` by ${fmt(adj(anchor) - Math.max(...others.map(adj)))}${others.some(bluff) ? ` (bluffs counted ${fmt(margin)} lower)` : ""}` : "";
+        const runner_up = others.length ? others.reduce((x, c) => (adj(c) > adj(x) ? c : x)) : undefined;
+        const gap = runner_up ? ` by ${fmt(adj(anchor) - adj(runner_up))}${bluff(runner_up) ? ` (bluffs counted ${fmt(margin)} lower)` : ""}` : "";
         const why = lead.length ? lead : [`Clear spot: ${anchor.label} is ahead of every other option${gap}, more than the ${fmt(band)} margin, so play it at any roll.`];
         return pure(input.style, optionOf(anchor), roll, [...why, ...tail], { ...extra, cost_bb: 0 });
     }
@@ -539,7 +546,7 @@ export function mixPreflop(input: PreflopMixInput): MixStrategy {
     // a priced call or fold (hero closes the action) splits its share by EV when the price is close
     const price = advice.price;
     const band_bb = Math.max(p.band_bb, p.band_pot * input.pot_bb) * balance.scale;
-    if (price && (advice.action === "call" || advice.action === "fold") && Math.abs(price.ev_bb) <= band_bb) {
+    if (price?.decided && (advice.action === "call" || advice.action === "fold") && Math.abs(price.ev_bb) <= band_bb) {
         const tau = Math.max(1e-9, p.temperature * band_bb);
         const w_call = Math.exp(price.ev_bb / tau), w_fold = 1;
         const call_share = w_call / (w_call + w_fold);
@@ -559,7 +566,7 @@ export function mixPreflop(input: PreflopMixInput): MixStrategy {
     const does = (t: PreflopTier) => TIER_VERB[t.reason] ?? `plays ${t.reason}`;
     if (f_up >= MIN_FREQ) reasons.push(`${cls} is one of the strongest hands just outside the ${tiers[i - 1].reason} range, so it ${does(tiers[i - 1])} some of the time (solver charts mix hands at the edges of each range).`);
     if (f_down >= MIN_FREQ) reasons.push(`${cls} is one of the weakest hands in the ${tiers[i].reason} range, so it ${does(tiers[i + 1])} some of the time instead (solver charts mix hands at the edges of each range).`);
-    if (price && options.some((o) => o.action === "call") && options.some((o) => o.action === "fold")) {
+    if (price?.decided && options.some((o) => o.action === "call") && options.some((o) => o.action === "fold")) {
         reasons.push(`Close price: calling is worth about ${price.ev_bb >= 0 ? "+" : ""}${round2(price.ev_bb)} BB, within ${round2(band_bb)} BB of folding, so the roll decides.`);
     }
     if (balance.line) reasons.push(balance.line);

@@ -15,8 +15,45 @@ export interface PreflopAdvice {
     reason: string,
     /** The chart's actions for this spot, most aggressive first, so mixing.ts can mix hands at the edges of each range. */
     tiers?: PreflopTier[],
-    /** A call or fold decided by price (hero closes the action): the call's EV in big blinds. */
-    price?: { ev_bb: number }
+    /** When hero closes the action facing a bet: the call priced by equity (decided: the price made the call or fold). */
+    price?: PriceInfo
+}
+
+/** A call priced by equity when hero closes the action (see priceNumbers). */
+export interface PriceInfo {
+    /** The call's EV in big blinds, counting only the equity the hand keeps. */
+    ev_bb: number,
+    /** Equity against the players still in (0-1), the share a hand like this keeps out of position, and what remains. */
+    equity: number,
+    realization: number,
+    realized: number,
+    /** Equity the call needs (0-1). */
+    need: number,
+    /** True when the price made the decision; false when a chart did (the numbers are then for the panel). */
+    decided: boolean
+}
+
+/**
+ * The price of a call when hero closes the action: equity kept after realization against the equity the call
+ * needs, and the call's EV. Null when hero doesn't close the action or has nothing to call.
+ */
+export function priceNumbers(s: HandState, v: HeroView, config: PreflopConfig, cls: HandClass, eq: number, multiway: boolean):
+    { need: number, r: number, realized: number, ev_bb: number, showdown: boolean, spr_after: number } | null {
+    const hero = s.seats.find((p) => p.id === s.hero_id);
+    if (!hero || v.to_call <= 0) return null;
+    // hero closes the action when everyone else still able to act has already matched the bet
+    const closes = s.seats.every((p) => p.id === hero.id || p.folded || p.all_in || p.street_contribution >= s.current_bet - 1e-9);
+    if (!closes) return null;
+    // only the chips hero can win: a deeper player's all-in counts up to hero's own stack
+    const hero_max = hero.total_contribution + hero.stack;
+    const pot_after = s.seats.reduce((sum, p) => sum + Math.min(p.total_contribution, hero_max), 0) + v.to_call;
+    const need = v.to_call / pot_after;
+    const spr_after = Math.max(0, v.effective_stack - s.current_bet) / pot_after;
+    // everyone else still in is all-in: no more betting, the cards are simply dealt out
+    const showdown = s.seats.every((p) => p.id === hero.id || p.folded || p.all_in);
+    const r = showdown ? 1 : realizationOf(config, cls, multiway, spr_after);
+    const realized = eq * r;
+    return { need, r, realized, ev_bb: (realized * pot_after - v.to_call) / s.big_blind, showdown, spr_after };
 }
 
 /** One action of a chart spot and the hands that take it. */
@@ -158,6 +195,21 @@ const roundBb = (x: number) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 1
  * `context` carries table rules that aren't in the log (the 7-2 bounty); omit it for none.
  */
 export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, config: PreflopConfig = default_config, context: PreflopContext = {}): PreflopAdvice | null {
+    const advice = chartAdvice(s, v, stats, config, context);
+    // a chart decision when hero closes the action: the price numbers too, so the panel can show the equity the
+    // hand keeps (a raw equity above the price can still be a fold once position is counted)
+    if (!advice || advice.price || context.equity === undefined || s.hero_cards.length !== 2) return advice;
+    const hero = s.seats.find((p) => p.id === s.hero_id);
+    const others = s.seats.filter((p) => p.id !== s.hero_id && !p.folded);
+    // the realization shares are for playing out of position; in position the raw equity is the better guide
+    const in_position = !!hero && (s.seats.length === 2 ? hero.position === "SB" : others.every((p) => postflopRank(hero.position) > postflopRank(p.position)));
+    if (in_position) return advice;
+    const n = priceNumbers(s, v, config, classOf(s.hero_cards), context.equity, others.length > 1);
+    if (!n) return advice;
+    return { ...advice, price: { ev_bb: Math.round(n.ev_bb * 100) / 100, equity: context.equity, realized: n.realized, realization: n.r, need: n.need, decided: false } };
+}
+
+function chartAdvice(s: HandState, v: HeroView, stats: StatsLookup, config: PreflopConfig, context: PreflopContext): PreflopAdvice | null {
     if (s.street !== "preflop" || s.hero_cards.length !== 2) return null;
     const hero = s.seats.find((p) => p.id === s.hero_id);
     const bb = s.big_blind;
@@ -256,8 +308,6 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
         const small_pair = cls.length === 2 && "23456789".includes(cls[0]);
         return !small_pair || v.effective_stack / Math.max(v.to_call, 1e-9) >= size.set_mine_min_stack_to_call_ratio;
     };
-    // hero closes the action when everyone else still able to act has already matched the bet
-    const closes_action = s.seats.every((p) => p.id === hero.id || p.folded || p.all_in || p.street_contribution >= s.current_bet - 1e-9);
     /**
      * Call or fold by price when hero closes the action: equity against the players still in, times the share
      * a hand like this keeps out of position, against the equity the call needs. Null when it doesn't apply.
@@ -265,23 +315,18 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     const priceDefense = (scenario: string, multiway: boolean): PreflopAdvice | null => {
         const pd = config.price_defense;
         const eq = context.equity;
-        if (!pd.enabled || eq === undefined || !closes_action || v.to_call <= 0) return null;
-        // only the chips hero can win: a deeper player's all-in counts up to hero's own stack
-        const hero_max = hero.total_contribution + hero.stack;
-        const pot_after = s.seats.reduce((sum, p) => sum + Math.min(p.total_contribution, hero_max), 0) + v.to_call;
-        const need = v.to_call / pot_after;
-        const spr_after = Math.max(0, v.effective_stack - s.current_bet) / pot_after;
-        // everyone else still in is all-in: no more betting, the cards are simply dealt out
-        const showdown = s.seats.every((p) => p.id === hero.id || p.folded || p.all_in);
-        const r = showdown ? 1 : realizationOf(config, cls, multiway, spr_after);
-        const realized = eq * r;
-        const ev_bb = (realized * pot_after - v.to_call) / bb;
+        if (!pd.enabled || eq === undefined) return null;
+        const n = priceNumbers(s, v, config, cls, eq, multiway);
+        if (!n) return null;
+        const { need, r, realized, ev_bb, showdown } = n;
+        const ip = s.seats.filter((p) => p.id !== hero.id && !p.folded).every((p) => heroActsAfter(p));
         const pct = (x: number) => `${Math.round(x * 100)}%`;
         const numbers = showdown
             ? `about ${pct(eq)} equity against their likely hands, and nobody left can bet, so all of it counts`
-            : `about ${pct(eq)} equity against their likely hands; out of position a hand like this keeps roughly ${pct(r)} of that (${pct(realized)})`;
+            : r >= 0.999 ? `about ${pct(eq)} equity against their likely hands; with this little left behind the hand plays nearly to showdown, so all of it counts`
+            : `about ${pct(eq)} equity against their likely hands; ${ip ? "" : "out of position "}a hand like this keeps roughly ${pct(r)} of that (${pct(realized)})`;
         const priced = `${scenario}, priced`;
-        const price = { ev_bb: Math.round(ev_bb * 100) / 100 };
+        const price: PriceInfo = { ev_bb: Math.round(ev_bb * 100) / 100, equity: eq, realized, realization: r, need, decided: true };
         if (realized >= need + pd.margin) {
             return { action: "call", size_bb: 0, scenario: priced, reason: `Call ${cls}: ${numbers}, more than the ${pct(need)} this call needs (worth about +${roundBb(ev_bb)} BB).`, price };
         }
@@ -290,13 +335,18 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     };
 
     /**
-     * Facing an all-in re-raise (a 3-bet or more) that hero closes: a hand the charts fold still calls when the
-     * price is right (a short stack's all-in comes from a wider range and lays a big price). Hands the charts
-     * play are left alone.
+     * Facing a re-raise (a 3-bet or more) that hero closes, a hand the charts fold still calls when the price is
+     * right: against an all-in (a short stack's all-in comes from a wider range and lays a big price), and against
+     * a 3-bet that leaves a stack-to-pot ratio under price_defense.three_bet_spr_below after the call (at most one
+     * more bet gets the stacks in, so the hand plays close to showdown and its equity counts almost fully).
+     * Deeper, the chart decides. Hands the charts play are left alone.
      */
     const foldUnlessPriced = (scenario: string, reason: string): PreflopAdvice => {
         const others_in = s.seats.filter((p) => p.id !== hero.id && !p.folded).length;
-        const priced = last_raise?.all_in && raises.length >= 2 ? priceDefense(`${scenario}, all-in`, others_in > 1) : null;
+        const n = context.equity !== undefined ? priceNumbers(s, v, config, cls, context.equity, others_in > 1) : null;
+        const short = raises.length === 2 && !!n && n.spr_after < config.price_defense.three_bet_spr_below;
+        const priced = raises.length >= 2 && (last_raise?.all_in || short)
+            ? priceDefense(`${scenario}${last_raise?.all_in ? ", all-in" : ", short stacks"}`, others_in > 1) : null;
         return priced?.action === "call" ? priced : fold(scenario, reason);
     };
 

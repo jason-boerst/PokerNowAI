@@ -209,8 +209,10 @@ function rngStrip(m: PanelModel): string {
 function keyline(m: PanelModel): string {
     const items: string[] = [];
     const item = (label: string, value: string, cls = "") => items.push(`<span class="pgpt-key${cls}"><span class="pgpt-key-label">${label}</span> <b>${esc(value)}</b></span>`);
-    const eq = m.odds.equity, need = m.odds.need;
-    if (finite(eq)) item("Equity", pct(eq), finite(need) && need > 0 ? (eq >= need ? " pgpt-key-good" : " pgpt-key-bad") : "");
+    const eq = m.odds.equity, need = m.odds.need, kept = m.odds.realized;
+    // judged by the equity the hand keeps when that is known (raw equity above the price can still lose)
+    const judged = finite(kept) ? kept : eq;
+    if (finite(eq)) item("Equity", finite(kept) ? `${pct(eq)} (${pct(kept)} kept)` : pct(eq), finite(need) && need > 0 && finite(judged) ? (judged >= need ? " pgpt-key-good" : " pgpt-key-bad") : "");
     if (finite(need) && need > 0) item("Need", pct(need));
     if (finite(m.spot.pot_bb) && m.spot.pot_bb > 0) item("Pot", `${bbText(m.spot.pot_bb)} BB`);
     if (finite(m.spot.to_call_bb) && m.spot.to_call_bb > 0) item("To call", `${bbText(m.spot.to_call_bb)} BB`);
@@ -338,14 +340,16 @@ function oddsSection(m: PanelModel): string {
     let summary = "";
     if (finite(o.equity)) {
         const has_need = finite(o.need) && o.need > 0;
-        const verdict = has_need ? (o.equity >= o.need! ? "enough" : "short") : "neutral";
+        const judged = finite(o.realized) ? o.realized : o.equity;
+        const verdict = has_need ? (judged >= o.need! ? "enough" : "short") : "neutral";
         const need_mark = has_need
             ? `<span class="pgpt-meter-need" style="left:${pctWidth(o.need! * 100)}"><span class="pgpt-meter-need-label">need ${esc(pct(o.need))}</span></span>` : "";
         parts.push(`<div class="pgpt-odds-row"><span class="pgpt-odds-big pgpt-odds-${verdict}">${esc(pct(o.equity))}</span>`
             + `<span class="pgpt-odds-caption">equity vs their likely hands${has_need ? (verdict === "enough" ? ": enough to call" : ": not enough to call") : ""}</span></div>`
             + `<div class="pgpt-meter pgpt-meter-${verdict}" role="img" aria-label="Equity ${esc(pct(o.equity))}${has_need ? `, need ${esc(pct(o.need))}` : ""}">`
             + `<span class="pgpt-meter-fill" style="width:${pctWidth(o.equity * 100)}"></span>${need_mark}</div>`);
-        summary = `${pct(o.equity)} equity${has_need ? ` / need ${pct(o.need)}` : ""}`;
+        if (finite(o.realized)) parts.push(`<div class="pgpt-kv"><span>Equity kept out of position${finite(o.realization) ? ` (about ${esc(pct(o.realization))})` : ""}</span><b>${esc(pct(o.realized))}</b></div>`);
+        summary = `${pct(o.equity)} equity${finite(o.realized) ? ` (${pct(o.realized)} kept)` : ""}${has_need ? ` / need ${pct(o.need)}` : ""}`;
     } else if (finite(o.need) && o.need > 0) {
         parts.push(`<div class="pgpt-kv"><span>Need to call</span><b>${esc(pct(o.need))}</b></div>`);
         summary = `need ${pct(o.need)}`;

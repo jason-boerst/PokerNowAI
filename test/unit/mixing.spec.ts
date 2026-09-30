@@ -260,7 +260,7 @@ describe("RNG mixing: preflop chart edges", () => {
 
     it("mixes a close priced call with folding, leaning to the better EV", () => {
         const advice: PreflopAdvice = {
-            action: "call", size_bb: 0, scenario: "priced", reason: "priced", price: { ev_bb: 0.2 },
+            action: "call", size_bb: 0, scenario: "priced", reason: "priced", price: { ev_bb: 0.2, equity: 0.4, realization: 0.8, realized: 0.32, need: 0.3, decided: true },
             tiers: [{ action: "raise", size_bb: 9, ranges: ["AA"], order: "strength", reason: "3-bet for value" }, { action: "call", size_bb: 0, ranges: [], order: "playability", reason: "call" }]
         };
         const m = mixPreflop({ advice, cls: "K5s", style: "balanced", roll: 50, pot_bb: 3.5, opponent_types: ["TAG"] });
