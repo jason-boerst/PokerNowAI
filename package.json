@@ -22,7 +22,8 @@
     "eval": "tsx scripts/eval.ts",
     "players": "tsx scripts/players.ts",
     "import": "tsx scripts/import.ts",
-    "dashboard": "tsx scripts/dashboard.ts"
+    "dashboard": "tsx scripts/dashboard.ts",
+    "scenarios": "tsx scripts/scenarios.ts"
   },
   "keywords": [],
   "author": "",
