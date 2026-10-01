@@ -117,13 +117,15 @@ export function resetPriors(): void {
 /** Hands before a player is given a type other than "unknown". */
 export const MIN_HANDS_FOR_TYPE = 20;
 
-type Counter = { k: number, n: number };
+export type Counter = { k: number, n: number };
 interface Accumulator {
     key: string,
     names: Map<string, string>,   // name -> last seen
     last_name: string,
     hands: number,
+    /** Counts as used for the player's stats (recency weighted when a weight is given), and unweighted. */
     c: Record<RateKey, Counter>,
+    raw: Record<RateKey, Counter>,
     by_position: Record<PositionGroup, Counter>,
     net_bb: number,
     result_hands: number,
@@ -133,12 +135,20 @@ interface Accumulator {
     last_seen: string
 }
 
-function newAccumulator(key: string): Accumulator {
+export function newCounters(): Record<RateKey, Counter> {
     const c = {} as Record<RateKey, Counter>;
     for (const k of RATE_KEYS) c[k] = { k: 0, n: 0 };
+    return c;
+}
+const POSITION_GROUPS: PositionGroup[] = ["early", "middle", "late", "blinds"];
+function newPositionCounters(): Record<PositionGroup, Counter> {
+    return { early: { k: 0, n: 0 }, middle: { k: 0, n: 0 }, late: { k: 0, n: 0 }, blinds: { k: 0, n: 0 } };
+}
+
+function newAccumulator(key: string): Accumulator {
     return {
-        key, names: new Map(), last_name: "", hands: 0, c,
-        by_position: { early: { k: 0, n: 0 }, middle: { k: 0, n: 0 }, late: { k: 0, n: 0 }, blinds: { k: 0, n: 0 } },
+        key, names: new Map(), last_name: "", hands: 0, c: newCounters(), raw: newCounters(),
+        by_position: newPositionCounters(),
         net_bb: 0, result_hands: 0, bet_to_pot_sum: 0, bets_seen: 0, showdowns: [], last_seen: ""
     };
 }
@@ -160,7 +170,11 @@ export class ProfileBuilder {
     /** @param keyOf maps a seat to its identity key (default: the PokerNow player id). */
     constructor(private keyOf: (seat: SeatState) => string = (seat) => seat.id) {}
 
-    addHand(s: HandState, at: string = ""): void {
+    /**
+     * @param weightOf how much this hand counts toward each player's stats (by identity key; default 1). Recency
+     * weighting gives older games less; the raw counts behind the pool's averages always count 1.
+     */
+    addHand(s: HandState, at: string = "", weightOf?: (key: string) => number): void {
         const holdem_stats = isHoldem(s) && !s.bomb_pot;
         const pre = s.actions.filter((a) => a.street === "preflop");
         const voluntary_all = pre.filter((a) => !POST_TYPES.has(a.type) && a.type !== "fold" && a.type !== "check");
@@ -193,28 +207,31 @@ export class ProfileBuilder {
             if (!holdem_stats) continue;
 
             acc.hands++;
+            // this hand's counts, added to the player's totals with the hand's weight (recency) and unweighted
+            const c = newCounters();
+            const bp = newPositionCounters();
             const mine = pre.filter((a) => a.player_id === seat.id);
             const voluntary = mine.filter((a) => a.type === "call" || a.type === "raise" || a.type === "bet");
             const index = (a: { player_id: string }) => s.actions.indexOf(a as never);
 
             // VPIP / PFR over all hands dealt, VPIP by position group
-            acc.c.vpip.n++;
-            acc.c.pfr.n++;
+            c.vpip.n++;
+            c.pfr.n++;
             const group = GROUP[seat.position];
-            if (group) acc.by_position[group].n++;
+            if (group) bp[group].n++;
             if (voluntary.length > 0) {
-                acc.c.vpip.k++;
-                if (group) acc.by_position[group].k++;
+                c.vpip.k++;
+                if (group) bp[group].k++;
             }
-            if (mine.some((a) => a.type === "raise" || a.type === "bet")) acc.c.pfr.k++;
+            if (mine.some((a) => a.type === "raise" || a.type === "bet")) c.pfr.k++;
 
             // limp: first voluntary action was a call with no raise before it
             const first_vol = voluntary[0];
             if (first_vol) {
                 const raises_before = raises.filter((r) => index(r) < index(first_vol)).length;
                 if (raises_before === 0) {
-                    acc.c.limp.n++;
-                    if (first_vol.type === "call") acc.c.limp.k++;
+                    c.limp.n++;
+                    if (first_vol.type === "call") c.limp.k++;
                 }
             }
 
@@ -223,8 +240,8 @@ export class ProfileBuilder {
             if (first_action && opener && opener !== seat.id) {
                 const raises_before = raises.filter((r) => index(r) < index(first_action)).length;
                 if (raises_before === 1) {
-                    acc.c.three_bet.n++;
-                    if (first_action.type === "raise") acc.c.three_bet.k++;
+                    c.three_bet.n++;
+                    if (first_action.type === "raise") c.three_bet.k++;
                 }
             }
 
@@ -232,8 +249,8 @@ export class ProfileBuilder {
             if (opener === seat.id && three_bettor && three_bettor !== seat.id) {
                 const response = mine.find((a) => index(a) > index(raises[1]));
                 if (response) {
-                    acc.c.fold_to_three_bet.n++;
-                    if (response.type === "fold") acc.c.fold_to_three_bet.k++;
+                    c.fold_to_three_bet.n++;
+                    if (response.type === "fold") c.fold_to_three_bet.k++;
                 }
             }
 
@@ -241,8 +258,8 @@ export class ProfileBuilder {
             if (["CO", "BU", "SB"].includes(seat.position) && first_action) {
                 const voluntary_before = voluntary_all.filter((a) => index(a) < index(first_action)).length;
                 if (voluntary_before === 0) {
-                    acc.c.steal.n++;
-                    if (first_action.type === "raise") acc.c.steal.k++;
+                    c.steal.n++;
+                    if (first_action.type === "raise") c.steal.k++;
                 }
             }
 
@@ -251,8 +268,8 @@ export class ProfileBuilder {
                 const response = mine.find((a) => index(a) > index(steal_raise));
                 const others_between = voluntary_all.filter((a) => index(a) > index(steal_raise) && response && index(a) < index(response)).length;
                 if (response && others_between === 0) {
-                    acc.c.fold_to_steal.n++;
-                    if (response.type === "fold") acc.c.fold_to_steal.k++;
+                    c.fold_to_steal.n++;
+                    if (response.type === "fold") c.fold_to_steal.k++;
                 }
             }
 
@@ -261,8 +278,8 @@ export class ProfileBuilder {
                 const my_first = flop_actions.find((a) => a.player_id === seat.id);
                 const bet_before = my_first && flop_actions.some((a) => (a.type === "bet" || a.type === "raise") && flop_actions.indexOf(a) < flop_actions.indexOf(my_first));
                 if (my_first && !bet_before) {
-                    acc.c.cbet.n++;
-                    if (my_first.type === "bet") acc.c.cbet.k++;
+                    c.cbet.n++;
+                    if (my_first.type === "bet") c.cbet.k++;
                 }
             }
 
@@ -271,8 +288,8 @@ export class ProfileBuilder {
             if (cbet && seat.id !== last_pf_raiser) {
                 const response = flop_actions.find((a) => a.player_id === seat.id && flop_actions.indexOf(a) > flop_actions.indexOf(cbet));
                 if (response) {
-                    acc.c.fold_to_cbet.n++;
-                    if (response.type === "fold") acc.c.fold_to_cbet.k++;
+                    c.fold_to_cbet.n++;
+                    if (response.type === "fold") c.fold_to_cbet.k++;
                 }
             }
 
@@ -280,25 +297,25 @@ export class ProfileBuilder {
             for (const a of s.actions) {
                 if (a.player_id !== seat.id || a.street === "preflop") continue;
                 if (a.type === "bet" || a.type === "raise") {
-                    acc.c.aggression.n++;
-                    acc.c.aggression.k++;
+                    c.aggression.n++;
+                    c.aggression.k++;
                     if (a.pot_before > 0) {
                         acc.bet_to_pot_sum += a.amount / a.pot_before;
                         acc.bets_seen++;
                     }
                 } else if (a.type === "call" || a.type === "fold") {
-                    acc.c.aggression.n++;
+                    c.aggression.n++;
                 }
             }
-            for (const street of streets) countStreet(street, seat.id, acc.c);
+            for (const street of streets) countStreet(street, seat.id, c);
 
             // showdown
             if (saw_flop.has(seat.id)) {
-                acc.c.went_to_showdown.n++;
+                c.went_to_showdown.n++;
                 if (showdown && !seat.folded) {
-                    acc.c.went_to_showdown.k++;
-                    acc.c.won_at_showdown.n++;
-                    if (seat.collected > 0) acc.c.won_at_showdown.k++;
+                    c.went_to_showdown.k++;
+                    c.won_at_showdown.n++;
+                    if (seat.collected > 0) c.won_at_showdown.k++;
                 }
             }
             if (seat.shown_cards && seat.shown_cards.length === 2) {
@@ -312,6 +329,17 @@ export class ProfileBuilder {
                     at
                 });
                 acc.showdowns.length = Math.min(acc.showdowns.length, MAX_SHOWDOWNS);
+            }
+            const w = weightOf ? weightOf(key) : 1;
+            for (const stat of RATE_KEYS) {
+                acc.c[stat].k += w * c[stat].k;
+                acc.c[stat].n += w * c[stat].n;
+                acc.raw[stat].k += c[stat].k;
+                acc.raw[stat].n += c[stat].n;
+            }
+            for (const g of POSITION_GROUPS) {
+                acc.by_position[g].k += w * bp[g].k;
+                acc.by_position[g].n += w * bp[g].n;
             }
         }
     }
@@ -332,11 +360,16 @@ export class ProfileBuilder {
         for (const [key, acc] of this.players) {
             if (exclude(key)) continue;
             for (const stat of RATE_KEYS) {
-                pool[stat].k += acc.c[stat].k;
-                pool[stat].n += acc.c[stat].n;
+                pool[stat].k += acc.raw[stat].k;
+                pool[stat].n += acc.raw[stat].n;
             }
         }
         return pool;
+    }
+
+    /** Each player's unweighted counts (identity key -> stat -> {k, n}). */
+    rawCounts(): Map<string, Record<RateKey, Counter>> {
+        return new Map([...this.players].map(([key, acc]) => [key, acc.raw]));
     }
 
     all(): PlayerProfile[] {

@@ -161,6 +161,9 @@ const bot_manager = async function() {
         }
         const pct = (x: number) => `${Math.round(x * 100)}%`;
         console.log(`Loaded ${loaded} stored hand(s); hands from this game count as today's session.`);
+        if (profiles.recency.cases > 0) {
+            console.log(`Recency: ${Number.isFinite(profiles.recency.half_life) ? `ON, a player's games count half as much every ${profiles.recency.half_life} of their games. ` : "off (every game counts the same). "}${profiles.recency.reason}`);
+        }
         if (profiles.pool_hands > 0) {
             console.log(`Typical opponent in your games (used for players with little history): VPIP ${pct(PRIORS.vpip.mean)}, PFR ${pct(PRIORS.pfr.mean)}, ` +
                 `3-bet ${pct(PRIORS.three_bet.mean)}, folds to a bet on the flop/turn/river ${pct(PRIORS.fold_to_bet_flop.mean)}/${pct(PRIORS.fold_to_bet_turn.mean)}/${pct(PRIORS.fold_to_bet_river.mean)}.`);

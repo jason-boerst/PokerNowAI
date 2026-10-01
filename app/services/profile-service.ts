@@ -8,6 +8,7 @@ import { blendSession, calibratePriors, Deviation, PlayerProfile, PlayerRef, PRI
 import { CalibratedActionWeights, ShowdownCalibrator } from "../engine/showdown-calibration.ts";
 import { calibrateResponses, ResponseTable } from "../engine/response-calibration.ts";
 import { HandRecorder, HandRow, ME } from "./hand-recorder.ts";
+import { chooseHalfLife, gameOrder, gamesSince, HalfLifeCheck, playerGameCounts, recencyWeight } from "../engine/recency.ts";
 
 export { ME } from "./hand-recorder.ts";
 
@@ -49,6 +50,8 @@ export class ProfileService {
     private preflop: { table: PreflopResponseTable, samples: number } | null = null;
     private player_bluff: ReturnType<ProfileService["playerBluffScales"]> | null = null;
     private responses: { table: ResponseTable, samples: number } | null = null;
+    /** Whether older games count less in long-term profiles, and the check that decided it (see recency.ts). */
+    recency: HalfLifeCheck = { half_life: Infinity, cases: 0, test_games: 0, results: [], reason: "Not loaded." };
 
     constructor(private recorder: HandRecorder) {
         this.long = new ProfileBuilder(this.keyOf);
@@ -64,7 +67,7 @@ export class ProfileService {
         const links = await this.recorder.links();
         const rows = await this.recorder.hands();
         const keyOf = (seat: { id: string }) => links.get(seat.id) ?? seat.id;
-        const long = new ProfileBuilder(keyOf);
+        let long = new ProfileBuilder(keyOf);
         const session = new ProfileBuilder(keyOf);
         const hands = rows.map((row) => ({
             row,
@@ -73,6 +76,18 @@ export class ProfileService {
         }));
         for (const h of hands) (h.row.game_id === live_game_id ? session : long).addHand(h.state, h.at);
         this.calibrate(long, session);
+        // recency: older games count less in each player's long-term profile, when that predicts later games better
+        // (the pool's averages above use unweighted counts either way)
+        const past = hands.filter((h) => h.row.game_id !== live_game_id).map((h) => ({ state: h.state, game_id: h.row.game_id, at: h.at }));
+        const counts = playerGameCounts(past, keyOf);
+        const order = gameOrder(past);
+        const recency = chooseHalfLife(counts, order, (key) => key !== ME);
+        if (Number.isFinite(recency.half_life)) {
+            const since = gamesSince(counts, order);
+            long = new ProfileBuilder(keyOf);
+            for (const h of past) long.addHand(h.state, h.at, (key) => recencyWeight(since.get(key)?.get(h.game_id) ?? 0, recency.half_life));
+        }
+        this.recency = recency;
         this.live_game_id = live_game_id;
         this.links = links;
         this.hands = hands;
