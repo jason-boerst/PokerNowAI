@@ -98,6 +98,15 @@ describe("per-street tendencies", () => {
         expect(counts(hu.profile("c")!, "fold_to_bet_flop", "bet_when_checked_to")).to.deep.equal([[0, 0], [1, 1]]);
     });
 
+    it("counts folds to small and big first bets separately, heads-up", () => {
+        const b = new ProfileBuilder();
+        // flop pot 13: a 3-chip bet is small (23% of the pot); turn pot 19: a 20-chip bet is big (105%)
+        b.addHand(parseHand([...header(24), `${p("C", "c")} raises to 6`, `${p("A", "a")} folds`, `${p("B", "b")} calls 6`,
+            `Flop:  [K♠, 7♦, 2♣]`, `${p("B", "b")} checks`, `${p("C", "c")} bets 3`, `${p("B", "b")} calls 3`,
+            `Turn: K♠, 7♦, 2♣ [9♥]`, `${p("B", "b")} checks`, `${p("C", "c")} bets 20`, `${p("B", "b")} folds`, `-- ending hand #24 --`]));
+        expect(counts(b.profile("b")!, "fold_to_small_bet", "fold_to_big_bet", "fold_to_bet_flop", "fold_to_bet_turn")).to.deep.equal([[0, 1], [1, 1], [0, 1], [1, 1]]);
+    });
+
     it("counts fold chances heads-up only, and every action facing a bet or raise", () => {
         const b = new ProfileBuilder();
         b.addHand(parseHand([...header(21), `${p("C", "c")} calls 2`, `${p("A", "a")} calls 2`, `${p("B", "b")} checks`,

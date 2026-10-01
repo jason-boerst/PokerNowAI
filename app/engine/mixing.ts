@@ -19,9 +19,10 @@
 //       preflop: hands at the edge of a chart range (the weakest ones in it, the strongest ones just
 //         outside) mix the two actions, which keeps the range's overall frequency the same.
 //  3. The weights lean toward the better EV (a softmax with the style's temperature), which keeps the
-//     exploit in the mix. A bluff's EV counts the engine's bluff margin less (0.5 BB or 5% of the pot, the
-//     margin of error of its fold estimates), so with mixing off the pick is exactly the engine's own, and
-//     a bluff that is only barely ahead mixes in rarely instead of being played every time.
+//     exploit in the mix. A bet's EV counts its risk less (how far it could be off through its fold and raise
+//     estimates, the same discount the engine ranks options by; for a bluff at least 0.5 BB or 5% of the pot),
+//     so with mixing off the pick is exactly the engine's own, and a bluff that is only barely ahead mixes in
+//     rarely instead of being played every time.
 //  4. Balance only pays against players who notice patterns and adjust. Against recreational types
 //     (calling stations, loose-passive players, maniacs, nits) the band and the preflop edges shrink, so
 //     the exploit is played more purely; against regulars and unknown players they stay at full width.
@@ -91,7 +92,7 @@ const VALUE_RAISE_SHARE = 0.5;
 const VALUE_CHECK_SHARE = 0.15;
 /** Preflop: at least this many combos mix at each edge of a range, so a small range still has one. */
 const MIN_EDGE_COMBOS = 4;
-/** The engine's margin for bluffs (the same as in postflop.ts): a bluff must beat the passive option by this much to be played every time. */
+/** For an analysis without per-option risk: the flat margin a bluff must beat the passive option by to be played every time. */
 const BLUFF_MARGIN_BB = 0.5;
 const BLUFF_MARGIN_POT = 0.05;
 
@@ -342,8 +343,11 @@ function gtoPriors(a: PostflopAnalysis, s: HandState, v: HeroView, close: Candid
     const reference = bets.length ? bets.reduce((x, c) => (c.ev > x.ev ? c : x)) : a.candidates.find((c) => aggressive(c.action));
     // the value hands a balanced range actually bets (it checks a few)
     const value_bets = r ? r.value * (1 - VALUE_CHECK_SHARE) : 0;
+    // hero's hand is in the value part of its range (top pair or better) even when the bet's label is a
+    // semi-bluff by equity against the callers (top pair with a draw into several players): bet like value
+    const value_region = !!r && r.above !== undefined && r.above + (r.tied ?? 0) / 2 < r.value;
     const g_of = (c: Candidate): number => {
-        if (c.purpose === "value") return 1 - VALUE_CHECK_SHARE;
+        if (c.purpose === "value" || value_region) return 1 - VALUE_CHECK_SHARE;
         if (!r) return 0.5;
         return bluffShare(r, value_bets, bluffRatio(c.to, v.pot), street, opponents, group, false);
     };
@@ -358,7 +362,7 @@ function gtoPriors(a: PostflopAnalysis, s: HandState, v: HeroView, close: Candid
         const bet = clamp(value_bets + bluffs, 0, 1);
         baseline = { check: 1 - bet, bet };
         const size = sizeText(reference.to, v.pot);
-        if (reference.purpose === "value") {
+        if (reference.purpose === "value" || value_region) {
             lines.push(`Value hand: a balanced range bets its value hands (top pair or better, ${pct(r.value)} of your range here) most of the time and checks a few, so its checks aren't all weak.`);
         } else {
             const what = group === "draw" && street !== "river" ? "draws" : group === "medium" ? "medium pairs" : "hands with no pair or draw";
@@ -384,11 +388,13 @@ export function mixPostflop(input: PostflopMixInput): MixStrategy {
     const p = MIX_STYLES[input.style];
     const balance = need(input.style, input.opponent_types);
     const band = Math.max(p.band_bb * bb, p.band_pot * v.pot) * balance.scale;
-    // a bluff counts the engine's margin less: its fold estimates are the least certain numbers in the model
-    // (the same margin the engine uses to pass on thin bluffs, so the best option below is the engine's own pick)
+    // bets and raises count their risk less: how far their EV could be off through the fold estimate (the same
+    // discount the engine ranks its options by, so the best option below is the engine's own pick); without one
+    // (an outside analysis), a bluff counts the old flat margin less
     const margin = Math.max(BLUFF_MARGIN_BB * bb, BLUFF_MARGIN_POT * v.pot);
     const bluff = (c: Candidate) => aggressive(c.action) && c.purpose !== undefined && c.purpose !== "value";
-    const adj = (c: Candidate) => c.ev - (bluff(c) ? margin : 0);
+    const discount = (c: Candidate) => c.risk ?? (bluff(c) ? margin : 0);
+    const adj = (c: Candidate) => c.ev - discount(c);
     const anchor = cands.reduce((x, c) => (adj(c) > adj(x) ? c : x));
     const raw_best = cands.reduce((x, c) => (c.ev > x.ev ? c : x));
     const close = cands.filter((c) => adj(anchor) - adj(c) <= band + 1e-9);
@@ -396,11 +402,11 @@ export function mixPostflop(input: PostflopMixInput): MixStrategy {
     const priors = gtoPriors(a, s, v, close, input.hero_range, hero_class);
     const extra = { band_bb: round2(band / bb), baseline: priors.baseline };
     // the bluff shading only changes the comparison when a bluff mixes with something that isn't one
-    const shaded = close.some(bluff) && !close.every(bluff) ? `, with bluffs counted ${fmt(margin)} lower` : "";
+    const shaded = close.some((c) => discount(c) > 0) && !close.every((c) => discount(c) > 0) ? ", with bets counted lower by how unsure their fold estimates are" : "";
     // a bluff that is best on the raw numbers but not after the shading: say so (it replaces the close-spot line)
     const lead: string[] = [];
-    if (bluff(raw_best) && raw_best !== anchor) {
-        lead.push(`A ${raw_best.purpose} (${raw_best.label}) is ahead of ${anchor.label} by only ${fmt(raw_best.ev - anchor.ev)} on the engine's numbers, inside the ${fmt(margin)} margin of error of its fold estimate, so ${close.includes(raw_best) ? `the roll picks between them, leaning to ${anchor.label}` : `${anchor.label} is the play`}.`);
+    if (aggressive(raw_best.action) && raw_best.purpose !== undefined && raw_best !== anchor) {
+        lead.push(`${raw_best.purpose === "value" ? "A value bet" : `A ${raw_best.purpose}`} (${raw_best.label}) is ahead of ${anchor.label} by only ${fmt(raw_best.ev - anchor.ev)} on the engine's numbers, inside the ${fmt(discount(raw_best))} margin of error of its fold estimate, so ${close.includes(raw_best) ? `the roll picks between them, leaning to ${anchor.label}` : `${anchor.label} is the play`}.`);
     }
     // the balanced-range numbers explain the split only when the roll picks between different actions
     // (not between sizes of one bet, nor in a clear spot, where the exploit outweighs balance)
@@ -410,7 +416,7 @@ export function mixPostflop(input: PostflopMixInput): MixStrategy {
     if (close.length === 1) {
         const others = cands.filter((c) => c !== anchor);
         const runner_up = others.length ? others.reduce((x, c) => (adj(c) > adj(x) ? c : x)) : undefined;
-        const gap = runner_up ? ` by ${fmt(adj(anchor) - adj(runner_up))}${bluff(runner_up) ? ` (bluffs counted ${fmt(margin)} lower)` : ""}` : "";
+        const gap = runner_up ? ` by ${fmt(adj(anchor) - adj(runner_up))}${discount(runner_up) > 0 ? ` (counted ${fmt(discount(runner_up))} lower for its fold estimate)` : ""}` : "";
         const why = lead.length ? lead : [`Clear spot: ${anchor.label} is ahead of every other option${gap}, more than the ${fmt(band)} margin, so play it at any roll.`];
         return pure(input.style, optionOf(anchor), roll, [...why, ...tail], { ...extra, cost_bb: 0 });
     }

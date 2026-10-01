@@ -41,8 +41,9 @@ function riverSpot(hero_cards: string, bet: number) {
 const passive: OpponentTendency = { model: { range: topRange(40), aggression: 0.15 }, fold_to_bet: 0.3, fold_to_raise: 0.15 };
 const noProfiles = () => ({ deviations: [] });
 const CALL = '{"action":"call","size_bb":0,"confidence":0.6,"reason":"x"}';
-// second pair facing a small river bet: calling and raising are close, so the AI would be asked
-const closeSpot = () => riverSpot("Q♥, 9♣", 3);
+// second pair facing a tiny river bet: calling and raising are close (within 1 BB once the raise's risk is
+// counted), so the AI would be asked
+const closeSpot = () => riverSpot("Q♥, 9♣", 2);
 // 5-high facing a bet: a clear fold
 const clearSpot = () => riverSpot("5♦, 4♣", 10);
 // top pair facing a small bet: raising is clearly best, only the raise size is close

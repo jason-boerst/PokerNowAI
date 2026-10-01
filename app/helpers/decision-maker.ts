@@ -116,6 +116,13 @@ export function opponentTendencies(s: HandState, stats: (player: PlayerRef) => O
                 turn: p?.fold_to_bet_turn.value ?? PRIORS.fold_to_bet_turn.mean,
                 river: p?.fold_to_bet_river.value ?? PRIORS.fold_to_bet_river.mean
             },
+            // how their folds change with size: small bets (up to 40% of the pot) and big ones (over 80%)
+            fold_by_size: {
+                small: p?.fold_to_small_bet.value ?? PRIORS.fold_to_small_bet.mean,
+                big: p?.fold_to_big_bet.value ?? PRIORS.fold_to_big_bet.mean,
+                n_small: p?.fold_to_small_bet.n ?? 0,
+                n_big: p?.fold_to_big_bet.n ?? 0
+            },
             raise_vs_bet: p?.raise_vs_bet.value ?? PRIORS.raise_vs_bet.mean,
             bet_when_checked_to: p?.bet_when_checked_to.value ?? PRIORS.bet_when_checked_to.mean,
             // aggressive players bluff more, so they also give up more often when raised (assumption)

@@ -212,7 +212,7 @@ function keyline(m: PanelModel): string {
     const eq = m.odds.equity, need = m.odds.need, kept = m.odds.realized;
     // judged by the equity the hand keeps when that is known (raw equity above the price can still lose)
     const judged = finite(kept) ? kept : eq;
-    if (finite(eq)) item("Equity", finite(kept) ? `${pct(eq)} (${pct(kept)} kept)` : pct(eq), finite(need) && need > 0 && finite(judged) ? (judged >= need ? " pgpt-key-good" : " pgpt-key-bad") : "");
+    if (finite(eq)) item("Equity", finite(kept) ? `${pct(eq)} (${pct(kept)} ${finite(eq) && kept > eq + 0.005 ? "with implied odds" : "kept"})` : pct(eq), finite(need) && need > 0 && finite(judged) ? (judged >= need ? " pgpt-key-good" : " pgpt-key-bad") : "");
     if (finite(need) && need > 0) item("Need", pct(need));
     if (finite(m.spot.pot_bb) && m.spot.pot_bb > 0) item("Pot", `${bbText(m.spot.pot_bb)} BB`);
     if (finite(m.spot.to_call_bb) && m.spot.to_call_bb > 0) item("To call", `${bbText(m.spot.to_call_bb)} BB`);
@@ -348,7 +348,7 @@ function oddsSection(m: PanelModel): string {
             + `<span class="pgpt-odds-caption">equity vs their likely hands${has_need ? (verdict === "enough" ? ": enough to call" : ": not enough to call") : ""}</span></div>`
             + `<div class="pgpt-meter pgpt-meter-${verdict}" role="img" aria-label="Equity ${esc(pct(o.equity))}${has_need ? `, need ${esc(pct(o.need))}` : ""}">`
             + `<span class="pgpt-meter-fill" style="width:${pctWidth(o.equity * 100)}"></span>${need_mark}</div>`);
-        if (finite(o.realized)) parts.push(`<div class="pgpt-kv"><span>Equity kept out of position${finite(o.realization) ? ` (about ${esc(pct(o.realization))})` : ""}</span><b>${esc(pct(o.realized))}</b></div>`);
+        if (finite(o.realized)) parts.push(`<div class="pgpt-kv"><span>${finite(o.realization) && o.realization > 1.005 ? "Equity with implied odds" : "Equity kept out of position"}${finite(o.realization) ? ` (about ${esc(pct(o.realization))})` : ""}</span><b>${esc(pct(o.realized))}</b></div>`);
         summary = `${pct(o.equity)} equity${finite(o.realized) ? ` (${pct(o.realized)} kept)` : ""}${has_need ? ` / need ${pct(o.need)}` : ""}`;
     } else if (finite(o.need) && o.need > 0) {
         parts.push(`<div class="pgpt-kv"><span>Need to call</span><b>${esc(pct(o.need))}</b></div>`);

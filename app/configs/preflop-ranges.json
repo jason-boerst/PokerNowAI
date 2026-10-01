@@ -72,10 +72,11 @@
         "vs_loose_call": ""
     },
     "deep_stacks": {
-        "_about": "Changes when the effective stack (the smaller of your stack and the raiser's; before any raise, the smaller of yours and the biggest other stack) is deep, in big blinds (in straddles when there is a straddle). Your games start with a median of about 240 BB, and a quarter of stacks are 400 BB or more. Each tier applies from its number up to the next tier ('150' covers 150 to 300 BB, '300' covers 300 BB and up); under 150 BB nothing here applies. add_to_calls is added to the ranges for calling a raise or limping behind when you are not in the blinds; add_to_calls_from_blinds is added to the small and big blind calling ranges (neither is added against a nit, whose call_raise.vs_nit range is used as it is). Deep stacks pay off hands that can make sets, straights and flushes. remove_from_calls is taken out of the ranges for calling a raise from early or middle position (or a raise with callers): offsuit hands that make second-best pairs and lose big pots. add_to_three_bet_calls_in_position is added when you opened, got 3-bet, and will act after the 3-bettor. facing_four_bet replaces those ranges: at this depth only AA wants all the money in.",
+        "_about": "Changes when the effective stack (the smaller of your stack and the raiser's; before any raise, the smaller of yours and the biggest other stack) is deep, in big blinds (in straddles when there is a straddle). Your games start with a median of about 240 BB, and a quarter of stacks are 400 BB or more. Each tier applies from its number up to the next tier ('150' covers 150 to 300 BB, '300' covers 300 BB and up); under 150 BB nothing here applies. add_to_calls is added to the ranges for calling a raise or limping behind when you are not in the blinds; add_to_calls_from_blinds is added to the small and big blind calling ranges; add_to_multiway_calls is added when you are not in the blinds and the raise already has at least one caller (more players to pay off a set, straight or flush, and a better price) (neither is added against a nit, whose call_raise.vs_nit range is used as it is). Deep stacks pay off hands that can make sets, straights and flushes. remove_from_calls is taken out of the ranges for calling a raise from early or middle position (or a raise with callers): offsuit hands that make second-best pairs and lose big pots. add_to_three_bet_calls_in_position is added when you opened, got 3-bet, and will act after the 3-bettor. facing_four_bet replaces those ranges: at this depth only AA wants all the money in.",
         "150": {
             "add_to_calls": "22+ A2s+ KTs+ QTs+ JTs T9s 98s 87s 76s 65s",
             "add_to_calls_from_blinds": "22+ A5s A4s KJs QJs JTs T9s 98s 87s",
+            "add_to_multiway_calls": "22+ A2s+ K9s+ Q9s+ J9s+ T8s+ 97s+ 86s+ 75s+ 64s+ 54s",
             "remove_from_calls": "AJo KJo QJo KTo",
             "add_to_three_bet_calls_in_position": "88 77 ATs KJs QJs JTs",
             "facing_four_bet": {
@@ -88,6 +89,7 @@
         "300": {
             "add_to_calls": "22+ A2s+ K9s+ Q9s+ J9s+ T8s+ 97s+ 86s+ 75s+ 65s 54s",
             "add_to_calls_from_blinds": "22+ A2s+ KTs+ QTs+ JTs T9s 98s 87s 76s 65s",
+            "add_to_multiway_calls": "22+ A2s+ K8s+ Q8s+ J8s+ T7s+ 96s+ 85s+ 74s+ 63s+ 53s+ 43s",
             "remove_from_calls": "AJo KJo QJo KTo ATo QTo JTo KQo",
             "add_to_three_bet_calls_in_position": "99-22 ATs A5s A4s KJs QJs JTs T9s 98s",
             "facing_four_bet": {
@@ -132,7 +134,7 @@
         "min_hands": 20
     },
     "price_defense": {
-        "_about": "When you close the preflop action facing one raise (the big blind, or the heads-up small blind after the big blind raises your limp), call or fold by price instead of a fixed range: call when your equity against the players still in, times the share of it a hand like yours keeps playing out of position (realization), beats the equity the call needs by 'margin'. The price changes with the raise size (a 2x open needs 25%, 3x needs 33%, 4x needs 37.5%), which a fixed range can't see. Realization shares are estimates inside the range published for big blind defense (about 60 to 85 percent; suited and connected hands keep more, offsuit unconnected hands less), not solver output. Very deep stacks cost offsuit hands a little more (they lose big pots to better kickers). 3-bets still come from the charts, except when you close the action and the call leaves a stack-to-pot ratio under three_bet_spr_below (at most one more bet gets the stacks in, so the hand plays close to showdown) or the 3-bet is all-in: then a hand the chart folds calls when the price is right. Set enabled to false to use the fixed ranges.",
+        "_about": "When you close the preflop action facing one raise (the big blind, or the heads-up small blind after the big blind raises your limp), call or fold by price instead of a fixed range: call when your equity against the players still in, times the share of it a hand like yours keeps playing out of position (realization), beats the equity the call needs by 'margin'. The price changes with the raise size (a 2x open needs 25%, 3x needs 33%, 4x needs 37.5%), which a fixed range can't see. Realization shares are estimates inside the range published for big blind defense (about 60 to 85 percent; suited and connected hands keep more, offsuit unconnected hands less), not solver output. Multiway, each hand keeps a share of its realization by type (multiway_factor): pairs and suited connectors keep all of it (they make sets, straights and flushes that win big pots against several players), offsuit hands lose the most (their one-pair hands are often beaten when several players continue). Deep stacks add implied odds to pairs and suited hands (deep_implied_bonus, growing from a stack-to-pot ratio of deep_implied_from_spr after the call to its full size at deep_implied_full_spr, times deep_implied_multiway_scale with more than one opponent) and cost offsuit hands a little (they lose big pots to better kickers). These shares are assumptions, not solver output. 3-bets still come from the charts, except when you close the action and the call leaves a stack-to-pot ratio under three_bet_spr_below (at most one more bet gets the stacks in, so the hand plays close to showdown) or the 3-bet is all-in: then a hand the chart folds calls when the price is right. Set enabled to false to use the fixed ranges.",
         "enabled": true,
         "realization": {
             "pair": 0.85,
@@ -143,11 +145,24 @@
             "offsuit_ace": 0.76,
             "offsuit": 0.68
         },
-        "multiway_factor": 0.9,
+        "multiway_factor": {
+            "pair": 1.0,
+            "suited_connected": 1.0,
+            "suited": 0.95,
+            "offsuit": 0.85
+        },
         "short_spr_below": 4,
         "short_spr_bonus": 0.1,
         "deep_spr_at_least": 25,
         "deep_offsuit_penalty": 0.04,
+        "deep_implied_bonus": {
+            "pair": 0.08,
+            "suited_connected": 0.06,
+            "suited": 0.04
+        },
+        "deep_implied_from_spr": 10,
+        "deep_implied_full_spr": 30,
+        "deep_implied_multiway_scale": 1.5,
         "margin": 0.01,
         "close_spot_bb": 0.25,
         "three_bet_spr_below": 2

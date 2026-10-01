@@ -42,19 +42,23 @@ const ARCHETYPES: Record<Exclude<Archetype, "pool">, ArchetypeStats> = {
     // calls everything, rarely raises or folds
     station: { vpip: 55, pfr: 8, three_bet: 3, rates: {
         aggression: 0.2, fold_to_cbet: 0.22, fold_to_bet_flop: 0.2, fold_to_bet_turn: 0.2, fold_to_bet_river: 0.25,
-        raise_vs_bet: 0.05, bet_when_checked_to: 0.25, went_to_showdown: 0.45, fold_to_three_bet: 0.25 } },
+        raise_vs_bet: 0.05, bet_when_checked_to: 0.25, went_to_showdown: 0.45, fold_to_three_bet: 0.25,
+        fold_to_small_bet: 0.15, fold_to_big_bet: 0.3 } },
     // plays few hands, folds a lot, bets and raises mean strength
     nit: { vpip: 14, pfr: 6, three_bet: 2, rates: {
         aggression: 0.3, fold_to_cbet: 0.55, fold_to_bet_flop: 0.5, fold_to_bet_turn: 0.55, fold_to_bet_river: 0.62,
-        raise_vs_bet: 0.06, bet_when_checked_to: 0.3, went_to_showdown: 0.22, fold_to_three_bet: 0.6 } },
+        raise_vs_bet: 0.06, bet_when_checked_to: 0.3, went_to_showdown: 0.22, fold_to_three_bet: 0.6,
+        fold_to_small_bet: 0.5, fold_to_big_bet: 0.72 } },
     // bets and raises a lot with weak hands
     maniac: { vpip: 60, pfr: 40, three_bet: 18, rates: {
         aggression: 0.65, fold_to_cbet: 0.3, fold_to_bet_flop: 0.28, fold_to_bet_turn: 0.3, fold_to_bet_river: 0.35,
-        raise_vs_bet: 0.25, bet_when_checked_to: 0.7, went_to_showdown: 0.4, fold_to_three_bet: 0.35 } },
+        raise_vs_bet: 0.25, bet_when_checked_to: 0.7, went_to_showdown: 0.4, fold_to_three_bet: 0.35,
+        fold_to_small_bet: 0.25, fold_to_big_bet: 0.42 } },
     // solid and aggressive
     tag: { vpip: 22, pfr: 18, three_bet: 8, rates: {
         aggression: 0.45, fold_to_cbet: 0.45, fold_to_bet_flop: 0.45, fold_to_bet_turn: 0.45, fold_to_bet_river: 0.5,
-        raise_vs_bet: 0.12, bet_when_checked_to: 0.45, went_to_showdown: 0.28, fold_to_three_bet: 0.5 } }
+        raise_vs_bet: 0.12, bet_when_checked_to: 0.45, went_to_showdown: 0.28, fold_to_three_bet: 0.5,
+        fold_to_small_bet: 0.38, fold_to_big_bet: 0.62 } }
 };
 const ARCHETYPE_HANDS = 300;
 /** The profile service's type name for each archetype (what the mix reads to decide how much balance matters). */
@@ -443,8 +447,10 @@ export const SCENARIOS: Scenario[] = [
         script: ["CO calls", "BU calls", "SB calls", "BB checks", "flop Kc 9d 6s", "SB checks"], expect: { action: "check" } },
     { id: "post-multi-lead-second-pair-oop", description: "BB first to act into three players with K-T on A-7-T (a real spot): check, a lead with second pair is a thin bluff", table: nine("BB", "Kh Td"),
         script: ["HJ raises 6", "CO calls", "BU calls", "BB calls", "flop Ac 7h Th"], expect: { action: "check" } },
-    { id: "post-multi-lead-top-pair-draw", description: "SB first to act into three players with top pair and a flush draw: bet", table: nine("SB", "Ks Qs"),
-        script: ["HJ raises 6", "CO calls", "BU calls", "SB calls", "BB folds", "flop 8s Qd 9d"], expect: { action: "aggressive" } },
+    { id: "post-multi-lead-top-pair-draw", description: "SB first to act into three players with top pair and a flush draw: bet", table: nine("SB", "Kd Qd"),
+        script: ["HJ raises 6", "CO calls", "BU calls", "SB calls", "BB folds", "flop 8d Qs 9d"], expect: { action: "aggressive" } },
+    { id: "post-multi-top-pair-backdoor-oop", description: "SB first to act into three players with top pair and only a backdoor draw on a wet board: check or bet, both are played", table: nine("SB", "Ks Qs"),
+        script: ["HJ raises 6", "CO calls", "BU calls", "SB calls", "BB folds", "flop 8s Qd 9d"], expect: { action: ["check", "aggressive"] } },
     { id: "post-multi-lead-second-pair-4way-limped", description: "BB first to act in a four-way limped pot with second pair: check", table: nine("BB", "Th 8d"),
         script: ["UTG calls", "CO calls", "BU calls", "SB folds", "BB checks", "flop Ac Tc 6d"], expect: { action: "check" } },
     { id: "post-multi-mid-pair-vs-bet-raise", description: "Middle pair facing a bet and a raise multiway: fold", table: nine("BU", "9h 8h"),
@@ -465,7 +471,19 @@ export const SCENARIOS: Scenario[] = [
         script: ["BU raises 12", "BB calls", "UTG calls", "flop 9s 6d 2c", "BB checks", "UTG checks"], players: { BB: "station", UTG: "station" },
         expect: { action: "aggressive" } },
     { id: "post-ante-overpair-turn", description: "Anted pot, overpair on the turn facing a small bet: continue", table: nine("CO", "Kh Kd", { ante_bb: 0.5 }),
-        script: ["CO raises 8", "BB calls", "flop Tc 7d 3s", "BB checks", "CO bets 12", "BB calls", "turn 2h", "BB bets 12"], expect: { action: "continue" } }
+        script: ["CO raises 8", "BB calls", "flop Tc 7d 3s", "BB checks", "CO bets 12", "BB calls", "turn 2h", "BB bets 12"], expect: { action: "continue" } },
+
+    // ------------------------------------------------------------------ calling over several streets, deep multiway, sizing
+    { id: "post-ace-high-vs-cbet", description: "Ace high with no draw facing a c-bet on K-8-7: fold (it rarely survives the turn and river bets)", table: nine("BB", "As 3d"),
+        script: ["CO raises 6", "BB calls", "flop Kh 8c 7h", "BB checks", "CO bets 8"], expect: { action: "fold" } },
+    { id: "post-deep-multi-nut-fd", description: "300 BB deep, nut flush draw facing a bet and a call in a four-way pot: continue (implied odds)", table: nine("BU", "Ah Th", { stack_bb: 300 }),
+        script: ["HJ raises 6", "CO calls", "BU calls", "BB calls", "flop Kh 7h 2c", "BB checks", "HJ bets 12", "CO calls"], expect: { action: "continue" } },
+    { id: "post-deep-multi-oesd", description: "250 BB deep, open-ended straight draw facing a half-pot bet in a three-way pot: continue", table: nine("CO", "Jd Td", { stack_bb: 250 }),
+        script: ["HJ raises 6", "CO calls", "BU calls", "flop 9c 8s 2h", "HJ bets 10"], expect: { action: "continue" } },
+    { id: "pre-bu-q9s-deep-4way", description: "BU with Q9s behind a raise and two callers at 250 BB: call (deep multiway implied odds)", table: nine("BU", "Qs 9s", { stack_bb: 250 }),
+        script: ["LJ raises 6", "HJ calls", "CO calls"], expect: { action: "call" } },
+    { id: "post-value-vs-station-size", description: "Top set on the turn checked to by a station: bet at least half the pot (stations call big bets)", table: nine("BU", "Kh Kd"), nut: true,
+        script: ["CO raises 6", "BU calls", "flop Ks 8d 3c", "CO checks", "BU bets 6", "CO calls", "turn 4h", "CO checks"], players: { CO: "station" }, expect: { action: "aggressive", size_bb: [12, 100] } }
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -622,7 +640,7 @@ export function describeResult(r: ScenarioResult, verbose = false): string {
         const a = r.analysis;
         if (a) {
             const pct = (x: number | undefined) => x === undefined ? "-" : `${Math.round(x * 100)}%`;
-            lines.push(`     equity ${pct(a.equity)}, when called ${pct(a.equity_when_called)}, need ${pct(a.required_equity)}, R ${a.realization.toFixed(2)}, ${a.in_position ? "IP" : "OOP"}${a.bet_role ? `, role ${a.bet_role}` : ""}${a.note ? `; ${a.note}` : ""}`);
+            lines.push(`     equity ${pct(a.equity)}, when called ${pct(a.equity_when_called)}, need ${pct(a.required_equity)}, R ${a.realization.toFixed(2)}${a.call_plan ? ` (call ${a.call_plan.realization.toFixed(2)}: next bet ${pct(a.call_plan.barrel)}, keeps calling ${pct(a.call_plan.continue_vs_barrel)})` : ""}, ${a.in_position ? "IP" : "OOP"}${a.bet_role ? `, role ${a.bet_role}` : ""}${a.note ? `; ${a.note}` : ""}`);
             for (const c of a.candidates) {
                 const extra = c.fold_chance !== undefined ? ` folds ${pct(c.fold_chance)} raised ${pct(c.raise_chance)} called-eq ${pct(c.called_equity)} ${c.purpose}` : "";
                 lines.push(`       ${c.label.padEnd(18)} ${(c.ev / bb >= 0 ? "+" : "") + (c.ev / bb).toFixed(2)} BB${extra}`);

@@ -58,7 +58,9 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
     lines.push("Engine estimates (Monte Carlo against ranges estimated from each opponent's stats and actions; approximate):");
     lines.push(`  Your equity: ${pct(a.equity)}. Equity when a bet/raise gets called: ${pct(a.equity_when_called)}.${v.to_call > 0 ? ` Equity needed to call: ${pct(a.required_equity)}.` : ""}`);
     lines.push(`  You are ${a.in_position ? "in position" : "out of position"}.`);
-    lines.push("  Rough EV of each option (models the next bet or raise on this street, not later streets):");
+    lines.push(a.call_plan
+        ? "  Rough EV of each option (the call counts the next street: whether they bet again and whether you keep calling; bets and raises count later streets roughly, through implied odds):"
+        : "  Rough EV of each option (the next bet or raise on this street; later streets only roughly, through implied odds):");
     for (const c of a.candidates) {
         const fold = a.fold_probability.get(c.to);
         const kind = shortTag(a, c);
@@ -71,6 +73,11 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
         lines.push(`    ${c.label}: ${sign(b(c.ev))} BB${details.length ? ` (${details.join(", ")})` : ""}`);
     }
     if (a.bet_role) lines.push(`  A bet by you here would be a ${roleText(a.bet_role, a.street, false)}; the fold and raise rates above are measured from similar spots in your games.`);
+    if (a.call_plan) {
+        const p = a.call_plan;
+        lines.push(`  If you call: they bet the ${a.street === "flop" ? "turn" : "river"} ~${pct(p.barrel)} of the time and you keep calling on ~${pct(p.continue_vs_barrel)} of those cards; later betting (implied odds) ${sign(b(p.implied))} BB; on equity alone the call would be ${sign(b(p.flat_ev))} BB.`);
+    }
+    for (const note of a.size_notes ?? []) lines.push(`  ${note}`);
     if (mix && !mix.pure) {
         lines.push(`  Mixed strategy (random number 1-100, low numbers passive, high aggressive): ${describeMix(mix)}. This turn's number is ${mix.roll}, which plays ${mix.pick.label}.`);
         lines.push("  These options are close in EV; mixing them keeps your play unpredictable. Follow the number unless you see a clear reason not to, and if you don't, say why.");

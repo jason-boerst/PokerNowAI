@@ -85,7 +85,9 @@ const RANK_ORDER = "23456789TJQKA";
 /**
  * Share of its raw equity a hand typically keeps when it calls a raise and plays the flop out of position.
  * Suited and connected hands keep more (they make strong draws and hands), offsuit unconnected hands less;
- * a low stack-to-pot ratio after the call keeps more because the hand is played to showdown sooner.
+ * a low stack-to-pot ratio after the call keeps more because the hand is played to showdown sooner. Multiway,
+ * offsuit hands keep less and pairs and suited connectors keep theirs; deep stacks add implied odds to pairs
+ * and suited hands (more with several opponents, who can pay off a set, straight or flush).
  */
 export function realizationOf(config: PreflopConfig, cls: HandClass, multiway: boolean, spr_after_call: number): number {
     const r = config.price_defense.realization;
@@ -99,10 +101,16 @@ export function realizationOf(config: PreflopConfig, cls: HandClass, multiway: b
         : r.offsuit;
     const pd = config.price_defense;
     const offsuit = cls.length === 3 && cls.endsWith("o");
-    const adjusted = base * (multiway ? pd.multiway_factor : 1)
+    const kind = cls.length === 2 ? "pair" : cls.endsWith("s") ? (connected ? "suited_connected" : "suited") : "offsuit";
+    const implied = kind === "offsuit" ? 0
+        : pd.deep_implied_bonus[kind] * Math.max(0, Math.min(1, (spr_after_call - pd.deep_implied_from_spr) / (pd.deep_implied_full_spr - pd.deep_implied_from_spr)))
+            * (multiway ? pd.deep_implied_multiway_scale : 1);
+    const adjusted = base * (multiway ? pd.multiway_factor[kind] : 1)
         + (spr_after_call < pd.short_spr_below ? pd.short_spr_bonus : 0)
-        - (offsuit && spr_after_call >= pd.deep_spr_at_least ? pd.deep_offsuit_penalty : 0);
-    return Math.max(0.3, Math.min(1, adjusted));
+        - (offsuit && spr_after_call >= pd.deep_spr_at_least ? pd.deep_offsuit_penalty : 0)
+        + implied;
+    // implied odds can lift a hand past its raw equity (it wins more than its share when it hits)
+    return Math.max(0.3, Math.min(1.15, adjusted));
 }
 
 type StatsLookup = (player: PlayerRef) => ObservedStats | undefined;
@@ -173,6 +181,7 @@ type FourBetRanges = Omit<PreflopConfig["facing_four_bet"], "_about">;
 interface DeepTier {
     add_to_calls?: string,
     add_to_calls_from_blinds?: string,
+    add_to_multiway_calls?: string,
     remove_from_calls?: string,
     add_to_three_bet_calls_in_position?: string,
     facing_four_bet?: Partial<FourBetRanges>
@@ -324,6 +333,7 @@ function chartAdvice(s: HandState, v: HeroView, stats: StatsLookup, config: Pref
         const numbers = showdown
             ? `about ${pct(eq)} equity against their likely hands, and nobody left can bet, so all of it counts`
             : r >= 0.999 ? `about ${pct(eq)} equity against their likely hands; with this little left behind the hand plays nearly to showdown, so all of it counts`
+            : r > 1.005 ? `about ${pct(eq)} equity against their likely hands; with stacks this deep a hand like this wins more than its share when it hits (implied odds), worth about ${pct(r)} of that (${pct(realized)})`
             : `about ${pct(eq)} equity against their likely hands; ${ip ? "" : "out of position "}a hand like this keeps roughly ${pct(r)} of that (${pct(realized)})`;
         const priced = `${scenario}, priced`;
         const price: PriceInfo = { ev_bb: Math.round(ev_bb * 100) / 100, equity: eq, realized, realization: r, need, decided: true };
@@ -523,10 +533,12 @@ function chartAdvice(s: HandState, v: HeroView, stats: StatsLookup, config: Pref
         const depth = depthVs(raiser);
         const deep = deepTier(config, depth);
         const deep_add = vs_nit ? undefined : role === "in_position" ? deep?.add_to_calls : deep?.add_to_calls_from_blinds;
+        // deep and multiway in position: more speculative hands (more players to pay off a set, straight or flush)
+        const deep_multi = multiway && role === "in_position" ? deep?.add_to_multiway_calls : undefined;
         // with antes in the pot the blinds get a better price
         const ante_add = widen === 0 || vs_nit ? undefined : role === "big_blind" ? ante.big_blind_defense_extra : role === "small_blind" ? ante.small_blind_defense_extra : undefined;
         const tiers = [raiseTier(three_bet_to, [value], "strength", "3-bet for value"),
-            ...(priced ? [pricedTier(priced)] : [callTier([calls, deep_add, ante_add]), fold_tier])];
+            ...(priced ? [pricedTier(priced)] : [callTier([calls, deep_add, deep_multi, ante_add]), fold_tier])];
         if (inRange(config, value, cls)) {
             const why = raiser_types.has("loose_raiser") ? ` ${raiser.position} raises a lot, so 3-bet a wider value range.` : "";
             return tiered(finish({ action: "raise", size_bb: three_bet_to, scenario, reason: `3-bet ${cls} for value.${why}` }), tiers);
@@ -534,15 +546,16 @@ function chartAdvice(s: HandState, v: HeroView, stats: StatsLookup, config: Pref
         if (priced) return tiered(priced, tiers);
         const in_base = inRange(config, calls, cls);
         const removed = !late && !!deep?.remove_from_calls && inRange(config, deep.remove_from_calls, cls);
-        if (removed && (in_base || inAny(config, [deep_add, ante_add], cls))) {
+        if (removed && (in_base || inAny(config, [deep_add, deep_multi, ante_add], cls))) {
             return fold(scenario, `Fold ${cls}: stacks are about ${Math.round(depth * level)} BB deep, and ${cls} too often loses a big pot to a better hand from ${raiser.position}.`);
         }
-        if (in_base || inAny(config, [deep_add, ante_add], cls)) {
+        if (in_base || inAny(config, [deep_add, deep_multi, ante_add], cls)) {
             if (!setMineOk()) {
                 return fold(scenario, `Fold ${cls}: stacks are too short to call just hoping to hit a set (need ${size.set_mine_min_stack_to_call_ratio}x the call).`);
             }
             const why = in_base ? `good enough to see a flop, not strong enough to 3-bet for value${multiway ? " into several players" : ""}`
                 : inAny(config, [deep_add], cls) ? `stacks are about ${Math.round(depth * level)} BB deep, so a hand that can make a set, straight or flush is worth a call`
+                : inAny(config, [deep_multi], cls) ? `stacks are about ${Math.round(depth * level)} BB deep and ${callers_after_raise.length + 1} players are in, so a hand that can make a set, straight or flush gets paid when it hits`
                 : "the antes make the pot bigger, so the blinds defend a little wider";
             return tiered({ action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: ${why}.` }, tiers);
         }

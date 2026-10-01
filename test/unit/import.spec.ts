@@ -214,7 +214,7 @@ describe("session vs long-term", () => {
             key: "x", name: "X", names: ["X"], hands, net_bb: 0, bb_per_100: 0, avg_bet_to_pot: 0, bets_seen: 0,
             vpip: rate(vpip[0], vpip[1]), pfr: rate(0, 0, 0.1), limp: flat, three_bet: flat, fold_to_three_bet: flat, steal: flat,
             fold_to_steal: flat, cbet: flat, fold_to_cbet: flat, aggression: flat, went_to_showdown: flat, won_at_showdown: flat,
-            fold_to_bet_flop: flat, fold_to_bet_turn: flat, fold_to_bet_river: flat, raise_vs_bet: flat, bet_when_checked_to: flat,
+            fold_to_bet_flop: flat, fold_to_bet_turn: flat, fold_to_bet_river: flat, raise_vs_bet: flat, bet_when_checked_to: flat, fold_to_small_bet: flat, fold_to_big_bet: flat,
             vpip_by_position: { early: flat, middle: flat, late: flat, blinds: flat }, showdowns: [], last_seen: "", type: "unknown", exploit: ""
         };
     };

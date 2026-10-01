@@ -116,7 +116,12 @@ export function heroBetRole(s: HandState): BetRole {
 export function responseFor(table: ResponseTable, street: PostflopStreet, role: BetRole, share_of_pot: number): Response & { n: number } {
     const cells = table[street][role];
     const x = Math.max(0, share_of_pot);
-    if (x <= ANCHORS[0][1]) return { ...cells.small };
+    if (x <= ANCHORS[0][1]) {
+        // smaller than a third of the pot: fewer folds and more raises (measured: bets under 30% of the pot got
+        // 21% folds and 16% raises heads-up, against 36% and 10% for 30-45%)
+        const r = Math.max(x, 0.1) / ANCHORS[0][1];
+        return { fold: clampFold(cells.small.fold * Math.pow(r, 0.8)), raise: clampRaise(cells.small.raise * Math.pow(r, -0.3)), n: cells.small.n };
+    }
     const big = cells.big;
     if (x >= ANCHORS[2][1]) {
         const over = Math.min(x - 1, 1);

@@ -197,7 +197,9 @@ export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equ
     // a chart decision the raw equity seems to contradict: say what the price looks like once position is counted
     if (price && !price.decided) {
         const cls = s.hero_cards.length === 2 ? classOf(s.hero_cards) : "this hand";
-        const kept = `out of position ${cls} keeps about ${pct(price.realization)} of its ${pct(price.equity)} equity (${pct(price.realized)})`;
+        const kept = price.realization > 1.005
+            ? `with implied odds ${cls} is worth about ${pct(price.realization)} of its ${pct(price.equity)} equity (${pct(price.realized)})`
+            : `out of position ${cls} keeps about ${pct(price.realization)} of its ${pct(price.equity)} equity (${pct(price.realized)})`;
         if (advice.action === "fold" && price.equity >= price.need) {
             lines.push(price.realized < price.need
                 ? `Raw equity ${pct(price.equity)} is above the ${pct(price.need)} the call needs, but ${kept}, less than that, so calling loses.`
@@ -278,6 +280,17 @@ function engineLines(a: PostflopAnalysis, v: HeroView, chosen: Candidate | undef
         const b = (x: number) => signed(x / big_blind);
         lines.push(`${chosen.label[0].toUpperCase()}${chosen.label.slice(1)} is worth about ${b(chosen.ev)} BB${alt ? ` vs ${b(alt.ev)} BB for ${alt.label}` : ""}.`);
     }
+    // facing a bet before the river: how a call plays out on the next street
+    const plan = a.call_plan;
+    if (plan && chosen && (chosen.action === "call" || chosen.action === "fold")) {
+        const b = (x: number) => signed(x / big_blind);
+        const next = a.street === "flop" ? "turn" : "river";
+        const keep = plan.continue_vs_barrel >= 0.995 ? "you'd call it on almost every card" : plan.continue_vs_barrel <= 0.005 ? "you'd fold to it on almost every card" : `you'd keep calling on about ${pct(plan.continue_vs_barrel)} of the cards`;
+        const implied = Math.abs(plan.implied) >= 0.1 * big_blind ? ` Later betting when the hands are strong: ${b(plan.implied)} BB (${plan.implied >= 0 ? "implied odds" : "reverse implied odds"}).` : "";
+        lines.push(`If you call: they bet the ${next} about ${pct(plan.barrel)} of the time and ${keep}.${implied} On equity alone the call would look like ${b(plan.flat_ev)} BB.`);
+    }
+    // bets: how these players answer small and big bets
+    if (chosen && aggressive(chosen.action) && a.size_notes) lines.push(...a.size_notes);
     if (margin_note === false && a.note && !lines.includes(a.note)) lines.push(a.note);
     return lines;
 }
