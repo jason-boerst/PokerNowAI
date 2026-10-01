@@ -1,6 +1,7 @@
 import { ActionRecord, HandState, positionLabels, SeatState } from "./hand-parser.ts";
 import { OpponentModel, PostflopAction } from "./equity.ts";
 import type { PlayerRef } from "./player-profile.ts";
+import type { TellReading } from "./seven-deuce-tells.ts";
 import { PreflopLine, PreflopTendencies, positionWidth, preflopRange, topRange } from "./ranges.ts";
 
 /**
@@ -15,6 +16,21 @@ export const MIN_HANDS_FOR_STATS = 20;
  * for winning a hand with 7-2, so it is on by default; set it to false for a game without one.
  */
 export const TABLE_RULES = { seven_deuce_bounty: true };
+
+/**
+ * Reads 7-2 sizing tells for a seat in a hand (seven-deuce-tells.ts), set from your stored hands when they load;
+ * null until then, or when no tell is significant in your games.
+ */
+let seven_deuce_tells: ((s: HandState, seat: SeatState) => TellReading) | null = null;
+export function setSevenDeuceTells(reader: ((s: HandState, seat: SeatState) => TellReading) | null): void {
+    seven_deuce_tells = reader;
+}
+/** What the 7-2 sizing tells say about this seat in this hand (null: no tells, or no bounty). */
+export function sevenDeuceTell(s: HandState, seat: SeatState): TellReading | null {
+    return TABLE_RULES.seven_deuce_bounty && seven_deuce_tells ? seven_deuce_tells(s, seat) : null;
+}
+/** Most weight 7-2 can get in a range after a tell (range weights are a share of the class's combos). */
+const MAX_TELL_WEIGHT = 4;
 
 export interface ObservedStats {
     /** Percent, 0-100. */
@@ -155,15 +171,25 @@ export function seatModel(s: HandState, seat: SeatState, stats: (player: PlayerR
     // preflopRange checks three_bet and falls back to PFR when it's missing or unusable
     const tendencies: PreflopTendencies = usable ? { vpip: observed.vpip, pfr: observed.pfr, three_bet: observed.three_bet } : POPULATION_TENDENCIES;
     const line = preflopLine(s, seat.id);
+    // a bomb pot has no preflop decisions: everyone is in with any two cards
+    let range = s.bomb_pot ? topRange(100)
+        : preflopRange(line, tendencies, positionWidth(seat.position, s.seats.length), {
+            reraise: line === "3bet" ? reraiseFactor(s, seat.id) : line === "4bet" ? fourBetFactor(s, seat.id) : 1,
+            seven_deuce_bounty: TABLE_RULES.seven_deuce_bounty
+        });
+    // a sizing tell measured in your games moves the odds of 7-2 in their range (only if 7-2 is in it at all)
+    const tell = s.bomb_pot ? null : sevenDeuceTell(s, seat);
+    if (tell && tell.lr !== 1 && (range.has("72o") || range.has("72s"))) {
+        range = new Map(range);
+        for (const cls of ["72o", "72s"]) {
+            const w = range.get(cls);
+            if (w) range.set(cls, Math.min(MAX_TELL_WEIGHT, w * tell.lr));
+        }
+    }
     return {
         tendencies,
         model: {
-            // a bomb pot has no preflop decisions: everyone is in with any two cards
-            range: s.bomb_pot ? topRange(100)
-                : preflopRange(line, tendencies, positionWidth(seat.position, s.seats.length), {
-                    reraise: line === "3bet" ? reraiseFactor(s, seat.id) : line === "4bet" ? fourBetFactor(s, seat.id) : 1,
-                    seven_deuce_bounty: TABLE_RULES.seven_deuce_bounty
-                }),
+            range,
             postflop_actions: postflopActions(s, seat.id),
             aggression: observed?.aggression,
             bounty_72: TABLE_RULES.seven_deuce_bounty

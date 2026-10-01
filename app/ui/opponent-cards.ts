@@ -1,6 +1,6 @@
 // Opponent cards for the in-game panel: who they are, how they play, and the stats that matter for this decision.
 import { ActionType, HandState, HeroView, POST_TYPES, SeatState } from "../engine/hand-parser.ts";
-import { ObservedStats, opponentModels } from "../engine/opponent-range.ts";
+import { ObservedStats, opponentModels, sevenDeuceTell } from "../engine/opponent-range.ts";
 import { MIN_HANDS_FOR_TYPE, PlayerProfile, PlayerRef, PlayerType, PRIORS, RateKey } from "../engine/player-profile.ts";
 import { rangePercent } from "../engine/ranges.ts";
 import { bb } from "../engine/spot-format.ts";
@@ -229,7 +229,7 @@ export function opponentCards(inputs: OpponentCardInputs, limit = 4): { cards: O
             range_pct: range ? Math.round(rangePercent(range) * 10) / 10 : undefined,
             stats: pickStats(seat, spot, s, hero_position).map((pick) => statOf(pick, p)),
             today: todayLine(info),
-            flags: info.deviations.map((d) => d.text),
+            flags: [...(sevenDeuceTell(s, seat)?.notes ?? []), ...info.deviations.map((d) => d.text)],
             last_showdown: showdownLine(p),
             exploit: p ? p.exploit : "No history yet: assume a typical player from your games.",
             low_sample: !p || p.hands < MIN_HANDS_FOR_TYPE,

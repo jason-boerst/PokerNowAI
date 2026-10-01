@@ -17,6 +17,8 @@ import { existsSync } from 'node:fs';
 import { PRIORS } from './engine/player-profile.ts';
 import { setActionWeights } from './engine/equity.ts';
 import { setResponseTable } from './engine/postflop.ts';
+import { setSevenDeuceTells } from './engine/opponent-range.ts';
+import { TELL_KINDS, TELL_NAMES } from './engine/seven-deuce-tells.ts';
 import { parseMixStyle } from './engine/mixing.ts';
 
 const LOGS_FOLDER = 'logs';
@@ -137,6 +139,13 @@ const bot_manager = async function() {
         }
         // how players in your games answer leads, c-bets and barrels of each size
         setResponseTable(profiles.responseTable().table);
+        // 7-2 sizing tells, used only when one is statistically significant in your games
+        setSevenDeuceTells(profiles.tellReader());
+        for (const t of TELL_KINDS.map((k) => profiles.sevenDeuceTells().stats[k]).filter((t) => t.n72 > 0)) {
+            const pc = (x: number) => `${Math.round(x * 100)}%`;
+            console.log(`7-2 tell, ${TELL_NAMES[t.kind]}: 7-2 big ${pc(t.big72 / t.n72)} of ${t.n72} shown vs ${pc(t.big_other / Math.max(1, t.n_other))} for other hands (z ${t.z.toFixed(1)}): ` +
+                (t.active ? `ON, 7-2 counts ${t.lr_big.toFixed(1)}x as likely after a big one.` : "off (not significant)."));
+        }
         const pct = (x: number) => `${Math.round(x * 100)}%`;
         console.log(`Loaded ${loaded} stored hand(s); hands from this game count as today's session.`);
         if (profiles.pool_hands > 0) {

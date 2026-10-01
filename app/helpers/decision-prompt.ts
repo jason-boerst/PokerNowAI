@@ -1,6 +1,7 @@
 import { HandState, HeroView } from "../engine/hand-parser.ts";
 import { ActionKind, SuggestedAction } from "../engine/legality.ts";
 import { describeProfile, PRIORS } from "../engine/player-profile.ts";
+import { sevenDeuceTell } from "../engine/opponent-range.ts";
 import type { PlayerLookup } from "../services/profile-service.ts";
 import { PostflopAnalysis } from "../engine/postflop.ts";
 import { describeMix, MixStrategy } from "../engine/mixing.ts";
@@ -41,10 +42,12 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
         const info = players(seat);
         const p = info.current;
         const stack = `${b(seat.stack)} BB behind`;
+        const tells = (sevenDeuceTell(s, seat)?.notes ?? []).map((t) => `    ${t}`);
         if (!p) {
-            lines.push(`  ${seat.position}, ${stack}: no history (assume the averages above).`);
+            lines.push(`  ${seat.position}, ${stack}: no history (assume the averages above).`, ...tells);
             continue;
         }
+        lines.push(...tells);
         lines.push(`  ${seat.position}, ${stack}: ${describeProfile(p)}. ${p.exploit}`);
         if (info.long && info.session) {
             lines.push(`    long-term: ${info.long.hands} hands, VPIP ${pct(info.long.vpip.value)}, PFR ${pct(info.long.pfr.value)}, aggression ${pct(info.long.aggression.value)}; this session: ${info.session.hands} hands`);

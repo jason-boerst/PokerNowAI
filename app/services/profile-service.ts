@@ -1,4 +1,5 @@
-import { HandState, parseHand } from "../engine/hand-parser.ts";
+import { HandState, parseHand, SeatState } from "../engine/hand-parser.ts";
+import { calibrateTells, readTells, TELL_KINDS, TellModel, TellReading } from "../engine/seven-deuce-tells.ts";
 import { ObservedStats, POPULATION_TENDENCIES } from "../engine/opponent-range.ts";
 import { applyBluffScale, fitBluffScale } from "../engine/bluff-calibration.ts";
 import { blendSession, calibratePriors, Deviation, PlayerProfile, PlayerRef, PRIORS, ProfileBuilder, RATE_KEYS, RateKey, resetPriors, sessionDeviations } from "../engine/player-profile.ts";
@@ -42,6 +43,7 @@ export class ProfileService {
      */
     private calibrator: ShowdownCalibrator | null = null;
     private action_weights: CalibratedActionWeights | null = null;
+    private tells: TellModel | null = null;
     private responses: { table: ResponseTable, samples: number } | null = null;
 
     constructor(private recorder: HandRecorder) {
@@ -75,6 +77,7 @@ export class ProfileService {
         this.live_states = [];
         this.calibrator = null;
         this.action_weights = null;
+        this.tells = null;
         this.responses = null;
         return hands.length;
     }
@@ -110,6 +113,22 @@ export class ProfileService {
             this.action_weights = { ...measured, weights: applyBluffScale(measured.weights, bluff.scale), bluff };
         }
         return structuredClone(this.action_weights);
+    }
+
+    /**
+     * 7-2 sizing tells measured over your stored hands (seven-deuce-tells.ts), your own actions left out. Built on
+     * first use; live hands don't change it during a session.
+     */
+    sevenDeuceTells(): TellModel {
+        this.tells ??= calibrateTells([...this.hands.map((h) => h.state), ...this.live_states], this.keyOf, (seat) => this.keyOf(seat) !== ME);
+        return this.tells;
+    }
+
+    /** Reads the active 7-2 tells for an opponent in a hand (null when none is significant in your games). */
+    tellReader(): ((s: HandState, seat: SeatState) => TellReading) | null {
+        const model = this.sevenDeuceTells();
+        if (!TELL_KINDS.some((k) => model.stats[k].active)) return null;
+        return (s, seat) => this.keyOf(seat) === ME ? { lr: 1, notes: [] } : readTells(model, s, seat, this.keyOf(seat));
     }
 
     /** Your games' average player (the population averages, 0-1 for each rate) and the opponent hands behind them. */

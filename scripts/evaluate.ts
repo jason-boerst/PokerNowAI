@@ -10,6 +10,7 @@ import { availableParallelism } from "node:os";
 import { DBService } from "../app/services/db-service.ts";
 import { HandRecorder } from "../app/services/hand-recorder.ts";
 import { ProfileService } from "../app/services/profile-service.ts";
+import { TELL_KINDS, TELL_NAMES } from "../app/engine/seven-deuce-tells.ts";
 import { replayAll } from "../app/eval/replay.ts";
 import { comparePolicies, counterfactualSpots, CounterfactualSpot, PolicyComparison } from "../app/eval/counterfactual.ts";
 import { agreementReport, AgreementReport } from "../app/eval/agreement.ts";
@@ -91,6 +92,13 @@ log("What none of this can prove: that the tool wins in the long run. A few thou
         log(`for sample size), which expects ${pct(b.expected_air_fitted)} (log-likelihood ${b.log_likelihood_fitted}). Under the 7-2 bounty, 7-2 is read as betting like a strong hand.`);
     } else {
         log("No called river bettors who showed yet: the weights learned from showdowns are used as they are.");
+    }
+    log("7-2 sizing tells (each size against the same player's usual size; on only when significant, z >= 3 with 10+ shown 7-2):");
+    const tells = profiles.sevenDeuceTells();
+    for (const kind of TELL_KINDS) {
+        const t = tells.stats[kind];
+        log(`  ${TELL_NAMES[kind].padEnd(32)} 7-2 big ${t.big72}/${t.n72}, other hands big ${t.big_other}/${t.n_other}, z ${t.z.toFixed(1)}: ` +
+            (t.active ? `ON (7-2 counts ${t.lr_big.toFixed(2)}x as likely after a big one, ${t.lr_normal.toFixed(2)}x after a normal one)` : "off"));
     }
 }
 

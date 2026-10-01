@@ -10,7 +10,7 @@ import { allInAdjustedNet } from "../engine/allin-ev.ts";
 import { equity, rangeProfile } from "../engine/equity.ts";
 import { bountyFromHands } from "../engine/game-rules.ts";
 import { HandState, heroView, HeroView, netResult, parseHand, Street } from "../engine/hand-parser.ts";
-import { opponentModels, seatModel, TABLE_RULES } from "../engine/opponent-range.ts";
+import { opponentModels, seatModel, setSevenDeuceTells, TABLE_RULES } from "../engine/opponent-range.ts";
 import { analyzePostflop, PostflopAnalysis, setResponseTable } from "../engine/postflop.ts";
 import { preflopAdvice } from "../engine/preflop.ts";
 import { setActionWeights } from "../engine/equity.ts";
@@ -244,6 +244,7 @@ export async function replayAll(rows: HandRow[], links: Map<string, string>, opt
             }
             setActionWeights(profiles.actionWeights().weights);
             setResponseTable(profiles.responseTable().table);
+            setSevenDeuceTells(profiles.tellReader());
             const game_messages = rows.filter((r) => r.game_id === game_id).map((r) => JSON.parse(r.messages_json) as string[]);
             const bounty = bountyFromHands(game_messages) ?? 0;
             TABLE_RULES.seven_deuce_bounty = bounty > 0;
@@ -261,6 +262,7 @@ export async function replayAll(rows: HandRow[], links: Map<string, string>, opt
         }
     } finally {
         TABLE_RULES.seven_deuce_bounty = bounty_rule;
+        setSevenDeuceTells(null);
     }
     return out;
 }
