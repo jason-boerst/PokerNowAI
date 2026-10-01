@@ -19,7 +19,18 @@ export interface OpponentModel {
      * Keep only this share (0-1) of the range: the strongest hands on the current board, by weight.
      * Used for "the hands that continue against a bet" (1 minus their chance of folding).
      */
-    continue_fraction?: number
+    continue_fraction?: number,
+    /**
+     * The game pays a bounty for winning with 7-2: a player holding 7-2 bets and raises like a strong hand (shown 7-2
+     * with no pair bet 86% of the time when checked to or first to act in your games, other hands with nothing 28%),
+     * so their bets don't narrow it away. Only how it acts changes; it still wins and loses by its real strength.
+     */
+    bounty_72?: boolean
+}
+
+/** True for the two cards 7 and 2 (any suits). */
+export function isSevenDeuce(hole: string[]): boolean {
+    return hole.length === 2 && ((hole[0][0] === "7" && hole[1][0] === "2") || (hole[0][0] === "2" && hole[1][0] === "7"));
 }
 
 export interface EquityInput {
@@ -169,7 +180,11 @@ function continueScore(hole: string[], board: string[], value: number, cls: Stre
  * twice as often. `street` picks that street's weights (see setActionWeights).
  */
 export function weightsFor(aggression: number | undefined, street: PostflopStreet = "flop"): ActionWeights {
-    const base = street_weights[street];
+    return scaleForAggression(street_weights[street], aggression);
+}
+
+/** `base` adjusted for a player's aggression (see weightsFor), without touching the engine's weights. */
+export function scaleForAggression(base: ActionWeights, aggression: number | undefined): ActionWeights {
     if (aggression === undefined) return base;
     const f = Math.max(0.5, Math.min(2.5, aggression / Math.max(PRIORS.aggression.mean, 0.05)));
     // never more likely than with a strong hand
@@ -225,7 +240,9 @@ function buildSampler(model: OpponentModel, dead: Set<number>, board: string[], 
         classes.fill(undefined);
         const hole = [cardString(c.cards[0]), cardString(c.cards[1])];
         let w = c.weight;
-        if (use_actions) for (const a of actions) w *= a.row[classes[a.board] ??= strengthClass(hole, boards[a.board])];
+        // under the 7-2 bounty, 7-2 bets, raises and calls like a strong hand
+        const acts_strong = !!model.bounty_72 && isSevenDeuce(hole);
+        if (use_actions) for (const a of actions) w *= a.row[acts_strong ? "strong" : classes[a.board] ??= strengthClass(hole, boards[a.board])];
         if (!(w > 0)) return;
         weighted.push({ cards: c.cards, weight: w });
         if (!ranked) return;
@@ -237,7 +254,7 @@ function buildSampler(model: OpponentModel, dead: Set<number>, board: string[], 
         const value = evaluate([c.cards[0], c.cards[1], ...board_codes]);
         const cls = classes[rank_board] ??= classify(hole, board, value);
         scores.push(continueScore(hole, board, value, cls, draw_score));
-        raises.push(raise_row![cls]);
+        raises.push(raise_row![acts_strong ? "strong" : cls]);
     };
     for (const c of combos) include(c, true);
     if (weighted.length === 0) {
@@ -683,13 +700,6 @@ function multiwayLater(total: number, top: number): number {
 export const IMPLIED_POTS: Record<PostflopStreet, number> = { flop: 1.5, turn: 0.6, river: 0 };
 /** Players other than the bettor lead the next street at this share of their bet rate (leads into the aggressor are rarer). */
 const OTHERS_BET_SHARE = 0.4;
-/**
- * Turn bet weights are measured from shown hands, and turn bettors who give up on the river never show, so the
- * measured weights lean stronger than the truth (see showdown-calibration.ts). For the chance of a turn bet they
- * are flattened toward even by this power (an air weight of 0.34 counts as 0.52). River bets that get called are
- * always shown, so river weights are used as they are.
- */
-const TURN_BET_FLATTEN = 0.6;
 /** When someone bets the next street multiway and hero calls, each other player who holds a better hand stays in this often (assumption). */
 const OVERCALL = 0.35;
 
@@ -712,13 +722,8 @@ export function callTree(input: CallTreeInput): CallTreeResult {
     const n_opp = samplers.length;
     const street: PostflopStreet = input.board.length >= 4 ? "turn" : "flop";
     const next_street: PostflopStreet = street === "flop" ? "turn" : "river";
-    const bet_rows = input.opponents.map((o) => {
-        const row = weightsFor(o.aggression, next_street).bet;
-        if (next_street !== "turn") return row;
-        const flat = {} as Record<StrengthClass, number>;
-        for (const cls of CLASSES) flat[cls] = Math.pow(row[cls], TURN_BET_FLATTEN);
-        return flat;
-    });
+    // turn bet weights are already corrected for the showdown bias (bluff-calibration.ts)
+    const bet_rows = input.opponents.map((o) => weightsFor(o.aggression, next_street).bet);
     const P2 = input.pot + input.to_call;
     const B = Math.max(0, Math.min(input.next_bet_share * P2, input.stack_behind));
     // later betting: up to IMPLIED_POTS pots when nobody bets the next street; when someone does, that bet is counted
@@ -751,7 +756,7 @@ export function callTree(input: CallTreeInput): CallTreeResult {
                 let card: number;
                 do { card = deck[Math.floor(pre() * deck.length)]; } while (card === c[0] || card === c[1]);
                 const nb = [...input.board, cardString(card)];
-                w += bet_rows[i][classify(hole(c), nb, evaluate([c[0], c[1], ...board, card]))];
+                w += bet_rows[i][input.opponents[i].bounty_72 && isSevenDeuce(hole(c)) ? "strong" : classify(hole(c), nb, evaluate([c[0], c[1], ...board, card]))];
                 n++;
             }
             scale[i] = n > 0 && w > 0 ? input.bet_next[i] / (w / n) : 0;
@@ -806,7 +811,8 @@ export function callTree(input: CallTreeInput): CallTreeResult {
             p_bet[i] = 0;
             if (scale[i] > 0) {
                 const value_next = next_len === 5 ? v : evaluate([c[0], c[1], ...next_board]);
-                const p = Math.min(0.97, scale[i] * bet_rows[i][classify(hole(c), next_names, value_next)] * (i === input.bettor ? 1 : OTHERS_BET_SHARE));
+                const cls = input.opponents[i].bounty_72 && isSevenDeuce(hole(c)) ? "strong" : classify(hole(c), next_names, value_next);
+                const p = Math.min(0.97, scale[i] * bet_rows[i][cls] * (i === input.bettor ? 1 : OTHERS_BET_SHARE));
                 no_bet *= 1 - p;
                 p_bet[i] = p;
             }

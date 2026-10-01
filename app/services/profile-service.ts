@@ -1,5 +1,6 @@
 import { HandState, parseHand } from "../engine/hand-parser.ts";
 import { ObservedStats, POPULATION_TENDENCIES } from "../engine/opponent-range.ts";
+import { applyBluffScale, fitBluffScale } from "../engine/bluff-calibration.ts";
 import { blendSession, calibratePriors, Deviation, PlayerProfile, PlayerRef, PRIORS, ProfileBuilder, RATE_KEYS, RateKey, resetPriors, sessionDeviations } from "../engine/player-profile.ts";
 import { CalibratedActionWeights, ShowdownCalibrator } from "../engine/showdown-calibration.ts";
 import { calibrateResponses, ResponseTable } from "../engine/response-calibration.ts";
@@ -100,7 +101,14 @@ export class ProfileService {
             for (const s of this.live_states) calibrator.add(s);
             this.calibrator = calibrator;
         }
-        this.action_weights ??= this.calibrator.weights();
+        if (!this.action_weights) {
+            const measured = this.calibrator.weights();
+            // shown flop and turn bets lean strong (bluffers who give up never show): correct them against the fair
+            // sample of called river bettors, with everyone's ranges built from their stats as the engine does
+            const bluff = fitBluffScale([...this.hands.map((h) => h.state), ...this.live_states], measured.weights,
+                (p) => this.stats(p), (seat) => this.keyOf(seat) !== ME);
+            this.action_weights = { ...measured, weights: applyBluffScale(measured.weights, bluff.scale), bluff };
+        }
         return structuredClone(this.action_weights);
     }
 

@@ -165,7 +165,8 @@ export function seatModel(s: HandState, seat: SeatState, stats: (player: PlayerR
                     seven_deuce_bounty: TABLE_RULES.seven_deuce_bounty
                 }),
             postflop_actions: postflopActions(s, seat.id),
-            aggression: observed?.aggression
+            aggression: observed?.aggression,
+            bounty_72: TABLE_RULES.seven_deuce_bounty
         }
     };
 }

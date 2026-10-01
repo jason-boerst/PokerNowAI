@@ -24,6 +24,7 @@ import { cardName, code, seededRandom } from "./cards.ts";
 import { HandState, SeatState } from "./hand-parser.ts";
 import { PostflopAction, strengthClass } from "./equity.ts";
 import { isHoldem } from "./player-profile.ts";
+import type { BluffFit } from "./bluff-calibration.ts";
 import { expandRange, topRange } from "./ranges.ts";
 
 export type StrengthClass = ReturnType<typeof strengthClass>;
@@ -34,7 +35,9 @@ export type PostflopStreet = "flop" | "turn" | "river";
 export interface CalibratedActionWeights {
     weights: Record<PostflopStreet, ActionWeights>,
     /** Shown-hand actions each street's weights were measured from. */
-    samples: Record<PostflopStreet, number>
+    samples: Record<PostflopStreet, number>,
+    /** The correction for flop and turn bettors' bluffs fit on called river bettors (bluff-calibration.ts), when applied. */
+    bluff?: BluffFit
 }
 
 /** The built-in guesses (equity.ts ACTION_WEIGHTS), used alone until there are shown hands. */

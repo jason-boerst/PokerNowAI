@@ -127,7 +127,14 @@ const bot_manager = async function() {
     const loaded = await profiles.load(game_id);
     if (loaded > 0) {
         // read bets and raises the way players in your games actually showed them down
-        setActionWeights(profiles.actionWeights().weights);
+        const action_weights = profiles.actionWeights();
+        setActionWeights(action_weights.weights);
+        const bluff = action_weights.bluff;
+        if (bluff && bluff.samples > 0) {
+            const pc = (x: number) => `${Math.round(x * 100)}%`;
+            console.log(`Bluff check on ${bluff.samples} called river bets: bettors showed ${pc(bluff.observed_air)} air; the showdown-learned weights expected ${pc(bluff.expected_air)}, ` +
+                `so flop and turn bluffs count x${bluff.scale} (now ${pc(bluff.expected_air_fitted)}).`);
+        }
         // how players in your games answer leads, c-bets and barrels of each size
         setResponseTable(profiles.responseTable().table);
         const pct = (x: number) => `${Math.round(x * 100)}%`;

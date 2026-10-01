@@ -77,6 +77,23 @@ log("Engine: the preflop engine (with its price check) and the post-flop engine'
 log("Caveat for everything below: the engine's built-in constants (response table defaults, calling ranges, size effects) were tuned on these same games, so no replay here is fully out of sample.");
 log("What none of this can prove: that the tool wins in the long run. A few thousand hands are far too few; win rates need tens of thousands of hands to separate from luck.");
 
+// --- 0. how bets are read ---
+{
+    const profiles = new ProfileService({ hands: async () => rows, links: async () => links } as unknown as HandRecorder);
+    await profiles.load();
+    const b = profiles.actionWeights().bluff;
+    log();
+    log("0. How opponents' bets are read (all your stored games)");
+    log("--------------------------------------------------------");
+    if (b && b.samples > 0) {
+        log(`Called river bets whose bettor showed (a fair sample: the bettor must show): ${b.samples}. They showed air (no pair, a missed draw) ${pct(b.observed_air)} of the time.`);
+        log(`The weights learned from showdowns expected ${pct(b.expected_air)} (log-likelihood ${b.log_likelihood}); flop and turn bluffs are counted x${b.scale} (best fit x${b.best}, pulled toward 1`);
+        log(`for sample size), which expects ${pct(b.expected_air_fitted)} (log-likelihood ${b.log_likelihood_fitted}). Under the 7-2 bounty, 7-2 is read as betting like a strong hand.`);
+    } else {
+        log("No called river bettors who showed yet: the weights learned from showdowns are used as they are.");
+    }
+}
+
 // --- 1. counterfactuals ---
 log();
 log("1. Real counterfactuals: spots where the opponent's cards became known");
