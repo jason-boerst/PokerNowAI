@@ -25,6 +25,7 @@ header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding
 header h1 { font-size: 18px; margin: 0; }
 #summary { color: var(--muted); }
 header .spacer { flex: 1; }
+nav { display: flex; flex-wrap: wrap; row-gap: 6px; }
 nav a { margin-right: 14px; color: var(--muted); text-decoration: none; font-weight: 600; white-space: nowrap; }
 nav a.active { color: var(--accent); }
 nav .dot { display: none; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-left: 5px; vertical-align: 1px; }
@@ -56,6 +57,7 @@ tr.away td { opacity: 0.6; }
 .live { background: var(--good); color: #fff; }
 .pos { color: var(--good); } .neg { color: var(--bad); }
 .flag { color: var(--flag); }
+td.wrap { white-space: normal; min-width: 220px; }
 tr.sub td { white-space: normal; text-align: left; padding-top: 0; font-size: 13px; }
 tr:has(+ tr.sub) td { border-bottom: 0; }
 .muted { color: var(--muted); }
@@ -81,7 +83,7 @@ a { color: var(--accent); }
     <h1>PokerNow player database</h1>
     <span id="summary"></span>
     <span class="spacer"></span>
-    <nav><a href="#/now" id="nav-now" title="The game being played right now">Now<span class="dot" id="live-dot"></span></a><a href="#/players" id="nav-players">Players</a><a href="#/games" id="nav-games">Games</a><a href="#/results" id="nav-results">Results</a><a href="#/leaks" id="nav-leaks" title="Where you lose money, from your stored hands">Your leaks</a></nav>
+    <nav><a href="#/now" id="nav-now" title="The game being played right now">Now<span class="dot" id="live-dot"></span></a><a href="#/players" id="nav-players">Players</a><a href="#/games" id="nav-games">Games</a><a href="#/results" id="nav-results">Results</a><a href="#/leaks" id="nav-leaks" title="Where you lose money, from your stored hands">Your leaks</a><a href="#/learning" id="nav-learning" title="What the tool has learned from your hands">Learning</a></nav>
     <label class="button" for="file-input">Import logs</label>
     <input id="file-input" type="file" accept=".csv,text/csv" multiple hidden>
 </header>
@@ -252,12 +254,37 @@ async function showPlayers(view) {
     more.addEventListener("change", () => { state.more = more.checked; render(); });
     fill(view,
         averagesPanel(),
+        samePlayerPanel(),
         el("div", { class: "panel" },
             el("div", { class: "toolbar" }, search, el("label", {}, "Min hands ", min),
                 extra.length ? el("label", { title: `Also show: ${extra.map((s) => s.label).join(", ")}` }, more, " More stats") : null, count),
             el("div", { class: "scroll" }, el("table", {}, el("thead", {}, head), body)),
             el("p", { class: "muted" }, "Percentages are estimates: small samples are pulled toward your games' averages, so a player needs a few dozen chances before a stat means much. The small number is how many chances the stat had. Hover over a column name for what it means. Results (BB/100, Net BB) include every hand; the tendency stats count Hold'em hands only, without bomb pots.")));
     render();
+}
+
+// ids that are probably one person: shown for you to confirm, never linked on their own
+const same_player_box = el("div");
+function samePlayerPanel() {
+    api("/api/same-player").then((list) => {
+        if (!list.length) { same_player_box.replaceChildren(); return; }
+        const names = (xs) => xs.slice(0, 3).join(", ");
+        same_player_box.replaceChildren(el("div", { class: "panel" },
+            el("h2", {}, `Possibly the same player (${list.length})`),
+            el("p", { class: "muted small" }, "These ids never sat in the same hand and share a name. One person under two ids gets two thin profiles; link them only if you know it's the same person (different people do use the same name)."),
+            el("div", { class: "scroll" }, el("table", {},
+                el("thead", {}, el("tr", {}, el("th", { class: "left" }, "Player"), el("th", { class: "left" }, "Maybe also"), el("th", {}, "Hands"), el("th", { class: "left" }, "Why"), el("th", {}))),
+                el("tbody", {}, ...list.slice(0, 15).map((c) => el("tr", {},
+                    el("td", { class: "left" }, el("a", { href: `#/player/${encodeURIComponent(c.a)}` }, names(c.names_a))),
+                    el("td", { class: "left" }, el("a", { href: `#/player/${encodeURIComponent(c.b)}` }, names(c.names_b))),
+                    el("td", {}, `${c.hands_a} + ${c.hands_b}`),
+                    el("td", { class: "left muted small wrap" }, c.note),
+                    el("td", {}, el("button", { class: "secondary", onclick: async (e) => {
+                        e.target.disabled = true;
+                        try { await api("/api/link", { a: c.a, b: c.b }); route(); } catch (err) { e.target.disabled = false; alert(`Could not link: ${err.message}`); }
+                    } }, "Same person")))))))));
+    }).catch(() => same_player_box.replaceChildren());
+    return same_player_box;
 }
 
 function statTile(s, r) {
@@ -491,6 +518,36 @@ async function showLeaks(view) {
         ...sections));
 }
 
+// ---------- learning ----------
+async function showLearning(view) {
+    const r = await api("/api/learning");
+    const table = (head, rows) => el("div", { class: "scroll" }, el("table", {},
+        el("thead", {}, el("tr", {}, ...head.map(([h, cls]) => el("th", { class: cls || "" }, h)))),
+        el("tbody", {}, ...rows)));
+    const sections = [
+        el("h2", {}, "What the tool has learned from your hands"),
+        el("p", {}, `${r.data.hands} hands in ${r.data.games} games, ${r.data.players} players; ${r.data.opponent_chances} opponent hands behind your games' averages; ${r.data.your_hands} of your own hands. Everything below is rebuilt from all stored hands each time they load, so each log you import adds to it.`),
+        el("h3", {}, "Features that switch on only when your hands support them"),
+        table([["", "left"], ["Feature", "left"], ["Where it stands", "left"]], r.features.map((f) => el("tr", {},
+            el("td", { class: "left" }, el("span", { class: "chip" }, f.on ? "on" : "off")), el("td", { class: "left" }, f.name), el("td", { class: "left muted small wrap" }, f.detail)))),
+        el("h3", {}, "Your games' average player (learned) vs the built-in guess"),
+        table([["Stat", "left"], ["Your games"], ["Built in"]], r.pool.map((p) => el("tr", {}, el("td", { class: "left" }, p.label), el("td", {}, pct(p.yours)), el("td", { class: "muted" }, pct(p.built_in))))),
+        el("h3", {}, "Learned tables"),
+        table([["Table", "left"], ["Samples"]], r.tables.map((t) => el("tr", {}, el("td", { class: "left" }, t.name), el("td", {}, t.samples)))),
+        el("h3", {}, "Regulars: how reliable their stats are"),
+        el("p", { class: "muted small" }, "A stat counts as reliable once its 95% range is within ±10 points. Post-flop stats (facing a turn or river bet) take many more hands than VPIP and PFR, since the spot comes up less often."),
+        table([["Player", "left"], ["Hands"], ["Games"], ["Reliable"], ["Stats (± 95% range)", "left"]], r.regulars.map((g) => el("tr", { class: "clickable", onclick: () => { location.hash = `#/player/${encodeURIComponent(g.key)}`; } },
+            el("td", { class: "left" }, g.name), el("td", {}, g.hands), el("td", {}, g.games), el("td", {}, `${g.reliable}/${g.stats.length}`),
+            el("td", { class: "left small wrap" }, g.stats.map((x) => `${x.label} ${pct(x.value)}±${Math.round(x.half_width * 100)}`).join(", ")))))
+    ];
+    if (r.history.length) {
+        sections.push(el("h3", {}, "History (each run of npm run learning)"),
+            table([["When", "left"], ["Hands"], ["Games"], ["Reliable regular stats"], ["Features on"]], r.history.slice(-15).reverse().map((h) => el("tr", {},
+                el("td", { class: "left" }, String(h.at).slice(0, 16).replace("T", " ")), el("td", {}, h.hands), el("td", {}, h.games), el("td", {}, h.reliable_stats), el("td", {}, (h.on || []).length)))));
+    }
+    view.replaceChildren(el("div", { class: "panel" }, ...sections));
+}
+
 // ---------- import ----------
 async function importFiles(files) {
     const list = [...files].filter((f) => /\.csv$/i.test(f.name));
@@ -521,7 +578,7 @@ window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => { e.preventDefault(); drag_depth = 0; drop.classList.remove("show"); importFiles(e.dataTransfer.files); });
 
 // ---------- routing ----------
-const NAV = { now: ["now"], players: ["players", "player"], games: ["games", "game"], results: ["results"], leaks: ["leaks"] };
+const NAV = { now: ["now"], players: ["players", "player"], games: ["games", "game"], results: ["results"], leaks: ["leaks"], learning: ["learning"] };
 let rendered_hash = null;
 let route_count = 0;
 async function route(live) {
@@ -544,6 +601,7 @@ async function route(live) {
         else if (page === "games") await showGames(target);
         else if (page === "results") await showResults(target);
         else if (page === "leaks") await showLeaks(target);
+        else if (page === "learning") await showLearning(target);
         else await showPlayers(target);
     } catch (err) {
         target.replaceChildren(el("div", { class: "panel neg" }, `Could not load: ${err.message}`));

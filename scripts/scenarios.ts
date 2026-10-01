@@ -17,7 +17,7 @@ import { ObservedStats, opponentModels, POPULATION_TENDENCIES, seatModel, TABLE_
 import { describeMix, mixPostflop, mixPreflop, MixStrategy, MixStyle } from "../app/engine/mixing.ts";
 import { classOf } from "../app/engine/hand-classes.ts";
 import { PlayerProfile, PlayerRef, PRIORS, RATE_KEYS, RateKey, resetPriors } from "../app/engine/player-profile.ts";
-import { analyzePostflop, PostflopAnalysis, resetResponseTable, setResponseTable } from "../app/engine/postflop.ts";
+import { analyzePostflop, PostflopAnalysis, resetResponseTable, setPlayConstants, setResponseTable } from "../app/engine/postflop.ts";
 import { preflopAdvice, PreflopAdvice } from "../app/engine/preflop.ts";
 import { opponentTendencies, preflopProfiles } from "../app/helpers/decision-maker.ts";
 import { resetPreflopResponseTable, setPreflopResponseTable } from "../app/engine/preflop-responses.ts";
@@ -521,6 +521,7 @@ export function useBuiltInDefaults(): void {
     resetPriors();
     resetActionWeights();
     resetResponseTable();
+    setPlayConstants(null);
     resetPreflopResponseTable();
     POPULATION_TENDENCIES.vpip = 35;
     POPULATION_TENDENCIES.pfr = 12;
@@ -673,6 +674,7 @@ async function main(): Promise<void> {
         const hands = await profiles.load();
         setActionWeights(profiles.actionWeights().weights);
         setResponseTable(profiles.responseTable().table);
+        setPlayConstants(profiles.playConstants().values);
         setPreflopResponseTable(profiles.preflopResponses().table);
         await db.close();
         console.log(`Calibrated from ${hands} stored hands: pool VPIP ${Math.round(POPULATION_TENDENCIES.vpip)}%, PFR ${Math.round(POPULATION_TENDENCIES.pfr)}%, river fold ${Math.round(PRIORS.fold_to_bet_river.mean * 100)}%.`);

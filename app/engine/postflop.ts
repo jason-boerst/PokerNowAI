@@ -21,7 +21,8 @@
 // raises use the players' fold-to-raise estimates. Options are ranked by EV minus how far it could be off
 // through those estimates (robustEv). The other constants below are stated assumptions, not measured values.
 import { HandState, HeroView, SeatState } from "./hand-parser.ts";
-import { callTree, CallTreeResult, continuationEquity, equity, heroBetTree, IMPLIED_POTS, OpponentModel, PostflopAction, PostflopStreet, rangeClassShares, strengthClass } from "./equity.ts";
+import { DEFAULT_CONSTANTS, PlayConstants } from "./constant-calibration.ts";
+import { callTree, CallTreeResult, continuationEquity, equity, heroBetTree, othersBetShare, setOthersBetShare, IMPLIED_POTS, OpponentModel, PostflopAction, PostflopStreet, rangeClassShares, strengthClass } from "./equity.ts";
 import { PRIORS } from "./player-profile.ts";
 import { BetRole, defaultResponseTable, heroBetRole, responseFor, ResponseTable } from "./response-calibration.ts";
 
@@ -148,7 +149,7 @@ const LOW_EQUITY_OOP_DROP = 0.1;
  * heads-up flop bet was called, the bettor bet the turn 54% of the time when they had the chance; after a turn
  * bet, the river 58%; median sizes 71% and 75% of the pot). Scaled per player by their bet rate when checked to.
  */
-const BET_NEXT: Record<PostflopStreet, number> = { flop: 0.54, turn: 0.58, river: 0 };
+const BET_NEXT: Record<PostflopStreet, number> = { flop: DEFAULT_CONSTANTS.bet_next_flop, turn: DEFAULT_CONSTANTS.bet_next_turn, river: 0 };
 const NEXT_BET_SHARE = 0.75;
 /** Hero's next-street bet sizes in the betting plan (shares of the pot then). */
 const BARREL_SHARES = [0.5, 0.75];
@@ -313,15 +314,36 @@ const MAX_RIVER_AIR_FOLD = 0.97;
  * and 9%; the river 45-59% folds heads-up and 74-90% multiway. Without this a small lead into three
  * players was modeled as raised 42-56% of the time (measured: 10-26%) and almost never folded to.
  */
-const MULTIWAY_CONTINUE = 0.75;
-const MULTIWAY_RAISE = 0.6;
+let MULTIWAY_CONTINUE = DEFAULT_CONSTANTS.multiway_continue;
+let MULTIWAY_RAISE = DEFAULT_CONSTANTS.multiway_raise;
 /**
  * Checked to, each player bets less when more players are left to act: per extra player behind hero, a
  * player's bet chance is multiplied by this. Measured after the first player checks: someone bet 64% of
  * flops with one player behind, 65% with two (38% each) and 67% with three or more (27% each); the turn and
  * river look the same.
  */
-const MULTIWAY_BET = 0.62;
+let MULTIWAY_BET = DEFAULT_CONSTANTS.multiway_bet;
+
+/**
+ * Re-measured on your stored hands at every load (constant-calibration.ts), and used only where the measured value
+ * predicts held-out games better; anything not given goes back to the built-in value above.
+ */
+export function setPlayConstants(c: Partial<PlayConstants> | null): void {
+    const v = { ...DEFAULT_CONSTANTS, ...(c ?? {}) };
+    BET_NEXT.flop = v.bet_next_flop;
+    BET_NEXT.turn = v.bet_next_turn;
+    MULTIWAY_BET = v.multiway_bet;
+    MULTIWAY_CONTINUE = v.multiway_continue;
+    MULTIWAY_RAISE = v.multiway_raise;
+    setOthersBetShare(v.others_bet_share);
+}
+/** The values in use. */
+export function playConstants(): PlayConstants {
+    return {
+        bet_next_flop: BET_NEXT.flop, bet_next_turn: BET_NEXT.turn, multiway_bet: MULTIWAY_BET, multiway_continue: MULTIWAY_CONTINUE,
+        multiway_raise: MULTIWAY_RAISE, others_bet_share: othersBetShare()
+    };
+}
 
 /** Equity against the hands that call at or above which a bet is for value; below it, a semi-bluff needs a draw or this much. */
 const VALUE_EQUITY = 0.5;

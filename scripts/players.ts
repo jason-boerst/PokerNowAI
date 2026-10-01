@@ -3,10 +3,13 @@
 //   npm run players -- <name or id>      one player: stats, game-by-game history, recent showdowns
 //   npm run players -- link <a> <b>      treat two ids (or names) as the same person
 //   npm run players -- unlink <id>       undo a link
+//   npm run players -- suggest           ids that are probably the same person (to link yourself)
 import { DBService } from "../app/services/db-service.ts";
 import { HandRecorder } from "../app/services/hand-recorder.ts";
 import { ME, PlayerInfo, ProfileService } from "../app/services/profile-service.ts";
 import { PlayerProfile, Rate, RateKey } from "../app/engine/player-profile.ts";
+import { parseHand } from "../app/engine/hand-parser.ts";
+import { sameProfileCandidates } from "../app/engine/identity.ts";
 
 const db = new DBService("./app/pokernow-gpt.db");
 await db.init();
@@ -35,6 +38,14 @@ const label = (key: string, p: PlayerProfile) => `${key === ME ? "YOU " : ""}${p
 
 if (total === 0) {
     console.log("No hands stored yet. Import PokerNow logs with `npm run import -- <file or folder>`, or play with the bot running.");
+} else if (command === "suggest") {
+    const hands = (await recorder.hands()).map((r) => ({ game_id: r.game_id, state: parseHand(JSON.parse(r.messages_json), { big_blind: r.big_blind ?? undefined }) }));
+    const list = sameProfileCandidates(hands, service.keyOf, (key) => service.info({ id: key, name: "" }).long);
+    if (!list.length) console.log("No likely same-person ids found.");
+    for (const c of list) {
+        console.log(`${c.names_a.slice(0, 3).join(", ")} [${c.a}] (${c.hands_a} hands, ${c.games_a} games)  and  ${c.names_b.slice(0, 3).join(", ")} [${c.b}] (${c.hands_b} hands, ${c.games_b} games)`);
+        console.log(`  ${c.note}  Link with: npm run players -- link ${c.a} ${c.b}`);
+    }
 } else if (command === "link" || command === "unlink") {
     const links = await recorder.links();
     if (command === "unlink") {

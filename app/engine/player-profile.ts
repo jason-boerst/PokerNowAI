@@ -90,6 +90,10 @@ export const PRIORS: Record<RateKey, { mean: number, weight: number }> = {
 };
 
 const DEFAULT_PRIORS: Record<RateKey, { mean: number, weight: number }> = structuredClone(PRIORS);
+/** The built-in guesses, before your games replace them. */
+export function defaultPrior(key: RateKey): number {
+    return DEFAULT_PRIORS[key].mean;
+}
 
 /**
  * How many chances the built-in guesses above count as when averaged with your own games. With a

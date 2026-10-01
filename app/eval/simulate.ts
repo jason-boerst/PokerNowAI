@@ -28,7 +28,8 @@ import { classOf } from "../engine/hand-classes.ts";
 import { HandState, heroView, HeroView, netResult, parseHand, SeatState } from "../engine/hand-parser.ts";
 import { ObservedStats, opponentModels, POPULATION_TENDENCIES, postflopActions, preflopLine, reraiseFactor, TABLE_RULES } from "../engine/opponent-range.ts";
 import { PRIORS, RATE_KEYS, RateKey } from "../engine/player-profile.ts";
-import { analyzePostflop, setBetPlanInEv, setResponseTable } from "../engine/postflop.ts";
+import { analyzePostflop, playConstants, setBetPlanInEv, setPlayConstants, setResponseTable } from "../engine/postflop.ts";
+import type { PlayConstants } from "../engine/constant-calibration.ts";
 import { preflopAdvice } from "../engine/preflop.ts";
 import { expandRange, positionWidth, PreflopLine, preflopRange, PreflopTendencies, Range } from "../engine/ranges.ts";
 import { defaultResponseTable, responseFor, ResponseTable, roleOf } from "../engine/response-calibration.ts";
@@ -40,14 +41,16 @@ export interface PoolModel {
     priors: Record<RateKey, number>,
     population: PreflopTendencies,
     action_weights: { flop?: ActionWeights, turn?: ActionWeights, river?: ActionWeights },
-    response_table: ResponseTable
+    response_table: ResponseTable,
+    /** The play constants in use (constant-calibration.ts); built-in values when missing. */
+    constants?: PlayConstants
 }
 
 /** The pool model as the engine currently holds it (after ProfileService.load), plus the measured tables. */
 export function capturePool(action_weights: PoolModel["action_weights"], response_table: ResponseTable): PoolModel {
     const priors = {} as Record<RateKey, number>;
     for (const key of RATE_KEYS) priors[key] = PRIORS[key].mean;
-    return { priors, population: { ...POPULATION_TENDENCIES }, action_weights: structuredClone(action_weights), response_table: structuredClone(response_table) };
+    return { priors, population: { ...POPULATION_TENDENCIES }, action_weights: structuredClone(action_weights), response_table: structuredClone(response_table), constants: playConstants() };
 }
 
 /** Installs a pool model in the engine's global state (population averages, action weights, response table). */
@@ -56,6 +59,7 @@ export function applyPool(pool: PoolModel): void {
     Object.assign(POPULATION_TENDENCIES, pool.population);
     setActionWeights(pool.action_weights);
     setResponseTable(pool.response_table);
+    setPlayConstants(pool.constants ?? null);
 }
 
 export interface SimOptions {

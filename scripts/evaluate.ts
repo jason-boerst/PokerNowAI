@@ -16,6 +16,7 @@ import { TELL_KINDS, TELL_NAMES } from "../app/engine/seven-deuce-tells.ts";
 import { replayAll } from "../app/eval/replay.ts";
 import { comparePolicies, counterfactualSpots, CounterfactualSpot, PolicyComparison } from "../app/eval/counterfactual.ts";
 import { agreementReport, AgreementReport } from "../app/eval/agreement.ts";
+import { setPlayConstants } from "../app/engine/postflop.ts";
 import { capturePool, PoolModel, simulateParallel, SimSummary, summarizeSim } from "../app/eval/simulate.ts";
 import { mixingReport, MixingReport } from "../app/eval/mixing-report.ts";
 import type { MixStyle } from "../app/engine/mixing.ts";
@@ -201,6 +202,7 @@ if (!flag("--no-sim") && sim_hands > 0) {
     log(`is wrong, so is this number. Post-flop engine time budget ${budget} ms per decision (the live bot uses 120).`);
     const profiles = new ProfileService({ hands: async () => rows, links: async () => links } as unknown as HandRecorder);
     await profiles.load();
+    setPlayConstants(profiles.playConstants().values);
     const pool = capturePool(profiles.actionWeights().weights, profiles.responseTable().table);
     const pool_hands = profiles.poolSummary().pool_hands;
     log(`Pool model (from ${pool_hands} opponent hands): VPIP ${pct(pool.priors.vpip)}, PFR ${pct(pool.priors.pfr)}, 3-bet ${pct(pool.priors.three_bet)}, ` +

@@ -715,7 +715,14 @@ function multiwayLater(total: number, top: number): number {
 /** How many pots (after the call) later betting can add at most: more streets left, more money. */
 export const IMPLIED_POTS: Record<PostflopStreet, number> = { flop: 1.5, turn: 0.6, river: 0 };
 /** Players other than the bettor lead the next street at this share of their bet rate (leads into the aggressor are rarer). */
-const OTHERS_BET_SHARE = 0.4;
+/** Built-in value (constant-calibration.ts DEFAULT_CONSTANTS.others_bet_share; set from your hands when that predicts better). */
+let OTHERS_BET_SHARE = 0.4;
+export function setOthersBetShare(x: number): void {
+    OTHERS_BET_SHARE = x;
+}
+export function othersBetShare(): number {
+    return OTHERS_BET_SHARE;
+}
 /** When someone bets the next street multiway and hero calls, each other player who holds a better hand stays in this often (assumption). */
 const OVERCALL = 0.35;
 

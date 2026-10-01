@@ -8,6 +8,7 @@ import { blendSession, calibratePriors, Deviation, PlayerProfile, PlayerRef, PRI
 import { CalibratedActionWeights, ShowdownCalibrator } from "../engine/showdown-calibration.ts";
 import { calibrateResponses, ResponseTable } from "../engine/response-calibration.ts";
 import { HandRecorder, HandRow, ME } from "./hand-recorder.ts";
+import { checkConstants, ConstantCheck, PlayConstants } from "../engine/constant-calibration.ts";
 import { chooseHalfLife, gameOrder, gamesSince, HalfLifeCheck, playerGameCounts, recencyWeight } from "../engine/recency.ts";
 
 export { ME } from "./hand-recorder.ts";
@@ -50,12 +51,18 @@ export class ProfileService {
     private preflop: { table: PreflopResponseTable, samples: number } | null = null;
     private player_bluff: ReturnType<ProfileService["playerBluffScales"]> | null = null;
     private responses: { table: ResponseTable, samples: number } | null = null;
+    private constants: { values: PlayConstants, checks: ConstantCheck[] } | null = null;
     /** Whether older games count less in long-term profiles, and the check that decided it (see recency.ts). */
     recency: HalfLifeCheck = { half_life: Infinity, cases: 0, test_games: 0, results: [], reason: "Not loaded." };
 
     constructor(private recorder: HandRecorder) {
         this.long = new ProfileBuilder(this.keyOf);
         this.session = new ProfileBuilder(this.keyOf);
+    }
+
+    /** Stored hands loaded, plus live hands added since. */
+    handCount(): number {
+        return this.hands.length + this.live_states.length;
     }
 
     /** Identity key for a seat: its linked person, or the PokerNow player id. */
@@ -98,6 +105,7 @@ export class ProfileService {
         this.action_weights = null;
         this.tells = null;
         this.player_bluff = null;
+        this.constants = null;
         this.preflop = null;
         this.responses = null;
         return hands.length;
@@ -174,6 +182,16 @@ export class ProfileService {
                     `(about ${Math.round(f.expected_air * f.samples)} expected); their bets are read ${more ? "wider" : "stronger"}.`
             };
         };
+    }
+
+    /**
+     * The engine's play constants re-measured on your stored hands (constant-calibration.ts): the values to use (built-in
+     * unless a measured one predicts held-out games better) and the check for each. Built on first use.
+     */
+    playConstants(): { values: PlayConstants, checks: ConstantCheck[] } {
+        this.constants ??= checkConstants([...this.hands.map((h) => ({ game: h.row.game_id, s: h.state })), ...this.live_states.map((s) => ({ game: "live", s }))],
+            (seat) => this.keyOf(seat) !== ME);
+        return this.constants;
     }
 
     /** How players in your games answer preflop raises (preflop-responses.ts), your own answers left out. Built on first use. */

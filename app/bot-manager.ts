@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
 
 import { runAiCheck } from './eval/ai-check.ts';
+import { CONSTANT_TEXT } from './engine/constant-calibration.ts';
+import { learningStatus } from './eval/learning-status.ts';
 import { Bot } from './bot.ts'
 
 import ai_config_json from './configs/ai-config.json' with { type: "json" };
@@ -17,7 +19,7 @@ import { importFiles } from './import/importer.ts';
 import { existsSync } from 'node:fs';
 import { PRIORS } from './engine/player-profile.ts';
 import { setActionWeights } from './engine/equity.ts';
-import { setResponseTable } from './engine/postflop.ts';
+import { setPlayConstants, setResponseTable } from './engine/postflop.ts';
 import { setPlayerBluffScales, setSevenDeuceTells } from './engine/opponent-range.ts';
 import { setPreflopResponseTable } from './engine/preflop-responses.ts';
 import { TELL_KINDS, TELL_NAMES } from './engine/seven-deuce-tells.ts';
@@ -145,6 +147,11 @@ const bot_manager = async function() {
         setSevenDeuceTells(profiles.tellReader());
         // how players in your games answer preflop raises (prices preflop options)
         setPreflopResponseTable(profiles.preflopResponses().table);
+        // the engine's play constants, re-measured on your hands (each used only when it predicts held-out games better)
+        const constants = profiles.playConstants();
+        setPlayConstants(constants.values);
+        const changed = constants.checks.filter((c) => c.active);
+        console.log(`Play constants re-measured on your hands: ${changed.length ? changed.map((c) => `${CONSTANT_TEXT[c.name]} ${c.built_in} -> ${Math.round(c.measured * 100) / 100}`).join("; ") : "none differ clearly from the built-in values"}.`);
         // each regular's own bluffing, only when it predicts held-out games better than the pool
         const player_bluff = profiles.playerBluffScales();
         setPlayerBluffScales(profiles.bluffScaleReader());
@@ -161,6 +168,9 @@ const bot_manager = async function() {
         }
         const pct = (x: number) => `${Math.round(x * 100)}%`;
         console.log(`Loaded ${loaded} stored hand(s); hands from this game count as today's session.`);
+        const learned = learningStatus(profiles, await recorder.decisions().catch(() => []));
+        console.log(`[Learning] ${learned.regulars.length} regulars with 100+ hands (${learned.regulars.reduce((n, r) => n + r.reliable, 0)} reliable stats among them); ` +
+            `data-gated features on: ${learned.features.filter((f) => f.on).length} of ${learned.features.length}. Details: npm run learning, or the dashboard's Learning tab.`);
         if (profiles.recency.cases > 0) {
             console.log(`Recency: ${Number.isFinite(profiles.recency.half_life) ? `ON, a player's games count half as much every ${profiles.recency.half_life} of their games. ` : "off (every game counts the same). "}${profiles.recency.reason}`);
         }

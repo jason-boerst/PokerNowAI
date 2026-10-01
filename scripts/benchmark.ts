@@ -18,7 +18,7 @@ import { parseHand, HandState } from "../app/engine/hand-parser.ts";
 import { isHoldem } from "../app/engine/player-profile.ts";
 import { calibrateResponses, responseFor, roleOf } from "../app/engine/response-calibration.ts";
 import { PostflopStreet, setActionWeights } from "../app/engine/equity.ts";
-import { analyzePostflop, setResponseTable } from "../app/engine/postflop.ts";
+import { analyzePostflop, setPlayConstants, setResponseTable } from "../app/engine/postflop.ts";
 import { opponentTendencies } from "../app/helpers/decision-maker.ts";
 import { TELL_KINDS } from "../app/engine/seven-deuce-tells.ts";
 import { SCENARIOS, runScenario, useBuiltInDefaults } from "./scenarios.ts";
@@ -88,6 +88,12 @@ if (bluff && bluff.samples > 0) {
         metrics.player_bluff_active = metric(pb.active ? 1 : 0, 0, "none", "per-player bluff scales used (gain > 2 SE)");
     }
 }
+{
+    const pc = profiles.playConstants();
+    metrics.constants_active = metric(pc.checks.filter((c) => c.active).length, 0, "none",
+        `play constants re-measured and used (${pc.checks.filter((c) => c.active).map((c) => `${c.name} ${c.built_in} -> ${c.measured}`).join(", ") || "none"})`);
+    metrics.recency_half_life = metric(Number.isFinite(profiles.recency.half_life) ? profiles.recency.half_life : 0, 0, "none", `recency half-life in games (0: off); ${profiles.recency.reason}`);
+}
 const tells = profiles.sevenDeuceTells();
 metrics.tells_active = metric(TELL_KINDS.filter((k) => tells.stats[k].active).length, 0, "none", "7-2 tells that pass the significance test");
 
@@ -119,6 +125,7 @@ metrics.tells_active = metric(TELL_KINDS.filter((k) => tells.stats[k].active).le
     const ms: number[] = [];
     setActionWeights(profiles.actionWeights().weights);
     setResponseTable(profiles.responseTable().table);
+    setPlayConstants(profiles.playConstants().values);
     const post = hands.flatMap((h) => h.decisions).filter((d) => d.street !== "preflop" && d.state.hero_cards.length === 2).slice(0, 150);
     for (const d of post) {
         const start = performance.now();
@@ -132,6 +139,7 @@ metrics.tells_active = metric(TELL_KINDS.filter((k) => tells.stats[k].active).le
 
 // --- simulator: engine and control seat against the engine's model of your pool ---
 if (!flag("--no-sim") && sim_hands > 0) {
+    setPlayConstants(profiles.playConstants().values);
     const pool = capturePool(profiles.actionWeights().weights, profiles.responseTable().table);
     for (const [players, stack] of [[6, 100], [6, 250], [2, 100]] as const) {
         for (const hero of ["engine", "pool"] as const) {

@@ -14,6 +14,8 @@ import { ME, ProfileService } from "../services/profile-service.ts";
 import { importLog } from "../import/importer.ts";
 import { parseHand } from "../engine/hand-parser.ts";
 import { leakReport } from "../eval/leaks.ts";
+import { sameProfileCandidates, SameProfileCandidate } from "../engine/identity.ts";
+import { learningStatus, LearningStatus, readHistory } from "../eval/learning-status.ts";
 import { PlayerProfile, PRIORS, RATE_KEYS, sessionDeviations } from "../engine/player-profile.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -101,6 +103,8 @@ export async function startDashboard(port: number, db_file = "./app/pokernow-gpt
     };
     let game_views = { generation: -1, views: new Map<string, unknown[]>() };
     let leaks: { generation: number, report: ReturnType<typeof leakReport> } | null = null;
+    let same_player: { generation: number, candidates: SameProfileCandidate[] } | null = null;
+    let learning: { generation: number, status: LearningStatus } | null = null;
 
     const app = express();
     // only answer pages opened from this computer's own address (a web page can't point another name at it)
@@ -213,6 +217,27 @@ export async function startDashboard(port: number, db_file = "./app/pokernow-gpt
             leaks = { generation: at, report };
         }
         res.json(leaks.report);
+    }));
+
+    // what has been learned from your hands, and the history `npm run learning` keeps (counts only)
+    app.get("/api/learning", handle(async (_req, res) => {
+        await fresh();
+        if (learning?.generation !== generation) {
+            const at = generation;
+            learning = { generation: at, status: learningStatus(service, await recorder.decisions()) };
+        }
+        res.json({ ...learning.status, history: readHistory("reports/learning-history.jsonl") });
+    }));
+
+    // ids that are likely the same person (never at the same hand, same or similar name), for you to confirm
+    app.get("/api/same-player", handle(async (_req, res) => {
+        await fresh();
+        if (same_player?.generation !== generation) {
+            const at = generation;
+            const hands = (await recorder.hands()).map((r) => ({ game_id: r.game_id, state: parseHand(JSON.parse(r.messages_json), { big_blind: r.big_blind ?? undefined }) }));
+            same_player = { generation: at, candidates: sameProfileCandidates(hands, service.keyOf, (key) => service.info({ id: key, name: "" }).long) };
+        }
+        res.json(same_player.candidates);
     }));
 
     app.post("/api/import", handle(async (req, res) => {

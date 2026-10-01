@@ -11,7 +11,7 @@ import { equity, rangeProfile } from "../engine/equity.ts";
 import { bountyFromHands } from "../engine/game-rules.ts";
 import { HandState, heroView, HeroView, netResult, parseHand, Street } from "../engine/hand-parser.ts";
 import { opponentModels, seatModel, setPlayerBluffScales, setSevenDeuceTells, TABLE_RULES } from "../engine/opponent-range.ts";
-import { analyzePostflop, PostflopAnalysis, setResponseTable } from "../engine/postflop.ts";
+import { analyzePostflop, PostflopAnalysis, setPlayConstants, setResponseTable } from "../engine/postflop.ts";
 import { preflopAdvice } from "../engine/preflop.ts";
 import { setActionWeights } from "../engine/equity.ts";
 import { mixPostflop, mixPreflop, MixStrategy, MixStyle } from "../engine/mixing.ts";
@@ -245,6 +245,7 @@ export async function replayAll(rows: HandRow[], links: Map<string, string>, opt
             }
             setActionWeights(profiles.actionWeights().weights);
             setResponseTable(profiles.responseTable().table);
+            setPlayConstants(profiles.playConstants().values);
             setSevenDeuceTells(profiles.tellReader());
             setPreflopResponseTable(profiles.preflopResponses().table);
             setPlayerBluffScales(profiles.bluffScaleReader());
@@ -267,6 +268,7 @@ export async function replayAll(rows: HandRow[], links: Map<string, string>, opt
         TABLE_RULES.seven_deuce_bounty = bounty_rule;
         setSevenDeuceTells(null);
         setPlayerBluffScales(null);
+        setPlayConstants(null);
         resetPreflopResponseTable();
     }
     return out;
