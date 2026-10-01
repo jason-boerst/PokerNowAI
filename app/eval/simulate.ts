@@ -314,7 +314,7 @@ function engineDecider(budget_ms: number): Decider {
                 const models = opponentModels(s, stats).map((m) => m.model);
                 eq = equity({ hero: s.hero_cards, board: s.board, opponents: models, iterations: 5000, time_budget_ms: Math.max(budget_ms, 5), seed: 97 }).equity;
             }
-            const advice = preflopAdvice(s, v, stats, undefined, { seven_deuce_bounty: 0, equity: eq });
+            const advice = preflopAdvice(s, v, stats, undefined, { seven_deuce_bounty: 0, equity: eq, ev: { time_budget_ms: Math.max(budget_ms, 10) } });
             if (!advice) return { action: v.to_call > 0 ? "fold" : "check", to: 0 };
             // size_bb is rounded to cents of a BB, so an all-in goes by the stack, not the rounded size
             if (advice.action === "all-in") return { action: "raise", to: v.max_raise_to };

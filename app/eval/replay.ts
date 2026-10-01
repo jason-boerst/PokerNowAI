@@ -16,7 +16,8 @@ import { preflopAdvice } from "../engine/preflop.ts";
 import { setActionWeights } from "../engine/equity.ts";
 import { mixPostflop, mixPreflop, MixStrategy, MixStyle } from "../engine/mixing.ts";
 import { classOf } from "../engine/hand-classes.ts";
-import { opponentTendencies } from "../helpers/decision-maker.ts";
+import { opponentTendencies, preflopProfiles } from "../helpers/decision-maker.ts";
+import { resetPreflopResponseTable, setPreflopResponseTable } from "../engine/preflop-responses.ts";
 import type { PlayerRef } from "../engine/player-profile.ts";
 import type { ObservedStats } from "../engine/opponent-range.ts";
 import type { HandRecorder, HandRow } from "../services/hand-recorder.ts";
@@ -171,7 +172,7 @@ export function engineAdvisor(o: AdvisorOptions): Advisor {
                 const models = opponentModels(s, o.stats).map((m) => m.model);
                 eq = equity({ hero: s.hero_cards, board: s.board, opponents: models, time_budget_ms: o.preflop_equity_ms ?? 40, iterations: 20000, seed: 97 }).equity;
             }
-            const advice = preflopAdvice(s, v, o.stats, undefined, { seven_deuce_bounty: o.seven_deuce_bounty ?? 0, equity: eq });
+            const advice = preflopAdvice(s, v, o.stats, undefined, { seven_deuce_bounty: o.seven_deuce_bounty ?? 0, equity: eq, ev: { profile: preflopProfiles(o.players) } });
             if (!advice) return null;
             const to = advice.action === "raise" || advice.action === "all-in" ? advice.size_bb * bb : 0;
             const choice: EngineChoice = { kind: kindOf(advice.action, to, s), to, label: advice.action + (to ? ` ${Math.round(advice.size_bb * 10) / 10} BB` : "") };
@@ -245,6 +246,7 @@ export async function replayAll(rows: HandRow[], links: Map<string, string>, opt
             setActionWeights(profiles.actionWeights().weights);
             setResponseTable(profiles.responseTable().table);
             setSevenDeuceTells(profiles.tellReader());
+            setPreflopResponseTable(profiles.preflopResponses().table);
             const game_messages = rows.filter((r) => r.game_id === game_id).map((r) => JSON.parse(r.messages_json) as string[]);
             const bounty = bountyFromHands(game_messages) ?? 0;
             TABLE_RULES.seven_deuce_bounty = bounty > 0;
@@ -263,6 +265,7 @@ export async function replayAll(rows: HandRow[], links: Map<string, string>, opt
     } finally {
         TABLE_RULES.seven_deuce_bounty = bounty_rule;
         setSevenDeuceTells(null);
+        resetPreflopResponseTable();
     }
     return out;
 }

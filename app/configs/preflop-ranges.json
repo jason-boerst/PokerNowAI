@@ -179,5 +179,11 @@
         "bb_call_vs_raise": "22+ A2+ K2s+ K5o+ Q4s+ Q8o+ J6s+ J8o+ T6s+ T8o+ 96s+ 98o 85s+ 87o 75s+ 64s+ 54s",
         "sb_four_bet_value": "QQ+ AKs AKo",
         "sb_call_vs_three_bet": "22+ A7s+ A5s A4s ATo+ K9s+ KJo+ QTs+ QJo JTs T9s 98s"
+    },
+    "ev_pricing": {
+        "_about": "Every preflop decision is also priced by EV (app/engine/preflop-ev.ts): fold, check or call, a raise to the chart's size, and all-in when stacks are short, against how players in your games answer raises (measured from your stored hands, adjusted for each player's VPIP, 3-bet and fold-to-3-bet). The EVs are shown on the panel. With overrule true they may also replace the chart's play when folding or continuing is clearly better (by margin_bb, after counting how unsure the numbers are), only before any re-raise and never against an all-in. overrule is false because in testing it made the simulated results worse: it folded hands like AKo and KQo because it models re-raise wars too crudely (players behind 3-bet independently, and you can only call or fold to a 3-bet). Turn it on only to experiment, and check with npm run benchmark.",
+        "enabled": true,
+        "overrule": false,
+        "margin_bb": 0.5
     }
 }

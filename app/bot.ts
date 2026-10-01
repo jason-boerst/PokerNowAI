@@ -15,7 +15,7 @@ import { preflopAdvice } from './engine/preflop.ts';
 import { describeMix, mixPreflop, MixStrategy, MixStyle, parseMixStyle, rollRng } from './engine/mixing.ts';
 import { classOf } from './engine/hand-classes.ts';
 import { describeProfile, isHoldem, PlayerRef } from './engine/player-profile.ts';
-import { decidePostflop, Decision, opponentTendencies } from './helpers/decision-maker.ts';
+import { decidePostflop, Decision, opponentTendencies, preflopProfiles } from './helpers/decision-maker.ts';
 import { PlayerLookup, ProfileService } from './services/profile-service.ts';
 import { rangePercent } from './engine/ranges.ts';
 import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
@@ -663,7 +663,8 @@ export class Bot {
         // the equity estimate printed just before (against the players still in) lets calls be priced
         const advice = preflopAdvice(state, view, (player) => this.statsLookup(player), undefined, {
             seven_deuce_bounty: this.rules.seven_deuce_bounty ?? 0,
-            equity: this.last_equity?.equity
+            equity: this.last_equity?.equity,
+            ev: { profile: preflopProfiles(this.playerLookup()) }
         });
         if (!advice) return null;
         const size = advice.action === "raise" || advice.action === "all-in" ? ` to ${advice.size_bb} BB` : "";

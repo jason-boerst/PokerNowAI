@@ -1,4 +1,5 @@
 import { HandState, parseHand, SeatState } from "../engine/hand-parser.ts";
+import { calibratePreflopResponses, PreflopResponseTable } from "../engine/preflop-responses.ts";
 import { calibrateTells, readTells, TELL_KINDS, TellModel, TellReading } from "../engine/seven-deuce-tells.ts";
 import { ObservedStats, POPULATION_TENDENCIES } from "../engine/opponent-range.ts";
 import { applyBluffScale, fitBluffScale } from "../engine/bluff-calibration.ts";
@@ -44,6 +45,7 @@ export class ProfileService {
     private calibrator: ShowdownCalibrator | null = null;
     private action_weights: CalibratedActionWeights | null = null;
     private tells: TellModel | null = null;
+    private preflop: { table: PreflopResponseTable, samples: number } | null = null;
     private responses: { table: ResponseTable, samples: number } | null = null;
 
     constructor(private recorder: HandRecorder) {
@@ -78,6 +80,7 @@ export class ProfileService {
         this.calibrator = null;
         this.action_weights = null;
         this.tells = null;
+        this.preflop = null;
         this.responses = null;
         return hands.length;
     }
@@ -113,6 +116,12 @@ export class ProfileService {
             this.action_weights = { ...measured, weights: applyBluffScale(measured.weights, bluff.scale), bluff };
         }
         return structuredClone(this.action_weights);
+    }
+
+    /** How players in your games answer preflop raises (preflop-responses.ts), your own answers left out. Built on first use. */
+    preflopResponses(): { table: PreflopResponseTable, samples: number } {
+        this.preflop ??= calibratePreflopResponses([...this.hands.map((h) => h.state), ...this.live_states], (seat) => this.keyOf(seat) !== ME);
+        return this.preflop;
     }
 
     /**

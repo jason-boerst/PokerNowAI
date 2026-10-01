@@ -19,7 +19,8 @@ import { classOf } from "../app/engine/hand-classes.ts";
 import { PlayerProfile, PlayerRef, PRIORS, RATE_KEYS, RateKey, resetPriors } from "../app/engine/player-profile.ts";
 import { analyzePostflop, PostflopAnalysis, resetResponseTable, setResponseTable } from "../app/engine/postflop.ts";
 import { preflopAdvice, PreflopAdvice } from "../app/engine/preflop.ts";
-import { opponentTendencies } from "../app/helpers/decision-maker.ts";
+import { opponentTendencies, preflopProfiles } from "../app/helpers/decision-maker.ts";
+import { resetPreflopResponseTable, setPreflopResponseTable } from "../app/engine/preflop-responses.ts";
 import type { PlayerInfo } from "../app/services/profile-service.ts";
 
 // ---------------------------------------------------------------------------------------------
@@ -520,6 +521,7 @@ export function useBuiltInDefaults(): void {
     resetPriors();
     resetActionWeights();
     resetResponseTable();
+    resetPreflopResponseTable();
     POPULATION_TENDENCIES.vpip = 35;
     POPULATION_TENDENCIES.pfr = 12;
     delete POPULATION_TENDENCIES.three_bet;
@@ -551,7 +553,7 @@ export function runScenario(sc: Scenario, time_budget_ms?: number, mix_style: Mi
     if (s.street === "preflop") {
         // like the live bot: equity against the players still in prices calls when hero closes the action
         eq = equity({ hero: s.hero_cards, board: [], opponents: opponentModels(s, stats).map((m) => m.model), iterations: 6000, time_budget_ms: 5000, seed: PREFLOP_EQUITY_SEED }).equity;
-        const advice = preflopAdvice(s, v, stats, undefined, { seven_deuce_bounty: (sc.bounty_bb ?? 0) * bb, equity: eq });
+        const advice = preflopAdvice(s, v, stats, undefined, { seven_deuce_bounty: (sc.bounty_bb ?? 0) * bb, equity: eq, ev: { profile: preflopProfiles(players), time_budget_ms: 500 } });
         if (!advice) throw new Error(`${sc.id}: no preflop advice for this spot`);
         preflop = advice;
         action = advice.action;
@@ -671,6 +673,7 @@ async function main(): Promise<void> {
         const hands = await profiles.load();
         setActionWeights(profiles.actionWeights().weights);
         setResponseTable(profiles.responseTable().table);
+        setPreflopResponseTable(profiles.preflopResponses().table);
         await db.close();
         console.log(`Calibrated from ${hands} stored hands: pool VPIP ${Math.round(POPULATION_TENDENCIES.vpip)}%, PFR ${Math.round(POPULATION_TENDENCIES.pfr)}%, river fold ${Math.round(PRIORS.fold_to_bet_river.mean * 100)}%.`);
     } else {

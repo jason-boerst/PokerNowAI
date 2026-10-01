@@ -4,6 +4,7 @@ import { classOf, HandClass } from "./hand-classes.ts";
 import { MIN_HANDS_FOR_STATS, ObservedStats, POPULATION_TENDENCIES } from "./opponent-range.ts";
 import { parseRange } from "./range-notation.ts";
 import type { PlayerRef } from "./player-profile.ts";
+import { preflopEv, PreflopEvOption, PreflopEvResult, PreflopProfile, robustPreflop } from "./preflop-ev.ts";
 
 export type PreflopConfig = typeof default_config;
 
@@ -16,7 +17,9 @@ export interface PreflopAdvice {
     /** The chart's actions for this spot, most aggressive first, so mixing.ts can mix hands at the edges of each range. */
     tiers?: PreflopTier[],
     /** When hero closes the action facing a bet: the call priced by equity (decided: the price made the call or fold). */
-    price?: PriceInfo
+    price?: PriceInfo,
+    /** Every option priced by EV (preflop-ev.ts), and whether that overruled the chart's play. */
+    ev?: PreflopEvResult & { overruled: boolean, chart: { action: PreflopAdvice["action"], size_bb: number } }
 }
 
 /** A call priced by equity when hero closes the action (see priceNumbers). */
@@ -77,7 +80,12 @@ export interface PreflopContext {
      * Hero's equity (0-1) against the likely hands of every player still in the hand. When set and hero
      * closes the action facing one raise, call or fold is decided by price instead of a fixed range.
      */
-    equity?: number
+    equity?: number,
+    /**
+     * Price every option by EV and overrule the chart when it says so clearly (config ev_pricing). `profile`
+     * gives each player's preflop rates; `time_budget_ms` limits the simulation.
+     */
+    ev?: { profile?: (seat: SeatState) => PreflopProfile | undefined, time_budget_ms?: number }
 }
 
 const RANK_ORDER = "23456789TJQKA";
@@ -129,7 +137,7 @@ function preflopRank(position: string): number {
 }
 
 /** Acting rank after the flop: the blinds first, the button last. */
-function postflopRank(position: string): number {
+export function postflopRank(position: string): number {
     return position === "SB" ? -3 : position === "BB" ? -2 : preflopRank(position);
 }
 
@@ -204,7 +212,7 @@ const roundBb = (x: number) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 1
  * `context` carries table rules that aren't in the log (the 7-2 bounty); omit it for none.
  */
 export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, config: PreflopConfig = default_config, context: PreflopContext = {}): PreflopAdvice | null {
-    const advice = chartAdvice(s, v, stats, config, context);
+    const advice = withEv(s, v, stats, config, context, chartAdvice(s, v, stats, config, context));
     // a chart decision when hero closes the action: the price numbers too, so the panel can show the equity the
     // hand keeps (a raw equity above the price can still be a fold once position is counted)
     if (!advice || advice.price || context.equity === undefined || s.hero_cards.length !== 2) return advice;
@@ -216,6 +224,73 @@ export function preflopAdvice(s: HandState, v: HeroView, stats: StatsLookup, con
     const n = priceNumbers(s, v, config, classOf(s.hero_cards), context.equity, others.length > 1);
     if (!n) return advice;
     return { ...advice, price: { ev_bb: Math.round(n.ev_bb * 100) / 100, equity: context.equity, realized: n.realized, realization: n.r, need: n.need, decided: false } };
+}
+
+const family = (a: string) => (a === "raise" || a === "all-in" ? "aggressive" : a);
+
+/** The raise size to price: the chart's own raise (its play, or its raise tier), else a standard size for the spot. */
+function raiseSizeOf(s: HandState, advice: PreflopAdvice, config: PreflopConfig): number {
+    if (advice.action === "raise" || advice.action === "all-in") return advice.size_bb;
+    const tier = advice.tiers?.find((t) => t.action === "raise" || t.action === "all-in");
+    if (tier) return tier.size_bb;
+    const bb = s.big_blind;
+    const pre = s.actions.filter((a) => a.street === "preflop");
+    const level = Math.max(bb, ...pre.filter((a) => a.type === "post_bb" || a.type === "post_straddle").map((a) => a.street_total)) / bb;
+    const raises = pre.filter((a) => a.type === "raise" || a.type === "bet");
+    const size = config.sizing;
+    if (raises.length === 0) {
+        const limpers = pre.filter((a) => a.type === "call").length;
+        return limpers ? (size.isolate_base_bb + limpers * size.isolate_per_limper_bb) * level : size.open_bb * level;
+    }
+    const last = raises[raises.length - 1].street_total / bb;
+    return raises.length === 1 ? last * size.three_bet_multiplier_in_position : last * size.four_bet_multiplier;
+}
+
+/**
+ * Prices the chart's play and the alternatives by EV (preflop-ev.ts). A different kind of play (fold, check/call,
+ * raise) replaces the chart's only when its EV, less its risk, beats the chart's by at least ev_pricing.margin_bb.
+ * 7-2 under the bounty keeps the chart's play (its value is the bounty, which the EV doesn't count).
+ */
+function withEv(s: HandState, v: HeroView, stats: StatsLookup, config: PreflopConfig, context: PreflopContext, advice: PreflopAdvice | null): PreflopAdvice | null {
+    const settings = (config as { ev_pricing?: { enabled: boolean, overrule?: boolean, margin_bb: number } }).ev_pricing;
+    if (!advice || !context.ev || !settings?.enabled || s.hero_cards.length !== 2) return advice;
+    const cls = classOf(s.hero_cards);
+    if ((context.seven_deuce_bounty ?? 0) > 0 && (cls === "72o" || cls === "72s")) return advice;
+    const ev = preflopEv(s, v, cls, stats, config, v.min_raise_to === null ? null : raiseSizeOf(s, advice, config), context.ev.profile, context.ev.time_budget_ms);
+    if (!ev) return advice;
+    const chart = { action: advice.action, size_bb: advice.size_bb };
+    const chart_option = ev.options.find((o) => family(o.action) === family(advice.action));
+    // the model is trusted to overrule only before any re-raise and not against an all-in: deeper re-raise wars and
+    // shoves depend on stack-off dynamics and shove ranges that the charts encode better
+    const pre = s.actions.filter((a) => a.street === "preflop");
+    const raises = pre.filter((a) => a.type === "raise" || a.type === "bet");
+    const trusted = raises.length <= 1 && !raises.some((a) => a.all_in);
+    // what the model measures well: folding or continuing, and checking or raising in the big blind. Calling versus
+    // re-raising, and limping first in, stay with the chart (the model's re-raise wars and limp lines are rough)
+    const continuing = (a: string) => a !== "fold";
+    const open_limp = (o: PreflopEvOption) => o.action === "call" && raises.length === 0 && !pre.some((a) => a.type === "call")
+        && !["SB", "BB"].includes(s.seats.find((p) => p.id === s.hero_id)?.position ?? "");
+    const allowed = ev.options.filter((o) => !open_limp(o) && (continuing(o.action) !== continuing(advice.action) || (advice.action === "check" && o.action === "raise")));
+    const best = allowed.reduce<PreflopEvOption | undefined>((x, o) => (!x || robustPreflop(o) > robustPreflop(x) ? o : x), undefined);
+    // what the chart's play stands for: folding, or the best way to continue (calling or raising), counted at its best
+    const optimistic = (o: PreflopEvOption) => o.ev_bb + o.risk_bb;
+    const chart_side = continuing(advice.action)
+        ? ev.options.filter((o) => continuing(o.action) && !open_limp(o)).reduce<PreflopEvOption | undefined>((x, o) => (!x || optimistic(o) > optimistic(x) ? o : x), undefined)
+        : chart_option;
+    // overrule (when allowed) only when the alternative, counted at its worst, beats the chart's side at its best
+    const overrule = !!settings.overrule && trusted && !!best && !!chart_side && robustPreflop(best) - optimistic(chart_side) >= settings.margin_bb;
+    if (!overrule || !best) return { ...advice, ev: { ...ev, overruled: false, chart } };
+    const signed = (x: number) => `${x >= 0 ? "+" : ""}${Math.round(x * 10) / 10}`;
+    const why = best.action === "fold" ? "the price and the hands that continue make every other play lose"
+        : best.fold_chance !== undefined ? `they fold about ${Math.round(best.fold_chance * 100)}% of the time${best.called_equity !== undefined ? ` and you have ${Math.round(best.called_equity * 100)}% equity when called` : ""}`
+        : `you have ${Math.round((best.called_equity ?? ev.equity) * 100)}% equity against the hands that stay in`;
+    const verb = best.action === "fold" ? "Fold" : best.action === "check" ? "Check" : best.action === "call" ? "Call" : best.action === "all-in" ? "Go all-in" : `Raise to ${roundBb(best.size_bb)} BB`;
+    return {
+        action: best.action, size_bb: best.size_bb, scenario: `${advice.scenario}, priced by EV`,
+        reason: `${verb} with ${cls}: priced against how players in your games answer, ${best.label} is worth about ${signed(best.ev_bb)} BB against ${signed(chart_side!.ev_bb)} BB for ${chart_side!.label}; ${why}.`,
+        ...(advice.price ? { price: advice.price } : {}),
+        ev: { ...ev, overruled: true, chart }
+    };
 }
 
 function chartAdvice(s: HandState, v: HeroView, stats: StatsLookup, config: PreflopConfig, context: PreflopContext): PreflopAdvice | null {

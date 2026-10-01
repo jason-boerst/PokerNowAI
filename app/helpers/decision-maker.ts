@@ -1,8 +1,9 @@
 import { AIService } from "../interfaces/ai-client-interfaces.ts";
-import { HandState, HeroView } from "../engine/hand-parser.ts";
+import { HandState, HeroView, SeatState } from "../engine/hand-parser.ts";
 import { checkLegality, SuggestedAction } from "../engine/legality.ts";
 import { PlayerRef, PRIORS } from "../engine/player-profile.ts";
 import type { PlayerLookup } from "../services/profile-service.ts";
+import type { PreflopProfile } from "../engine/preflop-ev.ts";
 import { analyzePostflop, Candidate, isClearSpot, OpponentTendency, PostflopAnalysis } from "../engine/postflop.ts";
 import { opponentModels, ObservedStats } from "../engine/opponent-range.ts";
 import { RangeProfile } from "../engine/equity.ts";
@@ -102,6 +103,14 @@ export function aiBudgetMs(opts: { llm_timeout_ms: number, decision_seconds?: nu
 }
 
 /** Fold tendencies for each opponent still in the hand, from their profile (population priors if unknown). */
+/** Each player's preflop rates for pricing preflop options (preflop-ev.ts), from their current profile. */
+export function preflopProfiles(players: PlayerLookup): (seat: SeatState) => PreflopProfile | undefined {
+    return (seat) => {
+        const p = players(seat).current;
+        return p ? { vpip: p.vpip.value, three_bet: p.three_bet.value, fold_to_three_bet: p.fold_to_three_bet.value } : undefined;
+    };
+}
+
 export function opponentTendencies(s: HandState, stats: (player: PlayerRef) => ObservedStats | undefined, players: PlayerLookup): OpponentTendency[] {
     return opponentModels(s, stats).map(({ seat, model }) => {
         const p = players(seat).current;

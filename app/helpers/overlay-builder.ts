@@ -208,6 +208,17 @@ export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equ
             lines.push(`Short on price right now (${kept}, against ${pct(price.need)} needed); the chart calls for what the hand wins on later streets when it hits.`);
         }
     }
+    // the EV pricing: what overruled the chart, or, when the chart stands but EV disagrees, how close it is
+    const ev = advice.ev;
+    if (ev && !ev.overruled) {
+        const fam = (a: string) => (a === "raise" || a === "all-in" ? "raise" : a);
+        const chart_opt = ev.options.find((o) => fam(o.action) === fam(advice.action));
+        const top = ev.options.reduce((x, o) => (o.ev_bb > x.ev_bb ? o : x));
+        if (chart_opt && fam(top.action) !== fam(advice.action) && top.ev_bb - chart_opt.ev_bb >= 0.1) {
+            const signed = (x: number) => `${x >= 0 ? "+" : ""}${Math.round(x * 10) / 10}`;
+            lines.push(`Priced by EV, ${top.label} (${signed(top.ev_bb)} BB) edges the chart's play (${signed(chart_opt.ev_bb)} BB), but by less than the margin of error, so the chart stands.`);
+        }
+    }
     if (mix && !mix.pure) {
         lines = pick.action === advice.action
             ? [...lines, ...mix.reasons]
@@ -217,7 +228,7 @@ export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equ
     return {
         status: "final",
         tone: toneFor(pick.action),
-        source: { label: "Preflop chart", ...(mix && !mix.pure ? { detail: "mixed by the roll" } : {}) },
+        source: { label: ev?.overruled ? "Preflop EV" : "Preflop chart", ...(mix && !mix.pure ? { detail: "mixed by the roll" } : ev?.overruled ? { detail: `overrules the chart (${ev.chart.action})` } : {}) },
         context: contextLine(s, v),
         action: actionOf(s, v, pick.action, pick.size_bb),
         ...(mix ? { rng: rngOf(mix) } : {}),
@@ -226,7 +237,12 @@ export function preflopOverlay(inputs: OverlayInputs, advice: PreflopAdvice, equ
         spot: spotOf(inputs),
         hand: handOf(s),
         odds,
-        options: [],
+        options: (ev?.options ?? []).map((o) => ({
+            label: o.label, ev_bb: Math.round(o.ev_bb * 100) / 100,
+            chosen: o.action === pick.action && (o.size_bb === 0 || Math.abs(o.size_bb - pick.size_bb) < 0.01 || pick.action === "all-in"),
+            ...(o.fold_chance !== undefined ? { fold_chance: o.fold_chance } : {}),
+            ...(o.raise_chance !== undefined ? { raise_chance: o.raise_chance } : {})
+        })),
         opponents: opp.opponents,
         more_opponents: opp.more_opponents,
         ...youOf(inputs)
