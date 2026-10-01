@@ -6,7 +6,7 @@ import type { PlayerLookup } from "../services/profile-service.ts";
 import { PostflopAnalysis } from "../engine/postflop.ts";
 import { describeMix, MixStrategy } from "../engine/mixing.ts";
 import { bb, formatActions, formatSpot } from "../engine/spot-format.ts";
-import { roleText, shortTag } from "./bet-explain.ts";
+import { betPlanLine, roleText, shortTag } from "./bet-explain.ts";
 
 export interface LLMDecision extends SuggestedAction {
     confidence: number,
@@ -80,6 +80,8 @@ export function buildDecisionPrompt(s: HandState, v: HeroView, a: PostflopAnalys
         const p = a.call_plan;
         lines.push(`  If you call: they bet the ${a.street === "flop" ? "turn" : "river"} ~${pct(p.barrel)} of the time and you keep calling on ~${pct(p.continue_vs_barrel)} of those cards; later betting (implied odds) ${sign(b(p.implied))} BB; on equity alone the call would be ${sign(b(p.flat_ev))} BB.`);
     }
+    const top_bet = a.candidates.find((c) => c.action === "bet" && c.plan);
+    if (top_bet?.plan) lines.push(`  Plan for ${top_bet.label}: ${betPlanLine(top_bet.plan, a.street === "flop" ? "turn" : "river")}`);
     for (const note of a.size_notes ?? []) lines.push(`  ${note}`);
     if (mix && !mix.pure) {
         lines.push(`  Mixed strategy (random number 1-100, low numbers passive, high aggressive): ${describeMix(mix)}. This turn's number is ${mix.roll}, which plays ${mix.pick.label}.`);

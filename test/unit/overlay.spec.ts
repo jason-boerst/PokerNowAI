@@ -170,6 +170,17 @@ describe("overlay content (panel model)", () => {
         expect(same.warnings.join(" ")).to.not.include("disagrees");
     });
 
+    it("gives a heads-up flop bet a plan for the turn", () => {
+        const { s, v } = checkedSpot();
+        const a = analyzePostflop(s, v, tendency);
+        const bet = a.candidates.find((c) => c.action === "bet")!;
+        // the engine's reasoning (an AI decision shows the AI's own)
+        const m = postflopOverlay({ state: s, view: v, players: noProfile, stats: noStats }, a, { ...llm("bet", bet.to / 2), source: "engine" }, "m", 0);
+        const text = m.reasoning.join(" ");
+        expect(text).to.match(/If called: (bet the turn again|keep betting the turn|check the turn)/);
+        expect(text).to.not.match(DASHES);
+    });
+
     it("tags bets and raises with their purpose, colored by kind", () => {
         const { s, v } = checkedSpot();
         const a = analyzePostflop(s, v, tendency);

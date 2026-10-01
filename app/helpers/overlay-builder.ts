@@ -6,7 +6,7 @@ import { ObservedStats } from "../engine/opponent-range.ts";
 import { PlayerRef } from "../engine/player-profile.ts";
 import type { PlayerLookup } from "../services/profile-service.ts";
 import { Candidate, PostflopAnalysis } from "../engine/postflop.ts";
-import { explainBet, matchCandidate, shortTag } from "./bet-explain.ts";
+import { betPlanLine, explainBet, matchCandidate, shortTag } from "./bet-explain.ts";
 import { PreflopAdvice } from "../engine/preflop.ts";
 import { classOf } from "../engine/hand-classes.ts";
 import { describeMix, MixStrategy } from "../engine/mixing.ts";
@@ -305,6 +305,8 @@ function engineLines(a: PostflopAnalysis, v: HeroView, chosen: Candidate | undef
         const implied = Math.abs(plan.implied) >= 0.1 * big_blind ? ` Later betting when the hands are strong: ${b(plan.implied)} BB (${plan.implied >= 0 ? "implied odds" : "reverse implied odds"}).` : "";
         lines.push(`If you call: they bet the ${next} about ${pct(plan.barrel)} of the time and ${keep}.${implied} On equity alone the call would look like ${b(plan.flat_ev)} BB.`);
     }
+    // a bet heads-up on the flop or turn: what to do on the next street once it is called
+    if (chosen?.plan && chosen.action === "bet") lines.push(betPlanLine(chosen.plan, a.street === "flop" ? "turn" : "river"));
     // bets: how these players answer small and big bets
     if (chosen && aggressive(chosen.action) && a.size_notes) lines.push(...a.size_notes);
     if (margin_note === false && a.note && !lines.includes(a.note)) lines.push(a.note);

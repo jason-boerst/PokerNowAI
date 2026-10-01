@@ -21,7 +21,7 @@
 // raises use the players' fold-to-raise estimates. Options are ranked by EV minus how far it could be off
 // through those estimates (robustEv). The other constants below are stated assumptions, not measured values.
 import { HandState, HeroView, SeatState } from "./hand-parser.ts";
-import { callTree, CallTreeResult, continuationEquity, equity, IMPLIED_POTS, OpponentModel, PostflopStreet, rangeClassShares, strengthClass } from "./equity.ts";
+import { callTree, CallTreeResult, continuationEquity, equity, heroBetTree, IMPLIED_POTS, OpponentModel, PostflopAction, PostflopStreet, rangeClassShares, strengthClass } from "./equity.ts";
 import { PRIORS } from "./player-profile.ts";
 import { BetRole, defaultResponseTable, heroBetRole, responseFor, ResponseTable } from "./response-calibration.ts";
 
@@ -48,7 +48,12 @@ export interface Candidate {
      * Bets and raises: how far the EV could be off because the fold estimate is (chips, one standard error of the
      * fold chance times what a fold is worth against a call). Options are ranked by EV minus this (see robustEv).
      */
-    risk?: number
+    risk?: number,
+    /**
+     * Heads-up on the flop and turn, for a bet (once called) and for checking (once checked through): how often hero
+     * should bet the next street, on which cards, and what that adds (chips, included in `ev`). See heroBetTree.
+     */
+    plan?: { barrel_rate: number, ranks: string[], suits: string[], gain: number }
 }
 
 export interface PostflopAnalysis {
@@ -145,6 +150,18 @@ const LOW_EQUITY_OOP_DROP = 0.1;
  */
 const BET_NEXT: Record<PostflopStreet, number> = { flop: 0.54, turn: 0.58, river: 0 };
 const NEXT_BET_SHARE = 0.75;
+/** Hero's next-street bet sizes in the betting plan (shares of the pot then). */
+const BARREL_SHARES = [0.5, 0.75];
+/**
+ * Whether the betting plan's value is added to the options' EVs. Off: the plan is shown, the EVs are the one-street
+ * values. Off by default because only bets and checks get it: calls (callTree) don't yet value hero's own later
+ * bets, so adding it favors betting over calling by construction (it turned "BB, middle pair on an A-high flop:
+ * check" into a lead).
+ */
+let plan_in_ev = false;
+export function setBetPlanInEv(on: boolean): void {
+    plan_in_ev = on;
+}
 /** Simulations for the side estimates (equity against a bettor or a raiser): fewer, to stay fast. */
 const SIDE_ITERATIONS = 6000;
 /** Same simulated hands on every call, so the options compare cleanly and the advice is repeatable. */
@@ -443,6 +460,7 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         : { ...m, postflop_actions: [...(m.postflop_actions ?? []), { board, action }] });
 
     /** Checking: free when hero closes the action; otherwise a bet may follow, which hero calls or folds to. */
+    let check_through = 1;
     const checkEV = (): number => {
         const behind = playersBehind(s);
         if (behind.length === 0) return eq * pot * R + implied_plain;
@@ -452,6 +470,7 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         const bettors = opponents.map((o, i) => (!seats[i] || behind_ids.has(seats[i]!.id)) ? betChance(o) * bet_scale : 0);
         const b = 1 - product(bettors.map((x) => 1 - x));
         if (b <= 0) return eq * pot * R + implied_plain;
+        check_through = 1 - b;
         // the most likely bettor stands in for whoever bets
         const bettor = argmax(bettors);
         const bet = Math.min(REFERENCE_BET * pot, v.stack, v.effective_stack);
@@ -496,6 +515,7 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
     let eq_vs_raise: number | null = null;
     const equityVsRaise = () => eq_vs_raise ??= equity({ hero, board, opponents: [narrowed(raiser, "raise")[raiser]], iterations: SIDE_ITERATIONS, time_budget_ms: side_budget, seed: SEED }).equity;
 
+    const bet_lines: { p: Plan, called_share: number, candidate: Candidate }[] = [];
     let equity_when_called = main.results[1].equity;
     let best_aggressive = -Infinity;
     for (const [k, p] of plans.entries()) {
@@ -517,6 +537,7 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         }
         const ev = pf * pot + (1 - pf - pr) * called_ev + pr * raised_ev;
         fold_probability.set(p.to, pf);
+        const bet_line = !p.raise && !all_in ? { p, called_share: 1 - pf - pr } : null;
         const action = all_in ? "all-in" : p.raise ? "raise" : "bet";
         const purpose: BetPurpose = called.equity >= VALUE_EQUITY ? "value"
             : street !== "river" && ((hero_class === "draw" && called.equity >= SEMI_BLUFF_DRAW_EQUITY) || called.equity >= SEMI_BLUFF_EQUITY) ? "semi-bluff"
@@ -529,15 +550,69 @@ export function analyzePostflop(s: HandState, v: HeroView, opponents: OpponentTe
         // a draw or top pair betting into two callers with 40% doesn't need it
         const wins_when_called = called.equity >= Math.min(VALUE_EQUITY, 1 / (1 + Math.max(1, called.callers)));
         const risk = purpose === "value" || wins_when_called ? response_risk : Math.max(response_risk, BLUFF_MARGIN_BB * bb, BLUFF_MARGIN_POT * pot);
-        candidates.push({
+        const candidate: Candidate = {
             action, to: p.to, ev, label: `${action === "all-in" ? "all-in" : action === "raise" ? "raise to" : "bet"} ${fmt(p.to)}`,
             fold_chance: pf, raise_chance: pr, called_equity: called.equity, purpose, risk,
             needs_folds: p.invest / (pot + p.invest),
             response: p.raise || !role ? undefined : responseFor(response_table, street, role, p.invest / Math.max(pot, 1e-9))
-        });
+        };
+        candidates.push(candidate);
+        if (bet_line) bet_lines.push({ ...bet_line, candidate });
         // report the equity when called for the best bet or raise
         if (ev > best_aggressive) { best_aggressive = ev; equity_when_called = called.equity; }
     }
+    // hero's own next street (heads-up, flop and turn): betting it when the card is good is worth something on top of
+    // this street's value, after a bet that gets called and after checking through alike (see heroBetTree)
+    if (!facing_bet && street !== "river" && opponents.length === 1 && !seats[0]?.all_in) {
+        const o = opponents[0];
+        const next: PostflopStreet = street === "flop" ? "turn" : "river";
+        const tree_budget = Math.max(5, side_budget / 3);
+        const after = (action: PostflopAction): OpponentModel => ({ ...models[0], postflop_actions: [...(models[0].postflop_actions ?? []), { board, action }] });
+        const answers = (next_role: BetRole) => BARREL_SHARES.map((share) => {
+            const cell = responseFor(response_table, next, next_role, share);
+            const fold = clamp(cell.fold * playerFoldFactor(o, next) * playerSizeFactor(o, share), 0.03, 0.9);
+            return { fold, raise: cell.raise * playerRaiseFactor(o), error: foldError(fold, cell.n + FOLD_PRIOR_CASES) };
+        });
+        // the plan's value rests on next street's fold estimates like a bet's on this street's: on the cards hero
+        // bets, a fold wins the pot instead of a call, so the pot times the betting share rides on the estimate
+        const planRisk = (next_role: BetRole, pot_after: number, barrel_rate: number) => {
+            const a = answers(next_role);
+            return RISK_Z * Math.max(...a.map((x) => x.error)) * pot_after * barrel_rate;
+        };
+        // when hero checks the next street out of position, the caller may bet; in position hero checks behind
+        const caller_bet = in_position ? 0 : betChance(o);
+        const run = (caller: OpponentModel, next_role: BetRole, pots: { pot: number, stack_behind: number }[]) => {
+            const a = answers(next_role);
+            return heroBetTree({
+                hero, board, caller, pots, barrel_shares: BARREL_SHARES, barrel_folds: a.map((x) => x.fold),
+                barrel_raise: a.reduce((sum, x) => sum + x.raise, 0) / a.length, caller_bet, caller_bet_share: NEXT_BET_SHARE,
+                time_budget_ms: tree_budget, seed: SEED
+            }).plans;
+        };
+        if (bet_lines.length) {
+            const plans = run(after("call"), "barrel", bet_lines.map(({ p }) => {
+                const pot_called = pot + p.invest + p.adds[0];
+                return { pot: pot_called, stack_behind: Math.max(0, v.effective_stack - p.to) };
+            }));
+            bet_lines.forEach(({ p, candidate, called_share }, i) => {
+                if (plan_in_ev) {
+                    candidate.ev += called_share * plans[i].gain;
+                    candidate.risk = Math.hypot(candidate.risk ?? 0, called_share * planRisk("barrel", pot + p.invest + p.adds[0], plans[i].barrel_rate));
+                }
+                candidate.plan = { barrel_rate: plans[i].barrel_rate, ranks: plans[i].barrel_ranks, suits: plans[i].barrel_suits, gain: plans[i].gain };
+            });
+        }
+        const check = candidates.find((c) => c.action === "check");
+        if (plan_in_ev && check && check_through > 0) {
+            const hero_aggressor = role === "cbet" || role === "barrel" || role === "delayed";
+            const check_role: BetRole = hero_aggressor ? "delayed" : in_position ? "stab" : "lead";
+            const [plan] = run(after("check"), check_role, [{ pot, stack_behind: Math.max(0, v.effective_stack - hero_in) }]);
+            check.ev += check_through * plan.gain;
+            check.risk = check_through * planRisk(check_role, pot, plan.barrel_rate);
+            check.plan = { barrel_rate: plan.barrel_rate, ranks: plan.barrel_ranks, suits: plan.barrel_suits, gain: plan.gain };
+        }
+    }
+
     candidates.sort((a, b) => b.ev - a.ev);
     // the pick: the best EV after each option's risk (see RISK_Z), so a bluff barely ahead of checking, or a size
     // barely ahead of another but measured on few hands, gives way to the surer option

@@ -65,3 +65,19 @@ export function shortTag(a: PostflopAnalysis, c: Candidate): string {
     const kind = c.action === "raise" || !a.bet_role ? "raise" : ROLE_NOUN[a.bet_role];
     return `${c.purpose}, ${kind}`;
 }
+
+const RANK_ORDER = "AKQJT98765432";
+const SUIT_SYMBOL: Record<string, string> = { s: "♠", h: "♥", d: "♦", c: "♣" };
+
+/** "If called: bet the turn on about 60% of cards (A, K, any ♥), check the rest." */
+export function betPlanLine(plan: { barrel_rate: number, ranks: string[], suits: string[] }, next: string): string {
+    const rate = plan.barrel_rate;
+    if (rate >= 0.9) return `If called: keep betting the ${next} on almost any card.`;
+    if (rate <= 0.1) return `If called: check the ${next} on almost every card.`;
+    const ranks = plan.ranks.map((r) => (r === "T" ? "10" : r));
+    const missing = RANK_ORDER.split("").filter((r) => !plan.ranks.includes(r)).map((r) => (r === "T" ? "10" : r));
+    const suits = plan.suits.map((u) => `any ${SUIT_SYMBOL[u] ?? u}`);
+    const where = ranks.length <= 6 ? [...ranks, ...suits].join(", ")
+        : missing.length ? `any card but ${missing.join(", ")}${suits.length ? `, or ${suits.join(", ")}` : ""}` : "";
+    return `If called: bet the ${next} again on about ${Math.round(rate * 100)}% of cards${where ? ` (${where})` : ""} and check the rest (the engine's estimate from how your games fold to ${next} bets).`;
+}

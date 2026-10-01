@@ -28,7 +28,7 @@ import { classOf } from "../engine/hand-classes.ts";
 import { HandState, heroView, HeroView, netResult, parseHand, SeatState } from "../engine/hand-parser.ts";
 import { ObservedStats, opponentModels, POPULATION_TENDENCIES, postflopActions, preflopLine, reraiseFactor, TABLE_RULES } from "../engine/opponent-range.ts";
 import { PRIORS, RATE_KEYS, RateKey } from "../engine/player-profile.ts";
-import { analyzePostflop, setResponseTable } from "../engine/postflop.ts";
+import { analyzePostflop, setBetPlanInEv, setResponseTable } from "../engine/postflop.ts";
 import { preflopAdvice } from "../engine/preflop.ts";
 import { expandRange, positionWidth, PreflopLine, preflopRange, PreflopTendencies, Range } from "../engine/ranges.ts";
 import { defaultResponseTable, responseFor, ResponseTable, roleOf } from "../engine/response-calibration.ts";
@@ -68,6 +68,8 @@ export interface SimOptions {
     engine_budget_ms?: number,
     /** Who sits in your seat: the engine (default), or a pool player (a control that should break even). */
     hero?: "engine" | "pool",
+    /** Add the betting plan's value to the engine's EVs (postflop.ts setBetPlanInEv; off by default). */
+    plan_in_ev?: boolean,
     /** Called with each finished hand's log (in-process runs only; for checks and tests). */
     on_hand?: (lines: string[]) => void
 }
@@ -502,6 +504,15 @@ function adjustedNet(s: HandState, rand: () => number): number | null {
 
 /** Plays `hands` hands with the engine (or a pool player) in seat 1 and pool players elsewhere. */
 export function simulate(o: SimOptions): SimResult {
+    setBetPlanInEv(!!o.plan_in_ev);
+    try {
+        return simulateHands(o);
+    } finally {
+        setBetPlanInEv(false);
+    }
+}
+
+function simulateHands(o: SimOptions): SimResult {
     const n = Math.max(2, Math.min(9, Math.floor(o.players)));
     const rand = seededRandom(o.seed);
     const stack = (o.stack_bb ?? 100) * BB;

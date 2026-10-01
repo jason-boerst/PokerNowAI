@@ -891,3 +891,189 @@ export function callTree(input: CallTreeInput): CallTreeResult {
         iterations: done
     };
 }
+
+/** Hero's flop or turn bet once it is called heads-up: what barreling the next street adds (see heroBetTree). */
+export interface HeroBetTreeInput {
+    hero: string[],
+    /** The flop or the turn. */
+    board: string[],
+    /** The caller, narrowed by their actions including the call of hero's bet. */
+    caller: OpponentModel,
+    /** For each line valued: the pot once the current street is over, and the chips hero can still bet after that. */
+    pots: { pot: number, stack_behind: number }[],
+    /** Next street's barrel sizes as shares of the pot, and the caller's average chance of folding to each. */
+    barrel_shares: number[],
+    barrel_folds: number[],
+    /** The caller's average chance of raising a barrel. */
+    barrel_raise: number,
+    /** The caller's chance of betting the next street when hero checks; its size as a share of the pot. */
+    caller_bet: number,
+    caller_bet_share: number,
+    iterations?: number,
+    time_budget_ms?: number,
+    seed?: number
+}
+
+export interface HeroBetPlan {
+    /** Chips: the value of choosing, card by card, between checking and betting, over checking every next card (never below 0). */
+    gain: number,
+    /** Share of next cards where barreling is best, and the best size's share of the pot when it is. */
+    barrel_rate: number,
+    /** Ranks (e.g. "A") and suits (e.g. "h") where barreling is best on most of their cards. */
+    barrel_ranks: string[],
+    barrel_suits: string[]
+}
+
+export interface HeroBetTreeResult {
+    /** One plan per entry of `pots`. */
+    plans: HeroBetPlan[],
+    iterations: number
+}
+
+/** A raise of hero's barrel is this many times the barrel (hero calls it only when that pays on the card). */
+const BARREL_RAISE_MULTIPLIER = 3;
+
+/**
+ * After hero's flop or turn bet is called heads-up: for each next card, hero either checks (the caller may bet;
+ * hero calls when that pays on this card) or barrels one of the sizes (the caller folds, calls or raises by their
+ * hand on the new card, scaled to the measured fold and raise rates). The best option per card is picked knowing
+ * the card but not the caller's hand. The result is what that choice adds over always checking, per unit of pot:
+ * the fold equity and value of later barrels that a one-street bet value leaves out. The street after is checked
+ * down (later betting is left to the implied-odds term of the caller).
+ */
+export function heroBetTree(input: HeroBetTreeInput): HeroBetTreeResult {
+    const empty: HeroBetTreeResult = { plans: input.pots.map(() => ({ gain: 0, barrel_rate: 0, barrel_ranks: [], barrel_suits: [] })), iterations: 0 };
+    if (input.board.length < 3 || input.board.length > 4 || !input.barrel_shares.length || !input.pots.length) return empty;
+    const rand = seededRandom(input.seed ?? 1);
+    const hero = input.hero.map(code);
+    const board = input.board.map(code);
+    const dead = new Set([...hero, ...board]);
+    const sampler = buildSampler(input.caller, dead, input.board, false);
+    if (!(sampler.total > 0)) return empty;
+    const next_street: PostflopStreet = input.board.length === 3 ? "turn" : "river";
+    const rows = weightsFor(input.caller.aggression, next_street, input.caller.bluff_scale ?? 1);
+    const deck = DECK.filter((c) => !dead.has(c));
+    const hole = (c: [number, number]) => [cardString(c[0]), cardString(c[1])];
+    const cls_of = (c: [number, number], next: number) => {
+        const nb = [...input.board, cardString(next)];
+        return input.caller.bounty_72 && isSevenDeuce(hole(c)) ? "strong" as const : classify(hole(c), nb, evaluate([c[0], c[1], ...board, next]));
+    };
+    // per-class continue weight (call or raise) and bet weight, scaled so the range's averages match the measured rates
+    const cont_w = (cls: StrengthClass) => rows.call[cls] + rows.raise[cls];
+    const pre: { cont: number, bet: number, raise: number }[] = [];
+    {
+        const r = seededRandom((input.seed ?? 1) ^ 0x27d4eb2d);
+        for (let k = 0; k < 600; k++) {
+            const c = sampler.combos[sample(sampler, r)].cards;
+            let card: number;
+            do { card = deck[Math.floor(r() * deck.length)]; } while (card === c[0] || card === c[1]);
+            const cls = cls_of(c, card);
+            pre.push({ cont: cont_w(cls), bet: rows.bet[cls], raise: rows.raise[cls] });
+        }
+    }
+    // k such that the average of min(1, k x weight) is `target`
+    const fit = (target: number, pick: (x: { cont: number, bet: number, raise: number }) => number) => {
+        if (!(target > 0)) return 0;
+        let lo = 0, hi = 1000;
+        for (let i = 0; i < 50; i++) {
+            const mid = (lo + hi) / 2;
+            const avg = pre.reduce((s, x) => s + Math.min(1, mid * pick(x)), 0) / pre.length;
+            if (avg < target) lo = mid; else hi = mid;
+        }
+        return (lo + hi) / 2;
+    };
+    const k_cont = input.barrel_folds.map((f) => fit(clamp01(1 - f), (x) => x.cont));
+    const k_bet = fit(clamp01(input.caller_bet), (x) => x.bet);
+    // raises come from the hands that raise most (the raise weights), at the measured rate
+    const k_raise = fit(clamp01(input.barrel_raise), (x) => x.raise);
+
+    const J = input.barrel_shares.length;
+    // per next card: samples; check branch (no bet: share; bet: weight, share); per size: fold, call x share, call, raise, raise x share
+    const N = new Float64Array(52), Sc = new Float64Array(52), Wb = new Float64Array(52), Sb = new Float64Array(52);
+    const F = Array.from({ length: J }, () => new Float64Array(52)), Cs = Array.from({ length: J }, () => new Float64Array(52));
+    const C = Array.from({ length: J }, () => new Float64Array(52)), R = Array.from({ length: J }, () => new Float64Array(52));
+    const Rs = Array.from({ length: J }, () => new Float64Array(52));
+    const card_index = new Map(DECK.map((c, i) => [c, i]));
+    const final_board = new Array<number>(5);
+    for (let i = 0; i < board.length; i++) final_board[i] = board[i];
+    const cards_needed = 5 - board.length;
+    const max_iterations = input.iterations ?? 20000;
+    const deadline = Date.now() + (input.time_budget_ms ?? 40);
+    let done = 0;
+    for (let it = 0; it < max_iterations; it++) {
+        if ((it & 511) === 0 && it > 0 && Date.now() > deadline) break;
+        const c = sampler.combos[sample(sampler, rand)].cards;
+        const used = new Set([c[0], c[1]]);
+        for (let k = 0; k < cards_needed; k++) {
+            let x: number;
+            do { x = deck[Math.floor(rand() * deck.length)]; } while (used.has(x));
+            used.add(x);
+            final_board[board.length + k] = x;
+        }
+        const next = final_board[board.length];
+        const hv = evaluate([hero[0], hero[1], ...final_board]);
+        const ov = evaluate([c[0], c[1], ...final_board]);
+        const share = hv < ov ? 1 : hv === ov ? 0.5 : 0;
+        const cls = cls_of(c, next);
+        const ci = card_index.get(next)!;
+        N[ci]++;
+        const pb = Math.min(0.97, k_bet * rows.bet[cls]);
+        Sc[ci] += (1 - pb) * share;
+        Wb[ci] += pb;
+        Sb[ci] += pb * share;
+        const w = cont_w(cls);
+        for (let j = 0; j < J; j++) {
+            const cont = Math.min(1, k_cont[j] * w);
+            const r = Math.min(cont, k_raise * rows.raise[cls]);
+            F[j][ci] += 1 - cont;
+            C[j][ci] += cont - r;
+            Cs[j][ci] += (cont - r) * share;
+            R[j][ci] += r;
+            Rs[j][ci] += r * share;
+        }
+        done++;
+    }
+    if (done === 0) return empty;
+    // per line: the best option on each card, with bets as shares of that line's pot, capped by its stack behind
+    const plans = input.pots.map(({ pot, stack_behind }): HeroBetPlan => {
+        const cap = pot > 0 ? Math.max(0, stack_behind) / pot : 0;
+        let gain = 0, barrel_n = 0;
+        const by_rank = new Map<string, { n: number, b: number }>(), by_suit = new Map<string, { n: number, b: number }>();
+        for (let ci = 0; ci < 52; ci++) {
+            const n = N[ci];
+            if (n === 0) continue;
+            const Bc = Math.min(input.caller_bet_share, cap);
+            // check: hero calls the caller's bet on this card only when that pays
+            const check = Sc[ci] + Math.max(0, Sb[ci] * (1 + 2 * Bc) - Wb[ci] * Bc);
+            let best = check, barrel = false;
+            for (let j = 0; j < J; j++) {
+                const B = Math.min(input.barrel_shares[j], cap);
+                if (!(B > 0)) continue;
+                const RB = Math.min(BARREL_RAISE_MULTIPLIER * B, cap);
+                const called = Cs[j][ci] * (1 + 2 * B) - C[j][ci] * B;
+                // raised: hero calls when that pays on this card, else gives up the barrel
+                const raised = Math.max(-R[j][ci] * B, Rs[j][ci] * (1 + 2 * RB) - R[j][ci] * RB);
+                const value = F[j][ci] + called + raised;
+                if (value > best + 1e-12) { best = value; barrel = true; }
+            }
+            gain += best - check;
+            if (barrel) barrel_n += n;
+            const name = cardString(DECK[ci]);
+            const rk = by_rank.get(name[0]) ?? { n: 0, b: 0 }, su = by_suit.get(name[1]) ?? { n: 0, b: 0 };
+            rk.n += n; su.n += n;
+            if (barrel) { rk.b += n; su.b += n; }
+            by_rank.set(name[0], rk);
+            by_suit.set(name[1], su);
+        }
+        const rate = barrel_n / done;
+        return {
+            gain: gain / done * pot,
+            barrel_rate: rate,
+            barrel_ranks: [...by_rank].filter(([, x]) => x.b / x.n > 0.5).map(([r]) => r).sort((a, b) => RANKS.indexOf(b) - RANKS.indexOf(a)),
+            barrel_suits: [...by_suit].filter(([, x]) => x.b / x.n > 0.5 && x.b / x.n >= rate + 0.25).map(([u]) => u)
+        };
+    });
+    return { plans, iterations: done };
+}
+
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
