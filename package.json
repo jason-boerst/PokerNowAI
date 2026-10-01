@@ -24,7 +24,8 @@
     "import": "tsx scripts/import.ts",
     "dashboard": "tsx scripts/dashboard.ts",
     "evaluate": "tsx scripts/evaluate.ts",
-    "scenarios": "tsx scripts/scenarios.ts"
+    "scenarios": "tsx scripts/scenarios.ts",
+    "benchmark": "tsx scripts/benchmark.ts"
   },
   "keywords": [],
   "author": "",

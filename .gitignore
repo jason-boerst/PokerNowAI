@@ -140,3 +140,6 @@ dist
 
 # exported hand histories
 hand-export*.json
+
+# benchmark and evaluation reports (from your hands)
+reports/
