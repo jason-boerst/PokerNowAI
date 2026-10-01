@@ -2,7 +2,8 @@ import { HandState, parseHand, SeatState } from "../engine/hand-parser.ts";
 import { calibratePreflopResponses, PreflopResponseTable } from "../engine/preflop-responses.ts";
 import { calibrateTells, readTells, TELL_KINDS, TellModel, TellReading } from "../engine/seven-deuce-tells.ts";
 import { ObservedStats, POPULATION_TENDENCIES } from "../engine/opponent-range.ts";
-import { applyBluffScale, fitBluffScale } from "../engine/bluff-calibration.ts";
+import type { PlayerBluffReading } from "../engine/opponent-range.ts";
+import { applyBluffScale, fitBluffScale, fitPlayerBluffScales, heldOutPlayerBluffCheck, PlayerBluffFit } from "../engine/bluff-calibration.ts";
 import { blendSession, calibratePriors, Deviation, PlayerProfile, PlayerRef, PRIORS, ProfileBuilder, RATE_KEYS, RateKey, resetPriors, sessionDeviations } from "../engine/player-profile.ts";
 import { CalibratedActionWeights, ShowdownCalibrator } from "../engine/showdown-calibration.ts";
 import { calibrateResponses, ResponseTable } from "../engine/response-calibration.ts";
@@ -46,6 +47,7 @@ export class ProfileService {
     private action_weights: CalibratedActionWeights | null = null;
     private tells: TellModel | null = null;
     private preflop: { table: PreflopResponseTable, samples: number } | null = null;
+    private player_bluff: ReturnType<ProfileService["playerBluffScales"]> | null = null;
     private responses: { table: ResponseTable, samples: number } | null = null;
 
     constructor(private recorder: HandRecorder) {
@@ -80,6 +82,7 @@ export class ProfileService {
         this.calibrator = null;
         this.action_weights = null;
         this.tells = null;
+        this.player_bluff = null;
         this.preflop = null;
         this.responses = null;
         return hands.length;
@@ -99,6 +102,12 @@ export class ProfileService {
      * how many shown-hand actions each street was measured from (`samples`). A copy: changing it
      * changes nothing here.
      */
+    /** The action weights as learned from shown hands, before the bluff correction. */
+    rawActionWeights(): CalibratedActionWeights["weights"] {
+        this.actionWeights();
+        return structuredClone(this.calibrator!.weights().weights);
+    }
+
     actionWeights(): CalibratedActionWeights {
         if (!this.calibrator) {
             // your own shown hands say nothing about how opponents bet
@@ -116,6 +125,40 @@ export class ProfileService {
             this.action_weights = { ...measured, weights: applyBluffScale(measured.weights, bluff.scale), bluff };
         }
         return structuredClone(this.action_weights);
+    }
+
+    /**
+     * Each regular's own bluff scale (relative to the pool) and the held-out check that decides whether the engine
+     * uses them: on when, leaving one game out at a time, they predict what called river bettors showed better than
+     * the pool alone by more than two standard errors. Built on first use.
+     */
+    playerBluffScales(): { fits: Map<string, PlayerBluffFit>, check: { samples: number, ll_pool: number, ll_player: number, diff_se: number }, active: boolean } {
+        if (!this.player_bluff) {
+            const states = [...this.hands.map((h) => h.state), ...this.live_states];
+            const include = (seat: SeatState) => this.keyOf(seat) !== ME;
+            const fits = fitPlayerBluffScales(states, this.actionWeights().weights, (p) => this.stats(p), this.keyOf, include);
+            const check = heldOutPlayerBluffCheck([...this.hands.map((h) => ({ game: h.row.game_id, s: h.state })), ...this.live_states.map((s) => ({ game: "live", s }))],
+                this.rawActionWeights(), (p) => this.stats(p), this.keyOf, include);
+            this.player_bluff = { fits, check, active: check.ll_player - check.ll_pool > 2 * check.diff_se && check.diff_se > 0 };
+        }
+        return this.player_bluff;
+    }
+
+    /** The engine's per-seat bluff scale reader (null when the per-player scales are off). */
+    bluffScaleReader(): ((seat: SeatState) => PlayerBluffReading | undefined) | null {
+        const b = this.playerBluffScales();
+        if (!b.active) return null;
+        return (seat) => {
+            if (this.keyOf(seat) === ME) return undefined;
+            const f = b.fits.get(this.keyOf(seat));
+            if (!f || f.scale === 1) return undefined;
+            const more = f.scale > 1;
+            return {
+                scale: f.scale,
+                note: `Bluffs ${more ? "more" : "less"} than most on the flop and turn: air on ${f.air} of ${f.samples} called river bets ` +
+                    `(about ${Math.round(f.expected_air * f.samples)} expected); their bets are read ${more ? "wider" : "stronger"}.`
+            };
+        };
     }
 
     /** How players in your games answer preflop raises (preflop-responses.ts), your own answers left out. Built on first use. */

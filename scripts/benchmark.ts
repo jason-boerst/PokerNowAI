@@ -80,6 +80,14 @@ if (bluff && bluff.samples > 0) {
     metrics.bluff_fit_loglik_per_bet = metric(bluff.log_likelihood_fitted / bluff.samples, 0, "higher", `log-likelihood per called river bettor (${bluff.samples}); the engine's reading of bettors`);
     metrics.bluff_scale = metric(bluff.scale, 0, "none", "fitted flop/turn bluff scale");
 }
+{
+    const pb = profiles.playerBluffScales();
+    if (pb.check.samples > 0) {
+        metrics.player_bluff_heldout_gain = metric(pb.check.ll_player - pb.check.ll_pool, 1.96 * pb.check.diff_se, "higher",
+            `per-player bluff scales vs the pool, leave one game out (${pb.check.samples} called river bets): log-likelihood gain`);
+        metrics.player_bluff_active = metric(pb.active ? 1 : 0, 0, "none", "per-player bluff scales used (gain > 2 SE)");
+    }
+}
 const tells = profiles.sevenDeuceTells();
 metrics.tells_active = metric(TELL_KINDS.filter((k) => tells.stats[k].active).length, 0, "none", "7-2 tells that pass the significance test");
 

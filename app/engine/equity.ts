@@ -25,7 +25,12 @@ export interface OpponentModel {
      * with no pair bet 86% of the time when checked to or first to act in your games, other hands with nothing 28%),
      * so their bets don't narrow it away. Only how it acts changes; it still wins and loses by its real strength.
      */
-    bounty_72?: boolean
+    bounty_72?: boolean,
+    /**
+     * How much more (above 1) or less this player bluffs than the pool on the flop and turn: multiplies the air and
+     * draw weights of their flop and turn bets and raises (bluff-calibration.ts fitPlayerBluffScales). 1 or missing: the pool.
+     */
+    bluff_scale?: number
 }
 
 /** True for the two cards 7 and 2 (any suits). */
@@ -179,8 +184,18 @@ function continueScore(hole: string[], board: string[], value: number, cls: Stre
  * the average player in your games is assumed to bet and raise with weak hands and draws about
  * twice as often. `street` picks that street's weights (see setActionWeights).
  */
-export function weightsFor(aggression: number | undefined, street: PostflopStreet = "flop"): ActionWeights {
-    return scaleForAggression(street_weights[street], aggression);
+export function weightsFor(aggression: number | undefined, street: PostflopStreet = "flop", bluff_scale = 1): ActionWeights {
+    return scaleForAggression(scaleBluffs(street_weights[street], street, bluff_scale), aggression);
+}
+
+/**
+ * `base` with the air and draw weights of flop and turn bets and raises times `scale` (never above a strong hand's).
+ * River bets are left alone: called river bets are shown, so their weights are already fair.
+ */
+export function scaleBluffs(base: ActionWeights, street: PostflopStreet, scale: number): ActionWeights {
+    if (scale === 1 || !(scale > 0) || street === "river") return base;
+    const row = (r: Record<StrengthClass, number>) => ({ ...r, air: Math.min(r.strong, r.air * scale), draw: Math.min(r.strong, r.draw * scale) });
+    return { ...base, bet: row(base.bet), raise: row(base.raise) };
 }
 
 /** `base` adjusted for a player's aggression (see weightsFor), without touching the engine's weights. */
@@ -221,7 +236,8 @@ function buildSampler(model: OpponentModel, dead: Set<number>, board: string[], 
         if (i < 0) { i = boards.length; boards.push(b); board_keys.push(key); }
         return i;
     };
-    const by_street = { flop: weightsFor(model.aggression, "flop"), turn: weightsFor(model.aggression, "turn"), river: weightsFor(model.aggression, "river") };
+    const k = model.bluff_scale ?? 1;
+    const by_street = { flop: weightsFor(model.aggression, "flop", k), turn: weightsFor(model.aggression, "turn", k), river: weightsFor(model.aggression, "river", k) };
     const actions = (model.postflop_actions ?? []).filter((a) => a.board.length >= 3)
         .map((a) => ({ board: boardIndex(a.board), row: by_street[streetOf(a.board.length)][a.action] }));
     const fraction = model.continue_fraction === undefined ? 1 : Math.max(0.01, Math.min(1, model.continue_fraction));
@@ -723,7 +739,7 @@ export function callTree(input: CallTreeInput): CallTreeResult {
     const street: PostflopStreet = input.board.length >= 4 ? "turn" : "flop";
     const next_street: PostflopStreet = street === "flop" ? "turn" : "river";
     // turn bet weights are already corrected for the showdown bias (bluff-calibration.ts)
-    const bet_rows = input.opponents.map((o) => weightsFor(o.aggression, next_street).bet);
+    const bet_rows = input.opponents.map((o) => weightsFor(o.aggression, next_street, o.bluff_scale ?? 1).bet);
     const P2 = input.pot + input.to_call;
     const B = Math.max(0, Math.min(input.next_bet_share * P2, input.stack_behind));
     // later betting: up to IMPLIED_POTS pots when nobody bets the next street; when someone does, that bet is counted

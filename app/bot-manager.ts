@@ -18,7 +18,7 @@ import { existsSync } from 'node:fs';
 import { PRIORS } from './engine/player-profile.ts';
 import { setActionWeights } from './engine/equity.ts';
 import { setResponseTable } from './engine/postflop.ts';
-import { setSevenDeuceTells } from './engine/opponent-range.ts';
+import { setPlayerBluffScales, setSevenDeuceTells } from './engine/opponent-range.ts';
 import { setPreflopResponseTable } from './engine/preflop-responses.ts';
 import { TELL_KINDS, TELL_NAMES } from './engine/seven-deuce-tells.ts';
 import { parseMixStyle } from './engine/mixing.ts';
@@ -145,6 +145,15 @@ const bot_manager = async function() {
         setSevenDeuceTells(profiles.tellReader());
         // how players in your games answer preflop raises (prices preflop options)
         setPreflopResponseTable(profiles.preflopResponses().table);
+        // each regular's own bluffing, only when it predicts held-out games better than the pool
+        const player_bluff = profiles.playerBluffScales();
+        setPlayerBluffScales(profiles.bluffScaleReader());
+        if (player_bluff.check.samples > 0) {
+            const c = player_bluff.check;
+            const moved = [...player_bluff.fits.values()].filter((f) => f.scale !== 1).length;
+            console.log(`Per-player bluffing on ${c.samples} called river bets, leaving one game out: log-likelihood ${c.ll_pool} with the pool alone, ${c.ll_player} with each player's own scale ` +
+                `(± ${c.diff_se}). ${player_bluff.active ? `ON: ${moved} players read with their own scale.` : "off (not clearly better than the pool)."}`);
+        }
         for (const t of TELL_KINDS.map((k) => profiles.sevenDeuceTells().stats[k]).filter((t) => t.n72 > 0)) {
             const pc = (x: number) => `${Math.round(x * 100)}%`;
             console.log(`7-2 tell, ${TELL_NAMES[t.kind]}: 7-2 big ${pc(t.big72 / t.n72)} of ${t.n72} shown vs ${pc(t.big_other / Math.max(1, t.n_other))} for other hands (z ${t.z.toFixed(1)}): ` +

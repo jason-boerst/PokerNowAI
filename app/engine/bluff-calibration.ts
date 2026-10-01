@@ -50,7 +50,8 @@ interface Sample {
     actions: { street: PostflopStreet, action: PostflopAction }[],
     /** Per combo: range weight, class at each action (same order as `actions`), class on the river. */
     combos: { weight: number, at: StrengthClass[], river: StrengthClass }[],
-    shown: StrengthClass
+    shown: StrengthClass,
+    seat: SeatState
 }
 
 /** Air or a missed draw on the river count as one class (no showdown value). */
@@ -72,11 +73,7 @@ export function applyBluffScale(weights: Record<PostflopStreet, ActionWeights>, 
 /** Collects the fair sample from stored hands (only seats `include` accepts) and fits the scale. */
 export function fitBluffScale(states: HandState[], weights: Record<PostflopStreet, ActionWeights>,
     stats: (player: PlayerRef) => ObservedStats | undefined, include: (seat: SeatState) => boolean = () => true): BluffFit {
-    const samples: Sample[] = [];
-    for (const s of states) {
-        const sample = riverBettor(s, stats, include);
-        if (sample) samples.push(sample);
-    }
+    const samples = collectSamples(states, stats, include);
     const n = samples.length;
     const observed_air = n ? samples.filter((x) => showdownClass(x.shown) === "air").length / n : 0;
     if (n === 0) return { scale: 1, best: 1, samples: 0, observed_air, expected_air: 0, expected_air_fitted: 0, log_likelihood: 0, log_likelihood_fitted: 0 };
@@ -95,6 +92,108 @@ export function fitBluffScale(states: HandState[], weights: Record<PostflopStree
         expected_air: fits.get(1)!.air, expected_air_fitted: fitted.air,
         log_likelihood: Math.round(fits.get(1)!.ll * 10) / 10, log_likelihood_fitted: Math.round(fitted.ll * 10) / 10
     };
+}
+
+function collectSamples(states: HandState[], stats: (player: PlayerRef) => ObservedStats | undefined, include: (seat: SeatState) => boolean): Sample[] {
+    const samples: Sample[] = [];
+    for (const s of states) {
+        const sample = riverBettor(s, stats, include);
+        if (sample) samples.push(sample);
+    }
+    return samples;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Per player: some regulars bluff far more or less than the pool. Each player's own called river bets give a scale
+// relative to the pool's (on top of the pool scale and their aggression), by maximum likelihood, pulled toward 1
+// (the pool) with a prior worth PLAYER_PRIOR_SAMPLES bets, so a player needs a real sample before it moves much.
+
+/** Relative scales tried per player (below 1: bluffs less than the pool). */
+const PLAYER_GRID = [0.4, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 2.5, 3];
+/** Bets the pool's scale counts as when a player's own scale is shrunk toward it (in log scale). */
+export const PLAYER_PRIOR_SAMPLES = 30;
+
+export interface PlayerBluffFit {
+    /** Multiplier for this player's flop and turn bluff weights, relative to the pool's (1: like the pool). */
+    scale: number,
+    best: number,
+    /** Called river bets of theirs it rests on, and how many showed air. */
+    samples: number,
+    air: number,
+    /** What the engine expected them to show as air with the pool's weights (share, averaged over their bets). */
+    expected_air: number
+}
+
+/** Fits each player's own scale (keyed by `keyOf`) on their called river bets, with `weights` already pool-corrected. */
+export function fitPlayerBluffScales(states: HandState[], weights: Record<PostflopStreet, ActionWeights>,
+    stats: (player: PlayerRef) => ObservedStats | undefined, keyOf: (seat: SeatState) => string,
+    include: (seat: SeatState) => boolean = () => true, prior_samples = PLAYER_PRIOR_SAMPLES): Map<string, PlayerBluffFit> {
+    return fitPlayers(collectSamples(states, stats, include), weights, keyOf, prior_samples);
+}
+
+function fitPlayers(samples: Sample[], weights: Record<PostflopStreet, ActionWeights>, keyOf: (seat: SeatState) => string, prior_samples: number, min_lr = 0): Map<string, PlayerBluffFit> {
+    const by_player = new Map<string, Sample[]>();
+    for (const x of samples) {
+        const key = keyOf(x.seat);
+        (by_player.get(key) ?? by_player.set(key, []).get(key)!).push(x);
+    }
+    const scaled = new Map(PLAYER_GRID.map((k) => [k, applyBluffScale(weights, k)]));
+    const out = new Map<string, PlayerBluffFit>();
+    for (const [key, xs] of by_player) {
+        let best = 1, best_ll = -Infinity, expected_air = 0, ll_pool = 0;
+        for (const k of PLAYER_GRID) {
+            const fit = likelihood(xs, scaled.get(k)!);
+            if (k === 1) { expected_air = fit.air; ll_pool = fit.ll; }
+            if (fit.ll > best_ll + 1e-9) { best_ll = fit.ll; best = k; }
+        }
+        const n = xs.length;
+        // likelihood-ratio test against the pool: below the bar the player keeps the pool's scale
+        const significant = 2 * (best_ll - ll_pool) >= min_lr;
+        const scale = significant ? Math.round(Math.exp(Math.log(best) * n / (n + prior_samples)) * 100) / 100 : 1;
+        out.set(key, { scale, best, samples: n, air: xs.filter((x) => showdownClass(x.shown) === "air").length, expected_air });
+    }
+    return out;
+}
+
+/**
+ * The gate for per-player scales: leave one game out. For each game, the pool scale and the players' scales are fit
+ * on the other games' called river bets and scored on that game's (log-likelihood of what the bettors showed).
+ * The base weights are the same for both, so only the per-player step is compared.
+ */
+export function heldOutPlayerBluffCheck(states: { game: string, s: HandState }[], weights: Record<PostflopStreet, ActionWeights>,
+    stats: (player: PlayerRef) => ObservedStats | undefined, keyOf: (seat: SeatState) => string,
+    include: (seat: SeatState) => boolean = () => true, prior_samples = PLAYER_PRIOR_SAMPLES, min_lr = 0): { samples: number, ll_pool: number, ll_player: number, diff_se: number, players_moved: number } {
+    const all = states.map(({ game, s }) => ({ game, x: riverBettor(s, stats, include) })).filter((y): y is { game: string, x: Sample } => !!y.x);
+    let ll_pool = 0, ll_player = 0, moved = 0;
+    const diffs: number[] = [];
+    for (const game of new Set(all.map((y) => y.game))) {
+        const train = all.filter((y) => y.game !== game).map((y) => y.x);
+        const test = all.filter((y) => y.game === game).map((y) => y.x);
+        // the pool scale from the other games, as fitBluffScale would (pulled toward 1)
+        let best = 1, best_ll = -Infinity;
+        for (const k of GRID) {
+            const ll = likelihood(train, applyBluffScale(weights, k)).ll;
+            if (ll > best_ll) { best_ll = ll; best = k; }
+        }
+        const pool_scale = Math.exp(Math.log(best) * train.length / (train.length + PRIOR_SAMPLES));
+        const pool_weights = applyBluffScale(weights, pool_scale);
+        const players = fitPlayers(train, pool_weights, keyOf, prior_samples, min_lr);
+        for (const x of test) {
+            const a = likelihood([x], pool_weights).ll;
+            const k = players.get(keyOf(x.seat))?.scale ?? 1;
+            if (k !== 1) moved++;
+            const b = likelihood([x], applyBluffScale(pool_weights, k)).ll;
+            ll_pool += a;
+            ll_player += b;
+            diffs.push(b - a);
+        }
+    }
+    const r = (v: number) => Math.round(v * 10) / 10;
+    // standard error of the summed per-bet gain (paired: same bets under both)
+    const n = diffs.length;
+    const mean = n ? diffs.reduce((x, y) => x + y, 0) / n : 0;
+    const sd = n > 1 ? Math.sqrt(diffs.reduce((x, y) => x + (y - mean) ** 2, 0) / (n - 1)) : 0;
+    return { samples: all.length, ll_pool: r(ll_pool), ll_player: r(ll_player), diff_se: r(sd * Math.sqrt(n)), players_moved: moved };
 }
 
 /** Log-likelihood of what the bettors showed under `weights`, and the average expected share of air. */
@@ -143,7 +242,7 @@ function riverBettor(s: HandState, stats: (player: PlayerRef) => ObservedStats |
         return { weight: c.weight, at: boards.map((b) => (acts_strong ? "strong" as const : strengthClass(hole, b))), river: strengthClass(hole, s.board) };
     });
     if (!combos.length) return null;
-    return { aggression: model.aggression, actions, combos, shown: strengthClass(shown, s.board) };
+    return { aggression: model.aggression, actions, combos, shown: strengthClass(shown, s.board), seat };
 }
 
 const RANK = "23456789TJQKA";

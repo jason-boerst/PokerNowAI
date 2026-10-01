@@ -29,6 +29,20 @@ export function setSevenDeuceTells(reader: ((s: HandState, seat: SeatState) => T
 export function sevenDeuceTell(s: HandState, seat: SeatState): TellReading | null {
     return TABLE_RULES.seven_deuce_bounty && seven_deuce_tells ? seven_deuce_tells(s, seat) : null;
 }
+/**
+ * Each player's own flop and turn bluff scale relative to the pool (bluff-calibration.ts fitPlayerBluffScales), set
+ * from your stored hands when they load and only when it predicts held-out games better than the pool; null otherwise.
+ */
+let bluff_scales: ((seat: SeatState) => PlayerBluffReading | undefined) | null = null;
+export interface PlayerBluffReading { scale: number, note: string }
+export function setPlayerBluffScales(reader: ((seat: SeatState) => PlayerBluffReading | undefined) | null): void {
+    bluff_scales = reader;
+}
+/** This player's own bluff scale and a line for their card (undefined: like the pool, or the scales are off). */
+export function playerBluff(seat: SeatState): PlayerBluffReading | undefined {
+    const b = bluff_scales?.(seat);
+    return b && b.scale !== 1 ? b : undefined;
+}
 /** Most weight 7-2 can get in a range after a tell (range weights are a share of the class's combos). */
 const MAX_TELL_WEIGHT = 4;
 
@@ -192,7 +206,8 @@ export function seatModel(s: HandState, seat: SeatState, stats: (player: PlayerR
             range,
             postflop_actions: postflopActions(s, seat.id),
             aggression: observed?.aggression,
-            bounty_72: TABLE_RULES.seven_deuce_bounty
+            bounty_72: TABLE_RULES.seven_deuce_bounty,
+            ...(playerBluff(seat) ? { bluff_scale: playerBluff(seat)!.scale } : {})
         }
     };
 }
