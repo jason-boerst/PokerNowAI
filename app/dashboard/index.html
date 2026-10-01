@@ -81,7 +81,7 @@ a { color: var(--accent); }
     <h1>PokerNow player database</h1>
     <span id="summary"></span>
     <span class="spacer"></span>
-    <nav><a href="#/now" id="nav-now" title="The game being played right now">Now<span class="dot" id="live-dot"></span></a><a href="#/players" id="nav-players">Players</a><a href="#/games" id="nav-games">Games</a><a href="#/results" id="nav-results">Results</a></nav>
+    <nav><a href="#/now" id="nav-now" title="The game being played right now">Now<span class="dot" id="live-dot"></span></a><a href="#/players" id="nav-players">Players</a><a href="#/games" id="nav-games">Games</a><a href="#/results" id="nav-results">Results</a><a href="#/leaks" id="nav-leaks" title="Where you lose money, from your stored hands">Your leaks</a></nav>
     <label class="button" for="file-input">Import logs</label>
     <input id="file-input" type="file" accept=".csv,text/csv" multiple hidden>
 </header>
@@ -461,6 +461,36 @@ async function showResults(view) {
         note));
 }
 
+// ---------- your leaks ----------
+const LEAK_AREAS = [["preflop", "Results by preflop line and seat"], ["postflop", "Results by what you did after the flop"],
+    ["frequency", "Your stats against your games' average player"], ["river", "River checks"]];
+async function showLeaks(view) {
+    const r = await api("/api/leaks");
+    const value = (l) => l.result
+        ? [signed(l.result.bb_per_100), " BB/100 ", el("span", { class: "muted" }, Number.isFinite(l.result.ci_low) ? `(95% range ${num(l.result.ci_low)} to ${num(l.result.ci_high)})` : "(too few to tell)")]
+        : [`${pct(l.rate)} `, el("span", { class: "muted" }, `vs ${pct(l.benchmark)}`)];
+    const row = (l) => el("tr", {},
+        el("td", { class: "left", title: l.note }, l.label, l.flagged ? el("span", { class: "chip", title: "Passed the bar for a finding" }, "finding") : null),
+        el("td", {}, l.n), el("td", { class: "left" }, ...value(l)),
+        el("td", { class: "muted" }, Number.isFinite(l.z) ? num(l.z) : "-"));
+    const flagged = r.lines.filter((l) => l.flagged);
+    const sections = LEAK_AREAS.map(([area, title]) => {
+        const lines = r.lines.filter((l) => l.area === area && (l.n >= 20 || area === "river"));
+        if (!lines.length) return null;
+        return [el("h3", {}, title), el("div", { class: "scroll" }, el("table", {},
+            el("thead", {}, el("tr", {}, el("th", { class: "left" }, "Spot"), el("th", {}, "Hands"), el("th", { class: "left" }, "You"), el("th", { title: "Gap in standard errors" }, "z"))),
+            el("tbody", {}, ...lines.map(row))))];
+    }).filter(Boolean).flat();
+    view.replaceChildren(el("div", { class: "panel" },
+        el("h2", {}, "Your leaks"),
+        el("p", {}, `From ${r.hands} of your Hold'em hands with known cards. ${r.tested} lines had enough data to test (20+ hands or chances); a line is a finding only when it is at least ${Number.isFinite(r.z_bar) ? r.z_bar.toFixed(1) : "-"} standard errors out, the bar that keeps the chance of any false finding across all of them near 5%.`),
+        el("p", { class: "muted small" }, "Results by line are correlational: the cards you were dealt decide most of them. Stats are compared with the average other player in your games, and different isn't wrong by itself. River checks compare what happened with what the price needed. Run npm run leaks for the spots where you went against the engine."),
+        el("h3", {}, "Findings"),
+        flagged.length ? el("ul", { class: "plain" }, ...flagged.map((l) => el("li", {}, el("b", {}, l.label), ": ", ...value(l), el("div", { class: "muted small" }, l.note))))
+            : el("p", { class: "muted" }, "None clear yet: nothing passed the bar. More hands are needed, or there is no large leak in these lines."),
+        ...sections));
+}
+
 // ---------- import ----------
 async function importFiles(files) {
     const list = [...files].filter((f) => /\.csv$/i.test(f.name));
@@ -491,7 +521,7 @@ window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => { e.preventDefault(); drag_depth = 0; drop.classList.remove("show"); importFiles(e.dataTransfer.files); });
 
 // ---------- routing ----------
-const NAV = { now: ["now"], players: ["players", "player"], games: ["games", "game"], results: ["results"] };
+const NAV = { now: ["now"], players: ["players", "player"], games: ["games", "game"], results: ["results"], leaks: ["leaks"] };
 let rendered_hash = null;
 let route_count = 0;
 async function route(live) {
@@ -513,6 +543,7 @@ async function route(live) {
         else if (page === "game" && arg) refresh = await showGame(target, decodeURIComponent(arg));
         else if (page === "games") await showGames(target);
         else if (page === "results") await showResults(target);
+        else if (page === "leaks") await showLeaks(target);
         else await showPlayers(target);
     } catch (err) {
         target.replaceChildren(el("div", { class: "panel neg" }, `Could not load: ${err.message}`));

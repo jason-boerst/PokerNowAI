@@ -25,7 +25,8 @@
     "dashboard": "tsx scripts/dashboard.ts",
     "evaluate": "tsx scripts/evaluate.ts",
     "scenarios": "tsx scripts/scenarios.ts",
-    "benchmark": "tsx scripts/benchmark.ts"
+    "benchmark": "tsx scripts/benchmark.ts",
+    "leaks": "tsx scripts/leaks.ts"
   },
   "keywords": [],
   "author": "",

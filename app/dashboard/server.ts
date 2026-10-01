@@ -13,6 +13,7 @@ import { HandRecorder } from "../services/hand-recorder.ts";
 import { ME, ProfileService } from "../services/profile-service.ts";
 import { importLog } from "../import/importer.ts";
 import { parseHand } from "../engine/hand-parser.ts";
+import { leakReport } from "../eval/leaks.ts";
 import { PlayerProfile, PRIORS, RATE_KEYS, sessionDeviations } from "../engine/player-profile.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -99,6 +100,7 @@ export async function startDashboard(port: number, db_file = "./app/pokernow-gpt
         loaded_marker = null;
     };
     let game_views = { generation: -1, views: new Map<string, unknown[]>() };
+    let leaks: { generation: number, report: ReturnType<typeof leakReport> } | null = null;
 
     const app = express();
     // only answer pages opened from this computer's own address (a web page can't point another name at it)
@@ -200,6 +202,17 @@ export async function startDashboard(port: number, db_file = "./app/pokernow-gpt
     // how each suggestion source did, when you followed it vs when you didn't
     app.get("/api/results", handle(async (_req, res) => {
         res.json(await recorder.results());
+    }));
+
+    // where you lose money (no engine replay: fast enough for a page; `npm run leaks` adds the engine comparison)
+    app.get("/api/leaks", handle(async (_req, res) => {
+        await fresh();
+        if (leaks?.generation !== generation) {
+            const at = generation;
+            const report = leakReport(await recorder.hands(), service);
+            leaks = { generation: at, report };
+        }
+        res.json(leaks.report);
     }));
 
     app.post("/api/import", handle(async (req, res) => {
