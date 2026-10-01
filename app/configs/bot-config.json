@@ -3,7 +3,7 @@
     "query_retries": 2,
     "assistant_mode": true,
     "preflop_engine": true,
-    "ai_mode": "close_spots",
+    "ai_mode": "auto",
     "decision_seconds": 15,
     "llm_timeout_ms": 6000,
     "stop_after_idle_minutes": 10,

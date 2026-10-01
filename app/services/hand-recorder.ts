@@ -18,7 +18,9 @@ export interface DecisionRecord {
     model: string,
     /** "llm" or "engine". */
     source: string,
-    latency_ms: number
+    latency_ms: number,
+    /** Post-flop: the engine's top option and its EV, the chosen option's EV (BB, robust), and whether it was a close spot. */
+    engine?: { engine_top: string, engine_top_ev: number, chosen_ev: number | null, close_spot: number } | null
 }
 
 export interface HandRow {
@@ -79,7 +81,12 @@ export interface DecisionRow {
     actual_action: string | null,
     /** The hand's result for you in BB, and the same all-in adjusted. */
     hand_net_bb: number | null,
-    adjusted_net_bb: number | null
+    adjusted_net_bb: number | null,
+    /** Post-flop: what the engine thought (null for older rows and preflop). */
+    engine_top: string | null,
+    engine_top_ev: number | null,
+    chosen_ev: number | null,
+    close_spot: number | null
 }
 
 /** Person id for the ids that are the user's own. */
@@ -170,10 +177,11 @@ export class HandRecorder {
         try {
             await this.db.run(
                 `INSERT INTO Decisions (game_id, hand_number, street, messages_json, hero_name, hero_cards, big_blind, prompt, response,
-                                        action_json, model, source, latency_ms, recorded_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                        action_json, model, source, latency_ms, recorded_at, engine_top, engine_top_ev, chosen_ev, close_spot)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [d.game_id, d.hand_number, d.street, JSON.stringify(d.messages), d.hero_name, d.hero_cards.join(" "), d.big_blind,
-                 d.prompt, d.response, JSON.stringify(d.action), d.model, d.source, d.latency_ms, new Date().toISOString()]
+                 d.prompt, d.response, JSON.stringify(d.action), d.model, d.source, d.latency_ms, new Date().toISOString(),
+                 d.engine?.engine_top ?? null, d.engine?.engine_top_ev ?? null, d.engine?.chosen_ev ?? null, d.engine?.close_spot ?? null]
             );
         } catch (err) {
             console.log("Could not record decision:", err instanceof Error ? err.message : err);
@@ -279,6 +287,12 @@ export class HandRecorder {
 
     async decisions(): Promise<DecisionRow[]> {
         return this.db.all<DecisionRow>(`SELECT * FROM Decisions ORDER BY id`);
+    }
+
+    /** Stores the engine's view of an older decision (null: it can't be rebuilt, marked so it isn't tried again). */
+    async setEngineEvs(decision_id: number, evs: { engine_top: string, engine_top_ev: number, chosen_ev: number | null, close_spot: number } | null): Promise<void> {
+        await this.db.run(`UPDATE Decisions SET engine_top = ?, engine_top_ev = ?, chosen_ev = ?, close_spot = ? WHERE id = ?`,
+            [evs?.engine_top ?? "", evs?.engine_top_ev ?? null, evs?.chosen_ev ?? null, evs?.close_spot ?? null, decision_id]);
     }
 
     async setLabel(decision_id: number, label: string | null): Promise<void> {

@@ -61,7 +61,7 @@ export interface DecisionOptions {
     llm_timeout_ms: number,
     /** Old setting: true is the same as ai_mode "always". */
     always_ask_llm?: boolean,
-    /** "close_spots" (default), "off" or "always". */
+    /** "auto" (default; acts as "close_spots" until the AI check turns it off), "close_spots", "off" or "always". */
     ai_mode?: string,
     /** The game's action clock in seconds; 0 for a game without one. Default 15. */
     decision_seconds?: number,
@@ -169,7 +169,7 @@ const aggressive = (action: string) => action === "bet" || action === "raise" ||
  * Clear when the engine's best option beats every other action by a clear margin. Bets, raises and
  * all-ins count as one action: picking between sizes alone isn't worth waiting for the AI.
  */
-function clearSpot(a: PostflopAnalysis, pot: number, big_blind: number): boolean {
+export function clearSpot(a: PostflopAnalysis, pot: number, big_blind: number): boolean {
     const [best, ...rest] = a.candidates;
     const others = rest.filter((c) => c.action !== best.action && !(aggressive(c.action) && aggressive(best.action)));
     return isClearSpot({ ...a, candidates: [best, ...others] }, pot, big_blind);

@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 
+import { runAiCheck } from './eval/ai-check.ts';
 import { Bot } from './bot.ts'
 
 import ai_config_json from './configs/ai-config.json' with { type: "json" };
@@ -168,6 +169,15 @@ const bot_manager = async function() {
         rng_mixing: bot_config.rng_mixing,
         profiles
     });
+    // "auto" AI mode: check your recorded decisions in the background and turn the AI off if it loses to the engine
+    if ((bot_config.ai_mode ?? "auto").trim().toLowerCase() === "auto") {
+        runAiCheck(recorder, (p) => profiles.stats(p), (p) => profiles.info(p)).then((check) => {
+            const ai_off = check.verdict === "ai_worse";
+            if (ai_off) bot.setAiMode("off");
+            console.log(`[AI check] ${check.ai.measured} AI and ${check.engine.measured} engine close-spot decisions measured. ${check.reason} ` +
+                (ai_off ? "AI turned off (set \"ai_mode\": \"close_spots\" to keep it on)." : "AI stays on in close spots."));
+        }).catch((err) => console.log("[AI check] skipped:", err instanceof Error ? err.message : err));
+    }
     const mix_style = parseMixStyle(bot_config.rng_mixing);
     console.log(mix_style === "off" ? "[RNG] Mixing is off: every suggestion is the single best option."
         : `[RNG] Mixing: ${mix_style}. Each suggestion shows a random number from 1 to 100; in close spots it picks the play (low numbers passive, high aggressive).`);

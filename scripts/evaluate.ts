@@ -1,7 +1,9 @@
-// How good is the engine on your hands? Three measures, each with what it can and can't show:
+// How good is the engine on your hands? Each measure says what it can and can't show:
+//   0. how opponents' bets are read (bluff fit, 7-2 tells),
 //   1. real counterfactuals where the opponent's cards became known,
 //   2. your results in hands where the engine agreed with every decision vs the rest,
-//   3. a simulated cash game against the engine's own model of your pool.
+//   3. a simulated cash game against the engine's own model of your pool,
+//   4. the AI against the engine in close spots, from the suggestions recorded while the bot ran.
 //   npx tsx scripts/evaluate.ts <db file> [--sim-hands N] [--out report.json] [--seed S] [--workers K]
 //        [--budget MS] [--in-sample] [--no-sim] [--show-spots N]
 // Reads the database only (work on a copy to be safe). Never prints player names.
@@ -19,6 +21,7 @@ import { mixingReport, MixingReport } from "../app/eval/mixing-report.ts";
 import type { MixStyle } from "../app/engine/mixing.ts";
 import { WinrateSummary } from "../app/engine/winrate.ts";
 import { SumInterval } from "../app/eval/stats.ts";
+import { AiCheck, AiCheckGroup, MIN_AI_DECISIONS, runAiCheck } from "../app/eval/ai-check.ts";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -50,6 +53,7 @@ await db.init();
 const recorder = new HandRecorder(db);
 const rows = await recorder.hands();
 const links = await recorder.links();
+const decision_rows = await recorder.decisions();
 await db.close();
 
 const log = (line = "") => console.log(line);
@@ -221,6 +225,37 @@ if (!flag("--no-sim") && sim_hands > 0) {
     sim = { pool, pool_hands, runs };
 }
 
+// --- 4. AI vs engine ---
+log();
+log("4. Does the AI beat the engine in close spots?");
+log("----------------------------------------------");
+log("From the suggestions recorded while the bot ran (post-flop only; preflop never asks the AI). Two measures:");
+log("  EV given up: the engine's top option minus the option picked, by the engine's own numbers. Biased toward the engine by");
+log("    construction (it judges itself), so it shows how far and how often the AI departs, not that departing is wrong.");
+log("  Results: your hands where you followed the AI in a close spot vs where you followed the engine in one (AI off, out of time,");
+log("    or mixed). Fair between the two, but noisy. Older decisions recorded before the engine's EVs were stored are re-analyzed");
+log("    with today's profiles and engine (in-sample), so their EVs are approximate.");
+let ai_check: AiCheck | null = null;
+{
+    const profiles = new ProfileService({ hands: async () => rows, links: async () => links } as unknown as HandRecorder);
+    await profiles.load();
+    // read-only: nothing is written back to the database here
+    ai_check = await runAiCheck({ decisions: async () => decision_rows, matchPendingDecisions: async () => 0, setEngineEvs: async () => {} },
+        (p) => profiles.stats(p), (p) => profiles.info(p), budget);
+    const show = (name: string, g: AiCheckGroup) => {
+        log(`  ${name}: ${g.decisions} decisions, ${g.measured} with EVs; picked something other than the engine's top option ${g.departures} times` +
+            (g.measured ? `; EV given up ${sign(g.ev_lost.mean, 2)} BB per decision (95% CI [${sign(g.ev_lost.low, 2)}, ${sign(g.ev_lost.high, 2)}]), ${sign(g.ev_lost.total)} BB in all` : "") + ".");
+        log(`    hands where you followed it: ${wr(g.followed)}`);
+    };
+    show("AI", ai_check.ai);
+    show("Engine in close spots", ai_check.engine);
+    const e = ai_check.result_edge;
+    if (ai_check.ai.followed.hands && ai_check.engine.followed.hands) log(`  Results, AI minus engine: ${sign(e.diff)} bb/100 (95% CI [${sign(e.low)}, ${sign(e.high)}]).`);
+    log(`  Verdict (${MIN_AI_DECISIONS}+ AI decisions needed): ${ai_check.verdict}. ${ai_check.reason}`);
+    log(ai_check.verdict === "ai_worse" ? "  With \"ai_mode\": \"auto\" (the default) the bot turns the AI off at start."
+        : "  With \"ai_mode\": \"auto\" (the default) the AI stays on in close spots.");
+}
+
 log();
 log(`Done in ${((Date.now() - t0) / 1000).toFixed(0)} s.`);
 
@@ -237,7 +272,8 @@ if (out_file) {
         },
         agreement: agree as AgreementReport,
         mixing,
-        simulation: sim
+        simulation: sim,
+        ai_check
     };
     writeFileSync(out_file, JSON.stringify(report, null, 2));
     log(`JSON written to ${out_file}`);

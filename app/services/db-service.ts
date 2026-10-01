@@ -72,6 +72,8 @@ export class DBService {
         await this.addMissingColumns("Hands", { started_at: "TEXT", game_type: "TEXT", source: "TEXT", hero_id: "TEXT" });
         // what you actually did after each suggestion and what the hand earned (filled in once the hand is stored)
         await this.addMissingColumns("Decisions", { followed: "INT", actual_action: "TEXT", hand_net_bb: "REAL", adjusted_net_bb: "REAL" });
+        // what the engine thought of each post-flop decision (measures the AI against the engine; see eval/ai-check.ts)
+        await this.addMissingColumns("Decisions", { engine_top: "TEXT", engine_top_ev: "REAL", chosen_ev: "REAL", close_spot: "INT" });
         await this.db.exec(`CREATE INDEX IF NOT EXISTS Decisions_hand ON Decisions (game_id, hand_number)`);
         // hands recorded live by versions before the Games table existed
         await this.db.exec(`

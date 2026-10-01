@@ -15,7 +15,8 @@ import { preflopAdvice } from './engine/preflop.ts';
 import { describeMix, mixPreflop, MixStrategy, MixStyle, parseMixStyle, rollRng } from './engine/mixing.ts';
 import { classOf } from './engine/hand-classes.ts';
 import { describeProfile, isHoldem, PlayerRef } from './engine/player-profile.ts';
-import { decidePostflop, Decision, opponentTendencies, preflopProfiles } from './helpers/decision-maker.ts';
+import { clearSpot, decidePostflop, Decision, opponentTendencies, preflopProfiles } from './helpers/decision-maker.ts';
+import { EngineEvs, engineEvs } from './eval/ai-check.ts';
 import { PlayerLookup, ProfileService } from './services/profile-service.ts';
 import { rangePercent } from './engine/ranges.ts';
 import { GameInfo, parseGameInfo } from './utils/game-info-utils.ts';
@@ -44,7 +45,7 @@ export interface BotOptions {
     llm_timeout_ms: number,
     /** Post-flop: ask the AI even when the engine's best option is clearly ahead (legacy; see ai_mode). */
     always_ask_llm: boolean,
-    /** "close_spots" (default), "off" or "always". */
+    /** "auto" (default: close spots until your recorded decisions show the AI losing to the engine), "close_spots", "off" or "always". */
     ai_mode?: string,
     /** The game's action clock in seconds when the log doesn't say (the AI must answer well inside it). */
     decision_seconds: number,
@@ -391,12 +392,14 @@ export class Bot {
                             let query = "";
                             let response: string | undefined;
                             let source: string = "llm";
+                            let engine_evs: EngineEvs | null = null;
                             if (engine_action) {
                                 bot_action = engine_action;
                                 source = "engine";
                             } else if (hand_state && postflop_view) {
                                 const d = await this.postflopDecision(hand_state, postflop_view);
                                 bot_action = { action_str: d.action, bet_size_in_BBs: d.size_bb, reason: d.reason };
+                                engine_evs = engineEvs(d.analysis, d.action, d.size_bb, hand_state.big_blind, !clearSpot(d.analysis, postflop_view.pot, hand_state.big_blind));
                                 query = d.prompt;
                                 response = d.response;
                                 source = d.source;
@@ -427,7 +430,7 @@ export class Bot {
                             } else {
                                 await this.performBotAction(bot_action);
                             }
-                            await this.recordDecision(hand_state, hand, query, bot_action, latency_ms, source, response);
+                            await this.recordDecision(hand_state, hand, query, bot_action, latency_ms, source, response, engine_evs);
                         } catch (err) {
                             console.log("Failed to query and perform bot action:", err instanceof Error ? err.message : err);
                         }
@@ -691,7 +694,12 @@ export class Bot {
         return { action_str: advice.action, bet_size_in_BBs: advice.size_bb, reason: advice.reason };
     }
 
-    private async recordDecision(state: HandState | null, dom_hand: string[], prompt: string, action: BotAction, latency_ms: number, source: string, response?: string): Promise<void> {
+    /** Changes the AI mode while running (the "auto" check turns the AI off once your decisions show it losing). */
+    setAiMode(mode: string): void {
+        this.options.ai_mode = mode;
+    }
+
+    private async recordDecision(state: HandState | null, dom_hand: string[], prompt: string, action: BotAction, latency_ms: number, source: string, response?: string, engine: EngineEvs | null = null): Promise<void> {
         if (!this.recorder || this.current_hand_messages.length === 0) return;
         const last = response === undefined && source === "llm" ? this.hand_history[this.hand_history.length - 1] : undefined;
         await this.recorder.recordDecision({
@@ -707,7 +715,8 @@ export class Bot {
             action,
             model: source === "llm" ? this.ai_service.getModelName() : source === "engine" && state?.street === "preflop" ? "preflop-engine" : source === "engine" ? "postflop-engine" : `engine (fallback from ${this.ai_service.getModelName()})`,
             source,
-            latency_ms
+            latency_ms,
+            engine
         });
     }
 

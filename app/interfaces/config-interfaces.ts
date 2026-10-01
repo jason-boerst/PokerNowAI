@@ -25,8 +25,10 @@ export interface BotConfig {
     /** Preflop decisions from the rule-based engine (app/configs/preflop-ranges.json) instead of the AI. Default true. */
     preflop_engine?: boolean,
     /**
-     * Post-flop: when to ask the AI. "close_spots" (default): only when the engine's top options are
-     * close. "off": engine only, instant. "always": every post-flop spot.
+     * Post-flop: when to ask the AI. "auto" (default): like "close_spots" until 200+ of your recorded AI
+     * decisions show it giving up EV by the engine's numbers with no result edge, then off (see eval/ai-check.ts).
+     * "close_spots": only when the engine's top options are close. "off": engine only, instant.
+     * "always": every post-flop spot.
      */
     ai_mode?: string,
     /**
