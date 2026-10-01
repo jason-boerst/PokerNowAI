@@ -7,7 +7,7 @@ import { comboCount } from "../../app/engine/hand-classes.ts";
 import { RANKED_CLASSES, topRange } from "../../app/engine/ranges.ts";
 import { PreflopAdvice, PreflopTier } from "../../app/engine/preflop.ts";
 import {
-    balanceNeed, describeMix, MIN_FREQ, mixPostflop, mixPreflop, parseMixStyle, pickByRoll, rollRng, withRanges
+    balanceNeed, describeMix, MIN_FREQ, MixStrategy, MixStyle, mixPostflop, mixPreflop, parseMixStyle, pickByRoll, rollRng, withRanges
 } from "../../app/engine/mixing.ts";
 import { postflopOverlay, preflopOverlay } from "../../app/helpers/overlay-builder.ts";
 import { renderPanel } from "../../app/ui/panel-render.ts";
@@ -335,5 +335,36 @@ describe("RNG mixing: the panel", () => {
         expect(model.tone).to.equal("go");
         expect(model.reasoning[0]).to.match(/^RNG 100/);
         expect(model.reasoning.join(" ")).to.match(/Chart default: Fold it/);
+    });
+});
+
+describe("bluff 3-bets in the preflop mix", () => {
+    const advice = (ev?: { raise: number, call: number }): PreflopAdvice => ({
+        action: "raise", size_bb: 12, scenario: "facing a raise and 1 caller(s)", reason: "",
+        mixed_raise: { freq: 0.7, size_bb: 12, usual: { action: "call", size_bb: 0 } },
+        ...(ev ? { ev: { equity: 0.3, overruled: false, chart: { action: "raise", size_bb: 12 }, options: [
+            { action: "call", size_bb: 0, label: "call", ev_bb: ev.call, risk_bb: 0 },
+            { action: "raise", size_bb: 12, label: "raise to 12 BB", ev_bb: ev.raise, risk_bb: 0 }] } } : {})
+    });
+    const mix = (style: MixStyle, roll: number, ev?: { raise: number, call: number }) =>
+        mixPreflop({ advice: advice(ev), cls: "A5s", style, roll, pot_bb: 13.5 });
+
+    it("splits the roll 30 call / 70 raise in the balanced and gto styles", () => {
+        for (const style of ["balanced", "gto"] as MixStyle[]) {
+            const m = mix(style, 79);
+            expect(m.options.map((o) => [o.action, o.from, o.to])).to.deep.equal([["call", 1, 30], ["raise", 31, 100]]);
+            expect(m.pick.action).to.equal("raise");
+            expect(mix(style, 20).pick.action).to.equal("call");
+        }
+        expect(mix("off", 20).pick.action).to.equal("raise");
+    });
+
+    it("tilts toward the better EV in the exploit style, and keeps the chart frequency without EVs", () => {
+        const worse = mix("exploit", 50, { raise: -0.4, call: 0.3 });
+        const better = mix("exploit", 50, { raise: 0.8, call: 0.3 });
+        const share = (m: MixStrategy) => m.options.find((o) => o.action === "raise")?.freq ?? 0;
+        expect(share(worse)).to.be.lessThan(0.7);
+        expect(share(better)).to.be.greaterThan(0.7);
+        expect(share(mix("exploit", 50))).to.equal(0.7);
     });
 });

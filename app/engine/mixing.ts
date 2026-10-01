@@ -524,6 +524,8 @@ export function mixPreflop(input: PreflopMixInput): MixStrategy {
     const p = MIX_STYLES[input.style];
     const tiers = advice.tiers;
     const clear = (why: string) => pure(input.style, base, roll, [why]);
+    // a solver-style bluff 3-bet or squeeze: the raise at its chart frequency, the hand's usual play the rest
+    if (advice.mixed_raise) return mixBluffRaise(input, advice.mixed_raise);
     // facing a 4-bet or an all-in, and 7-2 bounty plays, have no chart edges to mix
     if (!tiers || tiers.length < 2) return clear(`The chart plays ${cls} the same way every time here, so play it at any roll.`);
     const members = tierMembers(tiers);
@@ -577,6 +579,37 @@ export function mixPreflop(input: PreflopMixInput): MixStrategy {
     }
     if (balance.line) reasons.push(balance.line);
     return { style: input.style, options, pure: false, roll, pick, reasons };
+}
+
+/**
+ * A hand the chart raises as a bluff part of the time. "balanced" and "gto" play the chart's frequency. "exploit"
+ * tilts it toward whichever of raising and the usual play has the higher EV against your games' measured answers
+ * (preflop-ev.ts, on the advice): the frequency is the prior, each side weighted by e^(EV / temperature).
+ */
+function mixBluffRaise(input: PreflopMixInput, mr: NonNullable<PreflopAdvice["mixed_raise"]>): MixStrategy {
+    const { advice, cls, roll } = input;
+    const style = input.style as Exclude<MixStyle, "off">;
+    const p = MIX_STYLES[style];
+    let f = mr.freq;
+    const reasons: string[] = [];
+    const raise_ev = advice.ev?.options.find((o) => o.action === "raise" || o.action === "all-in");
+    const usual_ev = advice.ev?.options.find((o) => o.action === mr.usual.action);
+    if (style === "exploit" && raise_ev && usual_ev) {
+        const balance = need(style, input.opponent_types);
+        const tau = Math.max(1e-9, p.temperature * Math.max(p.band_bb, p.band_pot * input.pot_bb) * balance.scale);
+        const d = Math.max(-50, Math.min(50, (raise_ev.ev_bb - usual_ev.ev_bb) / tau));
+        const before = f;
+        f = f * Math.exp(d) / (f * Math.exp(d) + (1 - f));
+        reasons.push(`Against your games' measured answers the raise is worth about ${round2(raise_ev.ev_bb)} BB and ${mr.usual.action === "fold" ? "folding" : `${mr.usual.action}ing`} ${round2(usual_ev.ev_bb)} BB, so the exploit style moves the raise from ${Math.round(before * 100)}% to ${Math.round(f * 100)}%.`);
+    }
+    const raise = { action: "raise" as MixAction, size_bb: mr.size_bb, label: labelOf("raise", mr.size_bb), freq: f };
+    const usual = { action: mr.usual.action as MixAction, size_bb: 0, label: labelOf(mr.usual.action, 0), freq: 1 - f };
+    const options = withRanges([usual, raise]);
+    const pick = pickByRoll(options, roll);
+    if (options.length === 1) return pure(style, { action: pick.action, size_bb: pick.size_bb, label: pick.label }, roll, reasons);
+    const verb = advice.scenario.includes("caller") ? "squeezes" : "3-bets";
+    reasons.unshift(`${cls} ${verb} as a bluff ${Math.round(f * 100)}% of the time and ${usual.label === "fold" ? "folds" : usual.label === "check" ? "checks" : "calls"} the rest (solver charts mix it: it blocks strong hands or plays well when called).`);
+    return { style, options, pure: false, roll, pick, reasons };
 }
 
 /** What a hand does in each chart tier, for reasons ("so it opens some of the time"). */

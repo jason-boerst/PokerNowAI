@@ -25,6 +25,13 @@
         "vs_loose": "JJ+ AQs+ AKo",
         "vs_nit": "KK+"
     },
+    "three_bet_bluff": {
+        "_about": "Mixed 3-bets and squeezes with blocker and playability hands, the way solver charts play them: facing a single raise, each hand listed raises (the same size as a value 3-bet) at its frequency (0-1) and otherwise takes its usual play from the charts below (call, or fold). The random number picks, like everywhere else. squeeze: a raise with one or more callers already in. vs_early: a single raise from UTG to HJ, nobody called yet. vs_late: a single raise from CO, BU or SB, nobody called yet. Checked against a solver (GTO Wizard): squeeze A5s 0.7 (UTG opens, UTG+1 calls, UTG+2 squeezes 70%, calls 30%). Every other number is an approximation of common solver play, NOT solver output: check them in your solver and edit. Range notation as elsewhere (A3s-A2s works). With rng_mixing 'exploit', the frequency is tilted toward whichever of raising or the usual play has the higher EV against your games' measured answers (preflop-ev.ts).",
+        "squeeze": { "A5s": 0.7, "A4s": 0.5, "A3s": 0.3, "A2s": 0.2, "KTs": 0.2, "QJs": 0.15 },
+        "vs_early": { "A5s": 0.5, "A4s": 0.4, "A3s": 0.2, "KJs": 0.2, "QJs": 0.15, "JTs": 0.1 },
+        "vs_late": { "A5s-A4s": 0.6, "A3s-A2s": 0.4, "K9s": 0.3, "QTs": 0.3, "J9s": 0.25, "T8s": 0.2, "97s": 0.2, "76s": 0.25, "65s": 0.25 },
+        "checked_in_solver": ["squeeze A5s"]
+    },
     "call_raise": {
         "_about": "Calling one raise. in_position: you are not in the blinds. small_blind / big_blind: you are in that blind. When someone straddles, the straddler uses big_blind and the big blind uses small_blind (it has only half a straddle in).",
         "in_position": "22+ AJs+ ATs KQs KJs QJs JTs T9s 98s AQo",

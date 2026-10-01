@@ -384,3 +384,36 @@ describe("pricing calls when you close the action", () => {
         expect(r("Q7o", false, 40)).to.be.lessThan(r("Q7o"));       // very deep: offsuit hands lose big pots
     });
 });
+
+// 10-handed seats: S1 SB, S2 BB, S3 UTG, S4 UTG+1, S5 UTG+2, ...
+describe("mixed 3-bet and squeeze bluffs (three_bet_bluff)", () => {
+    const squeeze = (cards: string) => spot(10, "S5", cards, ["S3 raises to 6", "S4 calls 6"])!;
+
+    it("squeezes A5s 70% of the time after an early open and a call, and calls the rest", () => {
+        const a = squeeze("A♠, 5♠");
+        expect(a.mixed_raise).to.deep.include({ freq: 0.7, usual: { action: "call", size_bb: 0 } });
+        // the single best play (mixing off) is the more frequent one
+        expect(a.action).to.equal("raise");
+        expect(a.size_bb).to.equal(a.mixed_raise!.size_bb);
+        expect(a.reason).to.match(/Squeeze A5s as a bluff 70% of the time and call the rest/);
+        for (const r of ["A", "5"]) expect(a.reason).to.not.match(/[—–]/, r);
+    });
+
+    it("keeps the usual play as the single best play when the bluff frequency is under half", () => {
+        const a = squeeze("A♠, 3♠");
+        expect(a.mixed_raise?.freq).to.equal(0.3);
+        expect(a.action).to.equal("call");
+    });
+
+    it("leaves value hands and hands outside the bluff table alone", () => {
+        const aa = squeeze("A♠, A♦");
+        expect(aa.action).to.equal("raise");
+        expect(aa.mixed_raise).to.equal(undefined);
+        expect(squeeze("K♣, J♦").mixed_raise).to.equal(undefined);
+    });
+
+    it("uses the late-position table against a button open", () => {
+        const a = spot(9, "S2", "K♥, 9♥", ["S3 folds", "S4 folds", "S5 folds", "S6 folds", "S7 folds", "S8 folds", "S9 raises to 5", "S1 folds"])!;
+        expect(a.mixed_raise?.freq).to.equal(0.3);
+    });
+});

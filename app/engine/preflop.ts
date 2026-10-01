@@ -18,6 +18,11 @@ export interface PreflopAdvice {
     tiers?: PreflopTier[],
     /** When hero closes the action facing a bet: the call priced by equity (decided: the price made the call or fold). */
     price?: PriceInfo,
+    /**
+     * A hand the chart 3-bets or squeezes as a bluff part of the time (three_bet_bluff): the raise's frequency and size,
+     * and the hand's usual play the rest of the time. mixing.ts splits the random number between them.
+     */
+    mixed_raise?: { freq: number, size_bb: number, usual: { action: PreflopAdvice["action"], size_bb: number } },
     /** Every option priced by EV (preflop-ev.ts), and whether that overruled the chart's play. */
     ev?: PreflopEvResult & { overruled: boolean, chart: { action: PreflopAdvice["action"], size_bb: number } }
 }
@@ -156,6 +161,14 @@ function inRange(config: PreflopConfig, notation: string, cls: HandClass): boole
     let set = m.get(notation);
     if (!set) { set = parseRange(notation); m.set(notation, set); }
     return set.has(cls);
+}
+/** The raise frequency three_bet_bluff gives a hand in a spot (0: not a bluff hand there). */
+function bluffFrequency(config: PreflopConfig, spot: "squeeze" | "vs_early" | "vs_late", cls: HandClass): number {
+    const table = (config as { three_bet_bluff?: Record<string, unknown> }).three_bet_bluff?.[spot] as Record<string, number> | undefined;
+    for (const [notation, freq] of Object.entries(table ?? {})) {
+        if (typeof freq === "number" && freq > 0 && inRange(config, notation, cls)) return Math.min(1, freq);
+    }
+    return 0;
 }
 const inAny = (config: PreflopConfig, notations: (string | undefined)[], cls: HandClass) =>
     notations.some((n) => !!n && inRange(config, n, cls));
@@ -618,23 +631,43 @@ function chartAdvice(s: HandState, v: HeroView, stats: StatsLookup, config: Pref
             const why = raiser_types.has("loose_raiser") ? ` ${raiser.position} raises a lot, so 3-bet a wider value range.` : "";
             return tiered(finish({ action: "raise", size_bb: three_bet_to, scenario, reason: `3-bet ${cls} for value.${why}` }), tiers);
         }
-        if (priced) return tiered(priced, tiers);
-        const in_base = inRange(config, calls, cls);
-        const removed = !late && !!deep?.remove_from_calls && inRange(config, deep.remove_from_calls, cls);
-        if (removed && (in_base || inAny(config, [deep_add, deep_multi, ante_add], cls))) {
-            return fold(scenario, `Fold ${cls}: stacks are about ${Math.round(depth * level)} BB deep, and ${cls} too often loses a big pot to a better hand from ${raiser.position}.`);
-        }
-        if (in_base || inAny(config, [deep_add, deep_multi, ante_add], cls)) {
-            if (!setMineOk()) {
-                return fold(scenario, `Fold ${cls}: stacks are too short to call just hoping to hit a set (need ${size.set_mine_min_stack_to_call_ratio}x the call).`);
+        // the hand's usual play here (priced call or fold, call, or fold)
+        const usual = ((): PreflopAdvice => {
+            if (priced) return tiered(priced, tiers);
+            const in_base = inRange(config, calls, cls);
+            const removed = !late && !!deep?.remove_from_calls && inRange(config, deep.remove_from_calls, cls);
+            if (removed && (in_base || inAny(config, [deep_add, deep_multi, ante_add], cls))) {
+                return fold(scenario, `Fold ${cls}: stacks are about ${Math.round(depth * level)} BB deep, and ${cls} too often loses a big pot to a better hand from ${raiser.position}.`);
             }
-            const why = in_base ? `good enough to see a flop, not strong enough to 3-bet for value${multiway ? " into several players" : ""}`
-                : inAny(config, [deep_add], cls) ? `stacks are about ${Math.round(depth * level)} BB deep, so a hand that can make a set, straight or flush is worth a call`
-                : inAny(config, [deep_multi], cls) ? `stacks are about ${Math.round(depth * level)} BB deep and ${callers_after_raise.length + 1} players are in, so a hand that can make a set, straight or flush gets paid when it hits`
-                : "the antes make the pot bigger, so the blinds defend a little wider";
-            return tiered({ action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: ${why}.` }, tiers);
+            if (in_base || inAny(config, [deep_add, deep_multi, ante_add], cls)) {
+                if (!setMineOk()) {
+                    return fold(scenario, `Fold ${cls}: stacks are too short to call just hoping to hit a set (need ${size.set_mine_min_stack_to_call_ratio}x the call).`);
+                }
+                const why = in_base ? `good enough to see a flop, not strong enough to 3-bet for value${multiway ? " into several players" : ""}`
+                    : inAny(config, [deep_add], cls) ? `stacks are about ${Math.round(depth * level)} BB deep, so a hand that can make a set, straight or flush is worth a call`
+                    : inAny(config, [deep_multi], cls) ? `stacks are about ${Math.round(depth * level)} BB deep and ${callers_after_raise.length + 1} players are in, so a hand that can make a set, straight or flush gets paid when it hits`
+                    : "the antes make the pot bigger, so the blinds defend a little wider";
+                return tiered({ action: "call", size_bb: 0, scenario, reason: `Call with ${cls}: ${why}.` }, tiers);
+            }
+            return tiered(fold(scenario, `Fold ${cls} against a raise from ${raiser.position}.`), tiers);
+        })();
+        // solver-style mixed 3-bets and squeezes with blocker and playability hands (three_bet_bluff)
+        const bluff = bluffFrequency(config, multiway ? "squeeze" : late ? "vs_late" : "vs_early", cls);
+        if (bluff > 0 && v.min_raise_to !== null) {
+            const raise = finish({ action: "raise", size_bb: three_bet_to, scenario, reason: "" });
+            // a raise that would be all-in isn't a bluff to mix: keep the usual play
+            if (raise.action === "raise") {
+                const verb = multiway ? "squeeze" : "3-bet";
+                const usual_verb = usual.action === "call" ? "call" : usual.action === "check" ? "check" : "fold";
+                const why = cls[0] === "A" ? "the ace makes AA and AK less likely and the hand plays well when called"
+                    : "it makes straights and flushes when called, and raising it sometimes keeps your 3-bets from being only big hands";
+                const mix = `${verb[0].toUpperCase()}${verb.slice(1)} ${cls} as a bluff ${Math.round(bluff * 100)}% of the time and ${usual_verb} the rest: ${why} (solver charts mix it).`;
+                const mixed_raise = { freq: bluff, size_bb: raise.size_bb, usual: { action: usual.action, size_bb: usual.size_bb } };
+                const chosen = bluff >= 0.5 ? { ...raise, reason: mix } : { ...usual, reason: `${mix} ${usual.reason}` };
+                return { ...chosen, tiers: usual.tiers ?? tiers, mixed_raise };
+            }
         }
-        return tiered(fold(scenario, `Fold ${cls} against a raise from ${raiser.position}.`), tiers);
+        return usual;
     }
 
     // --- limped pot (no raise yet)

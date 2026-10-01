@@ -236,6 +236,8 @@ export const SCENARIOS: Scenario[] = [
     { id: "pre-bb-walk-check", description: "Limped around to the BB with 72o: check, never fold", table: nine("BB", "7h 2d"), script: ["CO calls", "BU calls", "SB calls"], expect: { action: "check" } },
 
     // ------------------------------------------------------------------ preflop, facing a raise
+    { id: "pre-utg2-a5s-squeeze", description: "UTG opens, UTG+1 calls, UTG+2 with A5s: squeeze 70%, call 30% (checked in GTO Wizard)", table: ten("UTG+2", "As 5s"), script: ["UTG raises 6", "UTG+1 calls"], expect: { action: ["raise", "call"] } },
+    { id: "pre-utg2-kjo-vs-squeeze-spot", description: "Same spot with KJo: no bluff mix (fold)", table: ten("UTG+2", "Kc Jd"), script: ["UTG raises 6", "UTG+1 calls"], expect: { action: "fold" } },
     { id: "pre-bb-72-vs-utg", description: "BB folds 72o to a UTG open", table: nine("BB", "7c 2d"), script: ["UTG raises 6"], expect: { action: "fold" } },
     { id: "pre-bb-k5s-vs-bu", description: "BB defends K5s against a 2.5x button steal", table: nine("BB", "Kh 5h"), script: ["BU raises 5"], expect: { action: ["call", "raise"] } },
     { id: "pre-bb-aa-vs-utg", description: "BB 3-bets aces against a UTG open", table: nine("BB", "Ah Ad"), script: ["UTG raises 6"], expect: { action: "raise", size_bb: [10, 16] } },
